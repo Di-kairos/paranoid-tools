@@ -1,0 +1,10 @@
+# Вложенные tool-репо — каждый свой git-репо, не трекаем здесь.
+securetrash/
+vaultwatch/
+panic/
+ghostdraft/
+seedsplit/
+# Артефакты графа и системные.
+graphify-out/
+.DS_Store
+.claude/
