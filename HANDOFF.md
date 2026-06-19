@@ -12,9 +12,9 @@
 | `vaultwatch` | — | v0.1.0 | — | released |
 | `panic` | — | v0.1.0 | — | released |
 | `ghostdraft` | `cd9937e` | v0.1.0 | bats 21/21 | released, pushed ✓ |
-| `seedsplit` | `615b43f`+install | — (ядро v0.2.0) | bats 27/27 | **ядро готово, НЕ запушен** ⚠ |
+| `seedsplit` | `cd49632` | — (ядро v0.2.0) | bats 27/27 | ядро готово, **pushed ✓** (без ci.yml) |
 
-Экосистема: **5/5 функциональны** (seedsplit получил рабочее ядро в этой сессии).
+Экосистема: **5/5 функциональны и на GitHub** (seedsplit получил рабочее ядро + залит в этой сессии).
 
 ## Что сделано в этой сессии (сессия 2)
 
@@ -31,33 +31,23 @@
 4. **seedsplit `install.sh`** — release-installer для паритета (не было).
 5. **securetrash `CHANGELOG.md`** — реконструирован из тегов v0.1.0..v0.4.0 (паритет-гэп).
 
-## ⚠ ГЛАВНОЕ незакрытое — seedsplit push (всё ещё)
+## seedsplit push — РЕШЕНО (ci.yml отложен)
 
-Локальные коммиты seedsplit (`b3e14b0` scaffold, `615b43f` ядро, +install.sh) **не
-запушены**. Remote `Di-kairos/seedsplit` (private) пустой. Причина прежняя: коммит
-`b3e14b0` содержит `.github/workflows/ci.yml`, а токен на машинах без `workflow`-scope
-(`gist, read:org, repo`). GitHub отклоняет push любого коммита, добавляющего workflow,
-без этого scope.
+seedsplit залит в `Di-kairos/seedsplit` (main = `cd49632`). Историю пересобрали единым
+чистым коммитом БЕЗ `.github/workflows/ci.yml` (ветка-сирота → push в main), т.к. токен
+без `workflow`-scope (`gist, read:org, repo`) и GitHub отклонял любой коммит, добавляющий
+workflow. `ci.yml` лежит локально (untracked, `seedsplit/.github/workflows/ci.yml`) —
+сохранён, на код не влияет.
 
-X10 несёт локальный `.git` → все коммиты восстановимы на другой машине.
-
-### Как доделать (самый чистый путь)
-
-`gh auth refresh -s workflow` **в НАСТОЯЩЕМ терминале**, не через префикс `!` в Claude
-(device-flow требует интерактивной вставки кода — в `!`-контексте не завершается):
-
+### Остаток по seedsplit (когда будет workflow-scope)
+`gh auth refresh -s workflow` **в НАСТОЯЩЕМ терминале** (device-flow в `!`-контексте Claude
+не завершается), затем добавить CI отдельным коммитом:
 ```bash
-gh auth refresh -s workflow     # открыть URL, вставить код, разрешить scope
-gh auth status                  # убедиться: в scopes появился 'workflow'
 cd "/Volumes/X10 Pro/projects/paranoid-tools/seedsplit"
-git push -u origin main         # зальёт scaffold + ядро + ci.yml; CI должен стать green
-gh run list --repo Di-kairos/seedsplit --limit 1   # проверить CI
+git add .github/workflows/ci.yml && git commit -m "ci: add workflow"
+git push origin main             # уедет ci.yml; CI станет green
 ```
-
-Fallback (если refresh нежелателен): убрать ci.yml из истории (rewrite `b3e14b0`),
-push без workflow, вернуть ci.yml отдельным коммитом позже. Рискованнее — refresh проще.
-
-После push: тегнуть seedsplit `v0.2.0` + сделать Release (release.yml уже есть в репо).
+Также: тег `v0.2.0` + Release (release.yml уже в репо).
 
 ## Следующие паки (бэклог)
 
