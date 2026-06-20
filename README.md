@@ -1,40 +1,66 @@
 # Paranoid Tools
 
-Зонтичная папка экосистемы честных privacy/security-утилит вокруг жизненного цикла
-секрета (seed/пароль/ключ). Каждый инструмент — **отдельный git-репо**, single-file,
-чистый Bash, ноль зависимостей. Папка — организационный слой на X10 (порядок + общий граф).
+**English** · [Русский](README.ru.md)
 
-North-star и спеки: `securetrash/ECOSYSTEM.md`.
+Honest privacy & security tools for macOS — one job each, no snake oil.
 
-## Состав
+An umbrella of small command-line tools around the **lifecycle of a secret**
+(seed phrase / password / key). Each tool is its own git repo, a single-file
+pure-Bash script with **zero runtime dependencies**, and is honest about the
+limits of what it can guarantee.
 
-| # | Инструмент | Шаг жизни секрета | Статус | Репо |
-|---|------------|-------------------|--------|------|
-| 1 | `securetrash` | хранить (vault) + уничтожить | ✅ v0.4.0 released | Di-kairos/securetrash |
-| 2 | `vaultwatch`  | защитить, пока vault открыт | ✅ v0.1.0 released | Di-kairos/vaultwatch |
-| 3 | `panic`       | мгновенно спрятать по тревоге | ✅ v0.1.0 released | Di-kairos/panic |
-| 4 | `ghostdraft`  | написать/просмотреть без следов | ✅ v0.1.0 released | Di-kairos/ghostdraft (private) |
-| 5 | `seedsplit`   | распределить (Shamir GF(256)) | ✅ ядро v0.2.0 (split/combine, push pending) | Di-kairos/seedsplit (private) |
+## The tools
 
-## Архитектура
+| # | Tool | Step in a secret's life | Status |
+|---|------|-------------------------|--------|
+| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store (encrypted vault) + destroy | v0.4.0 |
+| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard an open vault | v0.1.0 |
+| 3 | [`panic`](https://github.com/Di-kairos/panic)             | hide & lock everything, instantly | v0.1.0 |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text leaving no disk trace | v0.1.0 |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares | v0.2.0 |
 
-- **Раздельные репо + вендоринг.** Общий код = канонический `securetrash/lib/common.sh`,
-  вендорится в каждый tool inline между маркерами `# === BEGIN vendored common (pin: <ref>) ===`.
-  Синк-скрипт + CI-чек дрейфа. Без runtime-зависимостей, без build-склейки.
-- **Vault-хуки.** `securetrash vault open/close` дёргают `~/.securetrash/hooks/{post-open,post-close}` —
-  через них vaultwatch/panic цепляются к жизненному циклу контейнера (см. `securetrash/CLAUDE.md`).
-- **Закон экосистемы:** один инструмент = одна задача; честно про пределы (`Scope & limitations`
-  в README обязательна); не создавать ложного чувства безопасности.
+Each tool ships an English `README.md` (Russian in `README.ru.md`), a
+`CHANGELOG.md`, a checksum-verified `install.sh`, CI + release workflows, and a
+dedicated **Scope & limitations** section — read it before you trust the tool.
 
-## Граф навигации (связи между частями)
+## Install
 
-Каждый репо держит свой граф (`<tool>/graphify-out/graph.json`, refresh: `graphify update <tool>`).
-Cross-repo граф экосистемы собирается мерджем:
+Each tool installs independently with a verify-then-run script from its release
+(see the tool's README). For personal use across all five at once, this repo
+ships a local installer that puts every tool on your `PATH`:
 
 ```bash
-bin/rebuild-graph.sh          # мерджит графы всех тулов → graphify-out/merged-graph.json
-graphify path "A" "B" --graph graphify-out/merged-graph.json
-graphify explain "X" --graph graphify-out/merged-graph.json
+git clone https://github.com/Di-kairos/paranoid-tools
+cd paranoid-tools
+bash install.sh            # installs all 5 into ~/.local/bin
+bash install.sh --uninstall
 ```
 
-Merged-граф оживает со 2-го инструмента (для merge нужно ≥2 графа).
+Plain-Russian usage guide: [КАК-ПОЛЬЗОВАТЬСЯ.ru.md](КАК-ПОЛЬЗОВАТЬСЯ.ru.md).
+
+## How it fits together
+
+- **Separate repos + vendoring.** The shared code is the canonical
+  `securetrash/lib/common.sh`, vendored inline into each tool between
+  `# === BEGIN vendored common (pin: <ref>) ===` markers. A sync script + a CI
+  drift check keep copies honest. No runtime dependency, no build step.
+- **Vault hooks.** `securetrash vault open/close` fire
+  `~/.securetrash/hooks/{post-open,post-close}`; `vaultwatch`/`panic` hook into
+  the container's lifecycle through them.
+- **The ecosystem law.** One tool = one job. Every README must carry an honest
+  *Scope & limitations* section. Never manufacture a false sense of security.
+
+## Navigation graph
+
+Each repo keeps its own graph (`<tool>/graphify-out/graph.json`). A cross-repo
+graph is built by merging them:
+
+```bash
+bin/rebuild-graph.sh          # merges all tool graphs -> graphify-out/merged-graph.json
+graphify path "A" "B" --graph graphify-out/merged-graph.json
+```
+
+## License
+
+[MIT](LICENSE). Each tool repo carries its own MIT `LICENSE`, plus `SECURITY.md`
+(how to report a vulnerability privately) and `CONTRIBUTING.md`.
