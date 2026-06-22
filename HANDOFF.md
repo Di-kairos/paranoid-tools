@@ -8,7 +8,7 @@ root-PROGRESS.md нет, состояние — по репо. Всё заком
 
 | Репо | HEAD | VERSION | Latest tag/Release | bats | CI |
 |------|------|---------|--------------------|------|-----|
-| umbrella | `<this commit>` | — | — | — | — |
+| umbrella | `a5b542d` | — | — | — | — |
 | securetrash | `0f6fa86` | 0.4.1 | v0.4.1 ✅подписан | 59/59 | ✅ |
 | vaultwatch | `867f4de` | 0.1.1 | v0.1.1 ✅подписан | 50/50 | ✅ |
 | panic | `c555af8` | 0.1.1 | v0.1.1 ✅подписан | 24/24 | ✅ |
