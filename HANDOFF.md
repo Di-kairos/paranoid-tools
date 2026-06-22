@@ -8,7 +8,7 @@ root-PROGRESS.md нет, состояние — по репо. Всё заком
 
 | Репо | HEAD | VERSION | Latest tag/Release | bats | CI |
 |------|------|---------|--------------------|------|-----|
-| umbrella | `77ac829` | — | — | — | — |
+| umbrella | `<this commit>` | — | — | — | — |
 | securetrash | `0f6fa86` | 0.4.1 | v0.4.1 ✅подписан | 59/59 | ✅ |
 | vaultwatch | `867f4de` | 0.1.1 | v0.1.1 ✅подписан | 50/50 | ✅ |
 | panic | `c555af8` | 0.1.1 | v0.1.1 ✅подписан | 24/24 | ✅ |
@@ -90,6 +90,14 @@ securetrash shred ~/paranoid-release-key
 - [x] CHANGELOG [Unreleased]→версия у каждого; теги запушены → `release.yml` собрал+подписал релизы.
 - [x] пере-синк `sha256` в `Formula/*.rb` против новых tarball'ов (5 коммитов `chore(formula)`).
 - [x] umbrella `MANIFEST` обновлён под новые теги/SHA + секция signing.
+
+**Тест-харнес для self-QA (сессия 4, всё приватно):**
+- `smoke-test.sh` — безопасный автотест всех 5 в песочнице (17 ✓ на macOS); запуск
+  `bash smoke-test.sh`. Покрывает версии, seedsplit roundtrip, ghostdraft pipe+draft,
+  securetrash shred + полный vault-цикл (vault-блок скипается, если `/Volumes/SecretVault` занят).
+- `TESTING.md` — гайд Mr. Di: локальная установка (`install.sh` ставит все 5 в `~/.local/bin`,
+  проверено 5/5), автотест, ручной тест интерактива (реальный vault, ghostdraft-редактор,
+  vaultwatch-хуки, panic) + проверка подписи релизов через `gh` (auth, т.к. private).
 
 ## Прочее
 - Память проекта на X10: `.claude/memory/` (publication-gate, monetization-open). Симлинк
