@@ -13,7 +13,7 @@
 
 | Tool | Repo | Tag (release) | HEAD commit | Version | Статус |
 |------|------|---------------|-------------|---------|--------|
-| securetrash | `Di-kairos/securetrash` | `v0.4.1` | `0f6fa86` | 0.4.1 | CI ✅ · Release подписан ✅ |
+| securetrash | `Di-kairos/securetrash` | `v0.4.1` | `81459ed` | 0.4.1 | CI ✅ · Release подписан ✅ (asset pubkey-gap, фикс в v0.4.2) |
 | vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.1` | `867f4de` | 0.1.1 | CI ✅ · Release подписан ✅ |
 | panic       | `Di-kairos/panic`       | `v0.1.1` | `c555af8` | 0.1.1 | CI ✅ · Release подписан ✅ |
 | ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.1` | `1868c7e` | 0.1.1 | CI ✅ · Release подписан ✅ |
