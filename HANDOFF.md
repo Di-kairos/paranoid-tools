@@ -66,35 +66,30 @@ passphrase-слой, decoy-vault, новые тулы — в roadmap). Locked-р
   protected-path guard для `shred` (`0df6fd1`), tri-state disk detection ssd/hdd/unknown
   (`015d358`). Pester зелёный на windows-latest (CI). **Hardware smoke pending** —
   реальный BitLocker-прогон на Windows за Mr. Di (правки безопасны: деградируют в «отказ»).
-- [~] **Подпись релизов — РЕФЕРЕНС в securetrash готов** (`32d3c6b`, non-breaking, CI зелёный):
-  release.yml подписывает SHA256SUMS секретом `RELEASE_SIGNING_KEY` (скип, если секрета нет);
-  install.sh авто-verify подписи при наличии вшитого pubkey+`.sig` (мягкая деградация);
-  SECURITY.md — секция + слот pubkey. **БЛОКЕР: ждём от Mr. Di генерацию ключа** (см. ниже),
-  затем ОДНИМ проходом: вписать pubkey в install.sh+SECURITY всех 5 тулов + распространить
-  release.yml/install.sh инфру на vaultwatch/panic/ghostdraft/seedsplit (идентичная структура).
+- [x] **Подпись релизов — ВШИТА во все 5 тулов** (non-breaking, CI зелёный у всех):
+  securetrash `32d3c6b`, vaultwatch `f1913e3`, panic `4532c91`, ghostdraft `5b223a5`,
+  seedsplit `739e9cb`. У каждого: release.yml подписывает SHA256SUMS секретом
+  `RELEASE_SIGNING_KEY` (скип, если секрета нет → релиз остаётся checksum-verified);
+  install.sh авто-verify `.sig` против вшитого pubkey (мягкая деградация); SECURITY.md —
+  секция + опубликованный pubkey. Ключ выдан: `releases@paranoid-tools`, pubkey
+  `ssh-ed25519 AAAA…scn2U`. Roundtrip sign/verify проверен локально (tamper отвергается).
+  **Чтобы подпись ЗАРАБОТАЛА на релизах — Mr. Di доделать шаги 3-4 ниже** (GH-секрет +
+  бэкап ключа); до этого релизы остаются checksum-verified (как раньше), ничего не сломано.
 
-### ⚠ Setup-блок для Mr. Di (выполнить на своей машине, можно через `! <cmd>` в сессии)
+### ⚠ Осталось Mr. Di (шаги 3-4 — ключ УЖЕ сгенерён, pubkey вшит)
 
 ```bash
-# 1) Выделенный release-signing ключ (БЕЗ passphrase — нужен неинтерактивно в CI):
-ssh-keygen -t ed25519 -C "paranoid-tools-release-signing" -f ~/paranoid-release-key -N ""
-
-# 2) Показать ПУБЛИЧНЫЙ ключ — скопировать строку и прислать Claude (он впишет в install.sh+SECURITY):
-cat ~/paranoid-release-key.pub
-
-# 3) Залить ПРИВАТНЫЙ ключ в GH Secrets всех 5 репо:
+# 3) Залить ПРИВАТНЫЙ ключ в GH Secrets всех 5 репо (после этого новые релизы подписываются):
 for r in securetrash vaultwatch panic ghostdraft seedsplit; do
   gh secret set RELEASE_SIGNING_KEY --repo "Di-kairos/$r" < ~/paranoid-release-key
 done
 
-# 4) Офлайн-бэкап приватного ключа в vault, затем стереть с диска (pub оставить — он публичный):
+# 4) Офлайн-бэкап приватного ключа в vault, затем стереть с диска (pub оставить — публичный):
 securetrash vault open
 cp ~/paranoid-release-key "/Volumes/SecretVault/paranoid-release-key"
 securetrash vault close
 securetrash shred ~/paranoid-release-key
 ```
-
-После шага 2 прислать Claude строку pubkey → он закроет signing одним проходом по 5 тулам.
 
 **В САМОМ КОНЦЕ — release-блок (иначе drift вернётся):**
 - [ ] bump версий: securetrash 0.4.1, vaultwatch/panic/ghostdraft 0.1.1, seedsplit уже 0.3.0.
