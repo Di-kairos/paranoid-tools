@@ -9,7 +9,7 @@ root-PROGRESS.md нет, состояние — по репо. Всё заком
 | Репо | HEAD | VERSION | Latest tag/Release | bats | CI |
 |------|------|---------|--------------------|------|-----|
 | umbrella | `0998d9d` | — | — | — | — |
-| securetrash | `4d4b147` | 0.4.0 | v0.4.0 | 59/59 | ✅ |
+| securetrash | `32d3c6b` | 0.4.0 | v0.4.0 | 59/59 | ✅ |
 | vaultwatch | `0145699` | 0.1.0 | v0.1.0 | 50/50 | ✅ |
 | panic | `6673d65` | 0.1.0 | v0.1.0 | 24/24 | ✅ |
 | ghostdraft | `e5c5d5e` | 0.1.0 | v0.1.0 | 26/26 | ✅ |
@@ -62,12 +62,39 @@ passphrase-слой, decoy-vault, новые тулы — в roadmap). Locked-р
 - [x] umbrella `MANIFEST.md` (convenience-снимок, не lock-файл) + заметка здесь.
 
 **Блок 2:**
-- [ ] Windows fail-closed: `securetrash/windows/securetrash.ps1` `vault destroy` дисмаунтит
-  и всё равно удаляет (~стр.683) → сделать fail-closed как macOS; добавить protected-path
-  guard для `shred`; tri-state disk detection. + Pester-тесты. Пометить «Pester green,
-  hardware smoke pending» (реально на Windows прогонит Mr. Di). Правка fail-closed безопасна
-  даже без прогона (деградирует в «отказался», не в «разрушил»).
-- [ ] Подпись релизов (см. вопрос 2).
+- [x] Windows fail-closed `vault destroy` (tri-state + postcondition, `f2cd68c`),
+  protected-path guard для `shred` (`0df6fd1`), tri-state disk detection ssd/hdd/unknown
+  (`015d358`). Pester зелёный на windows-latest (CI). **Hardware smoke pending** —
+  реальный BitLocker-прогон на Windows за Mr. Di (правки безопасны: деградируют в «отказ»).
+- [~] **Подпись релизов — РЕФЕРЕНС в securetrash готов** (`32d3c6b`, non-breaking, CI зелёный):
+  release.yml подписывает SHA256SUMS секретом `RELEASE_SIGNING_KEY` (скип, если секрета нет);
+  install.sh авто-verify подписи при наличии вшитого pubkey+`.sig` (мягкая деградация);
+  SECURITY.md — секция + слот pubkey. **БЛОКЕР: ждём от Mr. Di генерацию ключа** (см. ниже),
+  затем ОДНИМ проходом: вписать pubkey в install.sh+SECURITY всех 5 тулов + распространить
+  release.yml/install.sh инфру на vaultwatch/panic/ghostdraft/seedsplit (идентичная структура).
+
+### ⚠ Setup-блок для Mr. Di (выполнить на своей машине, можно через `! <cmd>` в сессии)
+
+```bash
+# 1) Выделенный release-signing ключ (БЕЗ passphrase — нужен неинтерактивно в CI):
+ssh-keygen -t ed25519 -C "paranoid-tools-release-signing" -f ~/paranoid-release-key -N ""
+
+# 2) Показать ПУБЛИЧНЫЙ ключ — скопировать строку и прислать Claude (он впишет в install.sh+SECURITY):
+cat ~/paranoid-release-key.pub
+
+# 3) Залить ПРИВАТНЫЙ ключ в GH Secrets всех 5 репо:
+for r in securetrash vaultwatch panic ghostdraft seedsplit; do
+  gh secret set RELEASE_SIGNING_KEY --repo "Di-kairos/$r" < ~/paranoid-release-key
+done
+
+# 4) Офлайн-бэкап приватного ключа в vault, затем стереть с диска (pub оставить — он публичный):
+securetrash vault open
+cp ~/paranoid-release-key "/Volumes/SecretVault/paranoid-release-key"
+securetrash vault close
+securetrash shred ~/paranoid-release-key
+```
+
+После шага 2 прислать Claude строку pubkey → он закроет signing одним проходом по 5 тулам.
 
 **В САМОМ КОНЦЕ — release-блок (иначе drift вернётся):**
 - [ ] bump версий: securetrash 0.4.1, vaultwatch/panic/ghostdraft 0.1.1, seedsplit уже 0.3.0.
