@@ -87,22 +87,17 @@ panic status                           # что будет затронуто (r
 
 ## 3. Проверить подписанные релизы (аутентичность)
 
-Релизы подписаны Ed25519-ключом `releases@paranoid-tools`. Репо приватные, поэтому качаем
-через `gh` (с твоим токеном). Проверка целостности + подписи для всех 5:
+Релизы подписаны Ed25519-ключом `releases@paranoid-tools`. Репо приватные, поэтому ассеты
+тянутся через `gh` (с твоим токеном). Одна команда:
 
 ```bash
-PUB="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
-W="$(mktemp -d)"; printf '%s namespaces="file" %s\n' releases@paranoid-tools "$PUB" > "$W/as"
-for spec in securetrash:v0.4.1 vaultwatch:v0.1.1 panic:v0.1.1 ghostdraft:v0.1.1 seedsplit:v0.3.0; do
-  t="${spec%%:*}"; tag="${spec##*:}"; d="$W/$t"; mkdir -p "$d"
-  gh release download "$tag" --repo "Di-kairos/$t" -p SHA256SUMS -p SHA256SUMS.sig -D "$d" 2>/dev/null
-  printf '%s %s: ' "$t" "$tag"
-  ssh-keygen -Y verify -f "$W/as" -I releases@paranoid-tools -n file -s "$d/SHA256SUMS.sig" < "$d/SHA256SUMS" >/dev/null 2>&1 \
-    && echo "✓ подпись верна" || echo "✗ подпись НЕ прошла"
-done; rm -rf "$W"
+cd "/Volumes/X10 Pro/projects/paranoid-tools" && bash verify-releases.sh
 ```
 
-Ожидаемо: `✓ подпись верна` у всех 5.
+Ожидаемо: `Итог: 5 ✓  0 ✗` → `Все релизы подписаны корректно.`
+
+> Не вставляй длинные `gh release download …` вручную в поле ввода — оно переносит строки и
+> рвёт команду (`-p` теряет аргумент). Всегда запускай скрипт-файл.
 
 ---
 
