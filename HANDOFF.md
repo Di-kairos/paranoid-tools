@@ -8,14 +8,15 @@ root-PROGRESS.md нет, состояние — по репо. Всё заком
 
 | Репо | HEAD | VERSION | Latest tag/Release | bats | CI |
 |------|------|---------|--------------------|------|-----|
-| umbrella | `512a153` | — | — | — | — |
-| securetrash | `42f8129` | 0.4.0 | v0.4.0 | 59/59 | ✅ |
+| umbrella | `<this commit>` | — | — | — | — |
+| securetrash | `4d4b147` | 0.4.0 | v0.4.0 | 59/59 | ✅ |
 | vaultwatch | `0145699` | 0.1.0 | v0.1.0 | 50/50 | ✅ |
 | panic | `6673d65` | 0.1.0 | v0.1.0 | 24/24 | ✅ |
-| ghostdraft | `34a1291` | 0.1.0 | v0.1.0 | 25/25 | ✅ |
-| seedsplit | `c223908` | **0.3.0** | v0.2.0 ⚠ | 37/37 | ✅ |
+| ghostdraft | `e5c5d5e` | 0.1.0 | v0.1.0 | 26/26 | ✅ |
+| seedsplit | `4ee148f` | **0.3.0** | v0.2.0 ⚠ | 37/37 | ✅ |
 
-Все 5 репо **PRIVATE**. CI зелёный у всех. Всего bats 195/195.
+Все 5 репо **PRIVATE**. CI зелёный у всех. Всего bats 196/196.
+Снимок tool/repo/tag/commit/status — в `MANIFEST.md` (convenience, не lock-файл).
 
 ⚠ **Release drift (ожидаемый, чинится в release-блоке В КОНЦЕ):** у ВСЕХ тулов HEAD
 впереди последнего тега (post-tag правки: флаги, legal, EN-README, vendor-fix; seedsplit —
@@ -42,29 +43,23 @@ passphrase-слой, decoy-vault, новые тулы — в roadmap). Locked-р
 3. seedsplit **README en+ru + CHANGELOG** под v0.3.0.
 4. Попутно: KAT-тест чинён под bash 5 (strict-режим sourced-скрипта).
 
-## ⚠⚠ ДВА вопроса к Mr. Di — ОТВЕТИТЬ ПЕРВЫМ ДЕЛОМ при продолжении
+## Два вопроса к Mr. Di — ОТВЕЧЕНЫ (сессия 4)
 
-1. **i18n локализация seedsplit runtime-сообщений (en по умолчанию + ru по `ST_LANG`).**
-   Сейчас `verify` + вся таксономия ошибок захардкожены ПО-РУССКИ всегда — дефект для
-   English-primary тула (4 sibling-тула локализуют через `t()`). Mr. Di ранее выбрал
-   «полный английский i18n», т.е. в scope. НО: правка в крипто-файле + сломает мои новые
-   тесты (ассертят русские подстроки → перевести на английские). **Ждём «да» → делаю.**
-2. **Генерить ли signing-ключ сейчас?** Выделенный `paranoid-tools-release-signing` ed25519,
-   pubkey в README/SECURITY, **приватный ключ держит Mr. Di** (в securetrash vault). Нужен
-   для подписи релизов (`ssh-keygen -Y sign`) + `allowed_signers` + шаг verify в install.sh.
+1. **i18n seedsplit** → «да, делаю сейчас». ✅ Сделано (commit `4ee148f`).
+2. **Signing-ключ** → «генерить сейчас». ⏳ Запланировано в Блоке 2 (порядок: после Windows
+   fail-closed). Выделенный `paranoid-tools-release-signing` ed25519, pubkey в README/SECURITY,
+   приватный ключ держит Mr. Di (в securetrash vault); `ssh-keygen -Y sign` + `allowed_signers`
+   + шаг verify в install.sh.
 
 ## Остаток плана (порядок исполнения)
 
-**Блок 1 (доделать):**
-- [ ] i18n seedsplit (см. вопрос 1) + перевести ассерты тестов на английский.
-- [ ] wording-честность: ghostdraft `Formula/ghostdraft.rb` desc «leaves no disk trace» →
-  честнее; securetrash `windows/README` «unrecoverable without the key» → с оговорками.
-- [ ] ghostdraft RAM-mountpoint `/Volumes/ghostdraft-ram` → уникальный (mktemp-суффикс),
-  detach по своему dev-node (код + тест). Файл: `ghostdraft/ghostdraft` ~стр.233.
-- [ ] securetrash `docs/index.html` (~стр.297): install через `raw…/main/install.sh|bash`
-  → заменить на release-download + verify-then-run.
-- [ ] umbrella `MANIFEST` (tool/repo/tag/commit/status) + заметка в HANDOFF, что это
-  осознанный convenience-over-submodules (НЕ строгий lock-файл).
+**Блок 1 — ЗАВЕРШЁН (сессия 4):**
+- [x] i18n seedsplit + перевод ассертов тестов на английский (`4ee148f`, 37/37).
+- [x] wording-честность: ghostdraft Formula desc (`69f00ee`); securetrash windows/README (`f9fbdb9`).
+- [x] ghostdraft RAM-mountpoint → уникальное имя (urandom-суффикс) + mountpoint из diskutil,
+  detach по dev-node, +тест (`e5c5d5e`, 26/26).
+- [x] securetrash `docs/index.html`: install one-liners → release-download (verify) (`4d4b147`).
+- [x] umbrella `MANIFEST.md` (convenience-снимок, не lock-файл) + заметка здесь.
 
 **Блок 2:**
 - [ ] Windows fail-closed: `securetrash/windows/securetrash.ps1` `vault destroy` дисмаунтит
