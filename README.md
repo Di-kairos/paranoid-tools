@@ -2,7 +2,13 @@
 
 **English** · [Русский](README.ru.md)
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![platform](https://img.shields.io/badge/platform-macOS-blue)
+![tools](https://img.shields.io/badge/tools-5-informational)
+
 Honest privacy & security tools for macOS — one job each, no snake oil.
+
+> **Why these tools exist →** [The Paranoid Tools Manifesto](MANIFEST.md)
 
 An umbrella of small command-line tools around the **lifecycle of a secret**
 (seed phrase / password / key). Each tool is its own git repo, a single-file
@@ -36,6 +42,12 @@ bash install.sh            # installs all 5 into ~/.local/bin
 bash install.sh --uninstall
 ```
 
+> Note: `install.sh` copies the tool scripts from a working copy that already
+> contains them (the maintainer's checkout). The five tools live in separate
+> repos and are not vendored here, so a fresh clone of this repo has no tool
+> scripts — `install.sh` would install nothing. Public users should install
+> each tool via its own `curl … | bash` verify-then-run installer (linked above).
+
 Plain-Russian usage guide: [КАК-ПОЛЬЗОВАТЬСЯ.ru.md](КАК-ПОЛЬЗОВАТЬСЯ.ru.md).
 
 ## How it fits together
@@ -49,16 +61,6 @@ Plain-Russian usage guide: [КАК-ПОЛЬЗОВАТЬСЯ.ru.md](КАК-ПОЛ
   the container's lifecycle through them.
 - **The ecosystem law.** One tool = one job. Every README must carry an honest
   *Scope & limitations* section. Never manufacture a false sense of security.
-
-## Navigation graph
-
-Each repo keeps its own graph (`<tool>/graphify-out/graph.json`). A cross-repo
-graph is built by merging them:
-
-```bash
-bin/rebuild-graph.sh          # merges all tool graphs -> graphify-out/merged-graph.json
-graphify path "A" "B" --graph graphify-out/merged-graph.json
-```
 
 ## License
 

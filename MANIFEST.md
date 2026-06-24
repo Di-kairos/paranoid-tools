@@ -116,4 +116,4 @@ the edges. What you do with them is yours. That is the whole point.
 ---
 
 *Free / open source · MIT · privacy, not anonymity · honesty over theater.*
-*Technical release state lives in [`RELEASE-STATE.md`](RELEASE-STATE.md).*
+*Technical release state lives in [`docs/RELEASE-STATE.md`](docs/RELEASE-STATE.md).*

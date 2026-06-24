@@ -52,7 +52,7 @@ if [[ "$out" == $'a\nb' ]]; then ok "pipe пробросил stdin без зап
 gtmp="$(mktemp -d)"
 if GHOSTDRAFT_DIR="$gtmp" EDITOR=true tool ghostdraft new >/dev/null 2>&1; then
   if [[ -z "$(ls -A "$gtmp" 2>/dev/null)" ]]; then ok "new создал и стёр черновик (каталог пуст)"; else bad "new оставил файлы в каталоге"; fi
-else skip "new (нужен интерактивный \$EDITOR — см. TESTING.md)"; fi
+else skip "new (нужен интерактивный \$EDITOR — см. docs/TESTING.md)"; fi
 rm -rf "$gtmp"
 
 # --- 4. securetrash: shred (песочница) ---
@@ -78,7 +78,7 @@ fi
 
 # --- vaultwatch / panic: реальные функции — интеграционные/disruptive, тест вручную ---
 head "vaultwatch / panic"
-skip "vaultwatch (сторож открытого vault) и panic (скрыть тома) — disruptive, тест вручную по TESTING.md"
+skip "vaultwatch (сторож открытого vault) и panic (скрыть тома) — disruptive, тест вручную по docs/TESTING.md"
 
 # --- итог ---
 printf '\n\033[1mИтог:\033[0m \033[32m%d ✓\033[0m  \033[31m%d ✗\033[0m  \033[33m%d –\033[0m\n' "$PASS" "$FAIL" "$SKIP"

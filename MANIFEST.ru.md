@@ -119,4 +119,4 @@
 ---
 
 *Свободно / open source · MIT · приватность, не анонимность · честность вместо театра.*
-*Технический снимок релизов — в [`RELEASE-STATE.md`](RELEASE-STATE.md).*
+*Технический снимок релизов — в [`docs/RELEASE-STATE.md`](docs/RELEASE-STATE.md).*

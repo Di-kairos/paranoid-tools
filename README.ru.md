@@ -2,7 +2,13 @@
 
 [English](README.md) · **Русский**
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![platform](https://img.shields.io/badge/platform-macOS-blue)
+![tools](https://img.shields.io/badge/tools-5-informational)
+
 Честные privacy/security-утилиты для macOS — каждая делает одну вещь, без снейкойла.
+
+> **Зачем эти инструменты →** [Манифест Paranoid Tools](MANIFEST.ru.md)
 
 Зонтик небольших CLI-инструментов вокруг **жизненного цикла секрета**
 (seed-фраза / пароль / ключ). Каждый инструмент — отдельный git-репо, single-file
@@ -34,6 +40,12 @@ bash install.sh            # ставит все 5 в ~/.local/bin
 bash install.sh --uninstall
 ```
 
+> Замечание: `install.sh` копирует скрипты тулов из рабочей копии, где они уже
+> лежат (чекаут мейнтейнера). Пять тулов живут в отдельных репо и сюда не
+> вендорятся, поэтому свежий клон этого репо скриптов тулов не содержит —
+> `install.sh` не установит ничего. Публичным пользователям ставить каждый тул
+> его собственным verify-then-run установщиком `curl … | bash` (ссылки выше).
+
 Практический гайд по-русски: [КАК-ПОЛЬЗОВАТЬСЯ.ru.md](КАК-ПОЛЬЗОВАТЬСЯ.ru.md).
 
 ## Архитектура
@@ -45,16 +57,6 @@ bash install.sh --uninstall
   через них vaultwatch/panic цепляются к жизненному циклу контейнера.
 - **Закон экосистемы:** один инструмент = одна задача; честно про пределы
   (`Scope & limitations` в README обязательна); не создавать ложного чувства безопасности.
-
-## Граф навигации
-
-Каждый репо держит свой граф (`<tool>/graphify-out/graph.json`). Cross-repo граф
-собирается мерджем:
-
-```bash
-bin/rebuild-graph.sh          # мерджит графы всех тулов → graphify-out/merged-graph.json
-graphify path "A" "B" --graph graphify-out/merged-graph.json
-```
 
 ## Лицензия
 
