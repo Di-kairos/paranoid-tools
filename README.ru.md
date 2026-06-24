@@ -18,11 +18,11 @@
 
 | # | Инструмент | Шаг жизни секрета | Статус |
 |---|------------|-------------------|--------|
-| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить (vault) + уничтожить | v0.4.2 |
-| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | защитить, пока vault открыт | v0.1.1 |
-| 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | v0.1.1 |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать/просмотреть без следов | v0.1.1 |
-| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | распределить секрет на доли (Шамир) | v0.3.0 |
+| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить (vault) + уничтожить | v0.4.4 |
+| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | защитить, пока vault открыт | v0.1.2 |
+| 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | v0.1.2 |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать/просмотреть без следов | v0.1.2 |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | распределить секрет на доли (Шамир) | v0.3.1 |
 
 У каждого тула — английский `README.md` (русский в `README.ru.md`), `CHANGELOG.md`,
 checksum-verified `install.sh`, CI + release-workflow и обязательная секция
