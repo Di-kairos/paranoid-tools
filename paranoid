@@ -14,6 +14,9 @@ PARANOID_VERSION="0.1.0"
 
 # Точка монтирования vault (та же, что у securetrash). Переопределяема (тесты/иной том).
 VAULT_VOLUME="${ST_VAULT_VOLUME:-/Volumes/SecretVault}"
+# Файл-контейнер vault (securetrash default). Нужен, чтобы отличить «закрыт» от «ещё не создан»
+# — иначе пункт меню Vault на чистой системе вёл бы к тупику «нет контейнера».
+VAULT_CONTAINER="${ST_VAULT_PATH:-$HOME/SecureVault.sparsebundle}"
 
 # --- locale: en по умолчанию; ru — если ST_LANG или системная локаль начинаются с 'ru' ---
 _detect_locale() {
@@ -41,6 +44,9 @@ t() {
     en:vault)        echo 'Vault:' ;;        ru:vault)        echo 'Сейф:' ;;
     en:vault_open)   echo 'OPEN' ;;          ru:vault_open)   echo 'ОТКРЫТ' ;;
     en:vault_closed) echo 'closed' ;;        ru:vault_closed) echo 'закрыт' ;;
+    en:vault_none)   echo 'not set up' ;;    ru:vault_none)   echo 'не создан' ;;
+    en:vault_setup_hint) echo 'No vault yet — creating one (securetrash will ask for size & password).' ;;
+    ru:vault_setup_hint) echo 'Сейфа ещё нет — создаём (securetrash спросит размер и пароль).' ;;
     en:vault_risk)   echo 'at risk while open' ;; ru:vault_risk) echo 'под угрозой, пока открыт' ;;
     en:fv)           echo 'FileVault:' ;;    ru:fv)           echo 'FileVault:' ;;
     en:on)           echo 'ON' ;;            ru:on)           echo 'ВКЛ' ;;
@@ -53,8 +59,8 @@ t() {
     ru:m_status)     echo 'Статус — полная проверка (только чтение)' ;;
     en:m_panic)      echo 'PANIC NOW — hide & lock (confirm)' ;;
     ru:m_panic)      echo 'ПАНИКА — спрятать и запереть (подтвердить)' ;;
-    en:m_vault)      echo 'Vault — open / close' ;;
-    ru:m_vault)      echo 'Сейф — открыть / закрыть' ;;
+    en:m_vault)      echo 'Vault — create / open / close' ;;
+    ru:m_vault)      echo 'Сейф — создать / открыть / закрыть' ;;
     en:m_split)      echo 'Split a secret (seedsplit)' ;;
     ru:m_split)      echo 'Разбить секрет (seedsplit)' ;;
     en:m_combine)    echo 'Combine shares (seedsplit)' ;;
@@ -115,7 +121,9 @@ _status_vault() {
   # /Volumes/SecretVault при attach и удаляет его при detach — поэтому наличие каталога
   # эквивалентно «смонтирован». Stale-каталог (ручной mkdir) дал бы ложный «open», но это
   # вне обычного потока securetrash vault open/close.
-  if [[ -d "$VAULT_VOLUME" ]]; then echo open; else echo closed; fi
+  if [[ -d "$VAULT_VOLUME" ]]; then echo open
+  elif [[ -e "$VAULT_CONTAINER" ]]; then echo closed
+  else echo none; fi
 }
 _status_filevault() {
   command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
@@ -159,6 +167,8 @@ _render() {
   if [[ "$v" == open ]]; then
     printf '  %s      %s %s  (%s)   %s⚠ %s%s\n' \
       "$(t vault)" "$(_dot warn)" "$(t vault_open)" "$VAULT_VOLUME" "$C_YEL" "$(t vault_risk)" "$C_RST"
+  elif [[ "$v" == none ]]; then
+    printf '  %s      %s %s\n' "$(t vault)" "$(_dot dim)" "$(t vault_none)"
   else
     printf '  %s      %s %s\n' "$(t vault)" "$(_dot ok)" "$(t vault_closed)"
   fi
@@ -218,8 +228,14 @@ _act_panic() {
   _pause
 }
 _act_vault() {
-  if [[ "$(_status_vault)" == open ]]; then _run_tool securetrash vault close
-  else _run_tool securetrash vault open; fi
+  # Трёхсостоянийно: нет контейнера → создать (иначе пользователь упирался в тупик
+  # «нет контейнера, сначала vault create» без видимого пути к созданию); закрыт → открыть;
+  # открыт → закрыть. Сама securetrash спросит размер/пароль — лаунчер секретов не трогает.
+  case "$(_status_vault)" in
+    open)   _run_tool securetrash vault close ;;
+    closed) _run_tool securetrash vault open ;;
+    none)   echo "  $(t vault_setup_hint)"; _run_tool securetrash vault create ;;
+  esac
   _pause
 }
 _act_split()   { _run_tool seedsplit split;   _pause; }

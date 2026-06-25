@@ -49,6 +49,9 @@ function T {
         'en:vault'        { return 'Vault:' }       'ru:vault'        { return 'Сейф:' }
         'en:vault_open'   { return 'OPEN' }         'ru:vault_open'   { return 'ОТКРЫТ' }
         'en:vault_closed' { return 'closed' }       'ru:vault_closed' { return 'закрыт' }
+        'en:vault_none'   { return 'not set up' }    'ru:vault_none'   { return 'не создан' }
+        'en:vault_setup_hint' { return 'No vault yet — creating one (securetrash will ask for size & password).' }
+        'ru:vault_setup_hint' { return 'Сейфа ещё нет — создаём (securetrash спросит размер и пароль).' }
         'en:vault_risk'   { return 'at risk while open' } 'ru:vault_risk' { return 'под угрозой, пока открыт' }
         'en:bl'           { return 'BitLocker:' }   'ru:bl'           { return 'BitLocker:' }
         'en:on'           { return 'ON' }           'ru:on'           { return 'ВКЛ' }
@@ -61,8 +64,8 @@ function T {
         'ru:m_status'     { return 'Статус — полная проверка (только чтение)' }
         'en:m_panic'      { return 'PANIC NOW — hide & lock (confirm)' }
         'ru:m_panic'      { return 'ПАНИКА — спрятать и запереть (подтвердить)' }
-        'en:m_vault'      { return 'Vault — open / close' }
-        'ru:m_vault'      { return 'Сейф — открыть / закрыть' }
+        'en:m_vault'      { return 'Vault — create / open / close' }
+        'ru:m_vault'      { return 'Сейф — создать / открыть / закрыть' }
         'en:m_split'      { return 'Split a secret (seedsplit)' }
         'ru:m_split'      { return 'Разбить секрет (seedsplit)' }
         'en:m_combine'    { return 'Combine shares (seedsplit)' }
@@ -119,10 +122,20 @@ function Invoke-PnTool {
 }
 
 # --- статус для dashboard (только чтение; деградирует в unknown, не угадывает) ---
+# Файл-контейнер vault (securetrash default: ~/SecureVault.vhdx). Отличает «закрыт» от «не создан».
+function Get-PnVaultContainer {
+    if ($env:ST_VAULT_PATH) { return $env:ST_VAULT_PATH }
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
+    if (-not $homeDir) { return $null }
+    return (Join-Path $homeDir 'SecureVault.vhdx')
+}
 function Get-PnVaultState {
-    # Открыт = реальный том vault доступен (буква из sidecar/override). Мокается в тестах.
-    # Guard на $null/пустое: Test-Path -LiteralPath '' кидает исключение.
-    if ($script:VAULT_VOLUME -and (Test-Path -LiteralPath $script:VAULT_VOLUME)) { return 'open' } else { return 'closed' }
+    # Трёхсостоянийно: open = том примонтирован (буква из sidecar/override); closed = контейнер
+    # есть, но не смонтирован; none = контейнера ещё нет. Guard на $null/пустое (Test-Path '' кидает).
+    if ($script:VAULT_VOLUME -and (Test-Path -LiteralPath $script:VAULT_VOLUME)) { return 'open' }
+    $container = Get-PnVaultContainer
+    if ($container -and (Test-Path -LiteralPath $container)) { return 'closed' }
+    return 'none'
 }
 function Get-PnBitLockerState {
     try {
@@ -164,6 +177,8 @@ function Get-PnDashboard {
     $lines += ''
     if ($v -eq 'open') {
         $lines += "  $(T 'vault')      $(T 'vault_open')  ($($script:VAULT_VOLUME))   ! $(T 'vault_risk')"
+    } elseif ($v -eq 'none') {
+        $lines += "  $(T 'vault')      $(T 'vault_none')"
     } else {
         $lines += "  $(T 'vault')      $(T 'vault_closed')"
     }
@@ -233,8 +248,13 @@ function Invoke-PnActPanic {
     Invoke-PnPause
 }
 function Invoke-PnActVault {
-    if ((Get-PnVaultState) -eq 'open') { Invoke-PnTool 'securetrash' @('vault', 'close') }
-    else { Invoke-PnTool 'securetrash' @('vault', 'open') }
+    # Трёхсостоянийно: нет контейнера → создать (иначе пользователь упирался в тупик
+    # «нет контейнера» без видимого пути к созданию). securetrash сама спросит размер/пароль.
+    switch (Get-PnVaultState) {
+        'open'   { Invoke-PnTool 'securetrash' @('vault', 'close') }
+        'closed' { Invoke-PnTool 'securetrash' @('vault', 'open') }
+        'none'   { Write-Output "  $(T 'vault_setup_hint')"; Invoke-PnTool 'securetrash' @('vault', 'create') }
+    }
     Invoke-PnPause
 }
 function Invoke-PnActSplit   { Invoke-PnTool 'seedsplit' @('split');   Invoke-PnPause }

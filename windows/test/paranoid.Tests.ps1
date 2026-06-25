@@ -87,20 +87,32 @@ Describe 'Format-PnMenuItem' {
     }
 }
 
-Describe 'Get-PnVaultState' {
+Describe 'Get-PnVaultState (3-state: open / closed / none)' {
+    AfterEach { Remove-Item Env:\ST_VAULT_PATH -ErrorAction SilentlyContinue }
+
     It 'reports open when the vault volume exists' {
         $script:VAULT_VOLUME = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_v_" + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:VAULT_VOLUME -Force | Out-Null
         try { (Get-PnVaultState) | Should -Be 'open' }
         finally { Remove-Item -LiteralPath $script:VAULT_VOLUME -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    It 'reports closed when the vault volume is missing' {
+    It 'reports closed when the container exists but is not mounted' {
         $script:VAULT_VOLUME = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_v_" + [Guid]::NewGuid().ToString('N'))
-        (Get-PnVaultState) | Should -Be 'closed'
+        $container = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
+        Set-Content -LiteralPath $container -Value 'x' -NoNewline
+        $env:ST_VAULT_PATH = $container
+        try { (Get-PnVaultState) | Should -Be 'closed' }
+        finally { Remove-Item -LiteralPath $container -Force -ErrorAction SilentlyContinue }
     }
-    It 'reports closed (no throw) when the vault volume is null' {
+    It 'reports none when neither the volume nor the container exists' {
+        $script:VAULT_VOLUME = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_v_" + [Guid]::NewGuid().ToString('N'))
+        $env:ST_VAULT_PATH = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
+        (Get-PnVaultState) | Should -Be 'none'
+    }
+    It 'reports none (no throw) when the vault volume is null and no container' {
         $script:VAULT_VOLUME = $null
-        (Get-PnVaultState) | Should -Be 'closed'
+        $env:ST_VAULT_PATH = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
+        (Get-PnVaultState) | Should -Be 'none'
     }
 }
 
@@ -208,6 +220,14 @@ Describe 'dispatch — vault (choice 3)' {
         Invoke-PnDispatch '3' | Out-Null
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'securetrash' -and ($ToolArgs -contains 'vault') -and ($ToolArgs -contains 'open')
+        }
+    }
+
+    It 'creates the vault when none exists yet' {
+        Mock Get-PnVaultState { 'none' }
+        Invoke-PnDispatch '3' | Out-Null
+        Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
+            $Tool -eq 'securetrash' -and ($ToolArgs -contains 'vault') -and ($ToolArgs -contains 'create')
         }
     }
 }

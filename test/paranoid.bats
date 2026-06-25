@@ -134,11 +134,21 @@ run_paranoid() {
 
 # --- сейф (пункт 3) ---
 
-@test "vault closed -> dispatches 'securetrash vault open'" {
-  ST_VAULT_VOLUME="$TMP/nope-$RANDOM" run_paranoid $'3\n\n0\n' ST_VAULT_VOLUME="$TMP/nope"
+@test "vault not set up (no container) -> dispatches 'securetrash vault create'" {
+  run_paranoid $'3\n\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/no-container-$RANDOM"
+  [ "$status" -eq 0 ]
+  grep -qx "securetrash vault create" "$LOG"
+  ! grep -q "vault open" "$LOG"
+  ! grep -q "vault close" "$LOG"
+}
+
+@test "vault closed (container exists, unmounted) -> dispatches 'securetrash vault open'" {
+  touch "$TMP/container.sparsebundle"
+  run_paranoid $'3\n\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault open" "$LOG"
   ! grep -q "vault close" "$LOG"
+  ! grep -q "vault create" "$LOG"
 }
 
 @test "vault open -> dispatches 'securetrash vault close'" {
@@ -147,6 +157,7 @@ run_paranoid() {
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault close" "$LOG"
   ! grep -q "vault open" "$LOG"
+  ! grep -q "vault create" "$LOG"
 }
 
 # --- seedsplit (пункты 4/5) ---
