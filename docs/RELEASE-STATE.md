@@ -20,7 +20,7 @@
 | vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.2` | `045b8f5` | 0.1.2 | CI ✅ · Release подписан ✅ |
 | panic       | `Di-kairos/panic`       | `v0.1.2` | `ff7f2bd` | 0.1.2 | CI ✅ · Release подписан ✅ |
 | ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.2` | `8413bcb` | 0.1.2 | CI ✅ · Release подписан ✅ |
-| seedsplit   | `Di-kairos/seedsplit`   | `v0.3.1` | `e4f9957` | **0.3.1** | CI ✅ · Release подписан ✅ |
+| seedsplit   | `Di-kairos/seedsplit`   | `v0.3.2` | `e37ca7e` | **0.3.2** | CI ✅ · Release подписан ✅ · Windows (beta) |
 
 Все пять инструментов — open source, опубликованы публично (исходники и релизы открыты).
 

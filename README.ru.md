@@ -24,7 +24,7 @@
 | 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый vault | macOS | `v0.1.2` |
 | 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | macOS | `v0.1.2` |
 | 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать/просмотреть без следов на диске | macOS | `v0.1.2` |
-| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | распределить секрет на доли (Шамир) | macOS | `v0.3.1` |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | распределить секрет на доли (Шамир) | macOS · Windows (beta) | `v0.3.2` |
 
 > **Windows.** У `securetrash` есть PowerShell-порт (beta, покрыт Pester на CI).
 > Остальные четыре — macOS-native by design: опираются на Spotlight, Time Machine,

@@ -26,7 +26,7 @@ printf '%s namespaces="file" %s\n' "$PRINCIPAL" "$PUB" > "$W/allowed_signers"
 
 PASS=0; FAIL=0
 # Пины актуальных релизных тегов (синхронны docs/RELEASE-STATE.md).
-for spec in securetrash:v0.4.4 vaultwatch:v0.1.2 panic:v0.1.2 ghostdraft:v0.1.2 seedsplit:v0.3.1; do
+for spec in securetrash:v0.4.4 vaultwatch:v0.1.2 panic:v0.1.2 ghostdraft:v0.1.2 seedsplit:v0.3.2; do
   t="${spec%%:*}"; tag="${spec##*:}"; d="$W/$t"; mkdir -p "$d"
   rel="$BASE/$t/releases/download/$tag"
   printf '%-12s %-8s ' "$t" "$tag"

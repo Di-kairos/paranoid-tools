@@ -25,11 +25,12 @@ limits of what it can guarantee.
 | 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS | `v0.1.2` |
 | 3 | [`panic`](https://github.com/Di-kairos/panic)             | hide & lock everything, instantly | macOS | `v0.1.2` |
 | 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text leaving no disk trace | macOS | `v0.1.2` |
-| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares | macOS | `v0.3.1` |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares | macOS · Windows (beta) | `v0.3.2` |
 
-> **Windows.** `securetrash` ships a PowerShell port (beta, Pester-tested in CI).
-> The other four are macOS-native by design — they lean on Spotlight, Time Machine,
-> `launchd` and `hdiutil`, which have no clean Windows equivalent.
+> **Windows.** `securetrash` and `seedsplit` ship PowerShell ports (beta, Pester-tested
+> in CI; seedsplit shares are byte-compatible with the macOS build). The other three are
+> macOS-native by design — they lean on Spotlight, Time Machine, `launchd` and `hdiutil`,
+> which have no clean Windows equivalent.
 
 Each tool ships an English `README.md` (Russian in `README.ru.md`), a
 `CHANGELOG.md`, a checksum-verified and **Ed25519-signed** `install.sh`, CI +
