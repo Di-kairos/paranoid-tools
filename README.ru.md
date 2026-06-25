@@ -71,7 +71,9 @@ paranoid          # открывает дашборд + меню
 
 Честно: это лаунчер ради удобства, а не скорость настоящей паники — глобальный
 хоткей — дело будущей нативной фазы. Открытый vault всегда помечается «at risk».
-Пока это macOS Bash; зеркало на Windows PowerShell в планах.
+Зеркало на Windows PowerShell теперь есть — `windows/paranoid.ps1` (beta): запуск
+`pwsh -File windows/paranoid.ps1` (или положить в PATH как `paranoid`); оно управляет
+теми же пятью PowerShell-портами.
 
 ## Архитектура
 

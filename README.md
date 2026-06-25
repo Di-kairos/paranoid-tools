@@ -73,7 +73,9 @@ paranoid          # opens the dashboard + menu
 
 Honest note: it is a convenience launcher, not real-panic-speed — a global hotkey
 belongs to a later native-app phase. An open vault is always flagged "at risk".
-It is macOS Bash for now; a Windows PowerShell mirror is planned.
+A Windows PowerShell mirror now ships at `windows/paranoid.ps1` (beta) — run it with
+`pwsh -File windows/paranoid.ps1` (or drop it on PATH as `paranoid`); it drives the
+same five PowerShell ports.
 
 ## How it fits together
 

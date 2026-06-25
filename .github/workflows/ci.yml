@@ -1,0 +1,29 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  launcher:
+    # macOS/Linux лаунчер `paranoid` — чистый Bash: shellcheck + bats (тулы стабятся на PATH).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y bats shellcheck
+      - name: Lint
+        run: shellcheck paranoid install.sh
+      - name: Unit tests
+        run: bats test/
+
+  windows:
+    # Windows-зеркало `windows/paranoid.ps1` (PowerShell, BETA): Pester проверяет оркестровку
+    # (dashboard-текст, диспетч в правильный CLI, panic-greying/confirm) с замоканными тулами.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pester 5
+        shell: pwsh
+        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+      - name: Pester (paranoid.ps1 launcher)
+        shell: pwsh
+        run: |
+          $r = Invoke-Pester windows/test -Output Detailed -PassThru
+          if ($r.FailedCount -gt 0) { throw "$($r.FailedCount) Pester test(s) failed" }
