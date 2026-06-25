@@ -58,6 +58,23 @@ bash install.sh --uninstall
 
 Plain-Russian usage guide: [КАК-ПОЛЬЗОВАТЬСЯ.ru.md](КАК-ПОЛЬЗОВАТЬСЯ.ru.md).
 
+## The launcher
+
+`paranoid` is an interactive launcher — a status dashboard plus a menu — over the
+five CLIs. Pure Bash, zero dependencies, just like the tools it drives.
+
+It holds no secrets and adds no crypto of its own: it runs the same signed tools
+and shows their output — *Scope & limitations* and `check` verdicts included —
+unaltered. Run it with no arguments:
+
+```bash
+paranoid          # opens the dashboard + menu
+```
+
+Honest note: it is a convenience launcher, not real-panic-speed — a global hotkey
+belongs to a later native-app phase. An open vault is always flagged "at risk".
+It is macOS Bash for now; a Windows PowerShell mirror is planned.
+
 ## How it fits together
 
 - **Separate repos + vendoring.** The shared code is the canonical

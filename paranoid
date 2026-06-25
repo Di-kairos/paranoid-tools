@@ -1,0 +1,289 @@
+#!/usr/bin/env bash
+# paranoid — интерактивный лаунчер экосистемы Paranoid Tools (Фаза A).
+#
+# ЧЕСТНО: это ТОНКИЙ лаунчер, не новый инструмент. Он не содержит крипты и НЕ трогает
+# секреты — секреты вводятся напрямую в stdin нужного CLI. paranoid лишь показывает живой
+# статус и запускает те же пять подписанных CLI, ничего не пряча (Scope & limitations и
+# вердикты `check` идут на экран как есть). Глобального хоткея/демона тут нет — это Фаза B.
+#
+# Зависимостей — ноль (чистый Bash). Установленные тулы ищутся в PATH по имени; отсутствующий
+# тул показывается серым с хинтом на установку, а не подделывается.
+set -uo pipefail
+
+PARANOID_VERSION="0.1.0"
+
+# Точка монтирования vault (та же, что у securetrash). Переопределяема (тесты/иной том).
+VAULT_VOLUME="${ST_VAULT_VOLUME:-/Volumes/SecretVault}"
+
+# --- locale: en по умолчанию; ru — если ST_LANG или системная локаль начинаются с 'ru' ---
+_detect_locale() {
+  local want="${ST_LANG:-}"
+  if [[ -n "$want" ]]; then
+    case "$want" in ru*) echo ru ;; *) echo en ;; esac
+    return
+  fi
+  case "${LC_ALL:-${LANG:-}}" in ru*) echo ru ;; *) echo en ;; esac
+}
+LOCALE="${ST_LOCALE:-$(_detect_locale)}"
+
+# --- цвет только в TTY ---
+if [[ -t 1 ]]; then
+  C_GRN=$'\033[32m'; C_YEL=$'\033[33m'; C_DIM=$'\033[2m'; C_BLD=$'\033[1m'; C_RST=$'\033[0m'
+else
+  C_GRN=""; C_YEL=""; C_DIM=""; C_BLD=""; C_RST=""
+fi
+
+# --- i18n (только chrome лаунчера; вывод самих тулов локализуют они сами) ---
+t() {
+  case "$LOCALE:$1" in
+    en:title)        echo 'PARANOID TOOLS' ;;
+    ru:title)        echo 'PARANOID TOOLS' ;;
+    en:vault)        echo 'Vault:' ;;        ru:vault)        echo 'Сейф:' ;;
+    en:vault_open)   echo 'OPEN' ;;          ru:vault_open)   echo 'ОТКРЫТ' ;;
+    en:vault_closed) echo 'closed' ;;        ru:vault_closed) echo 'закрыт' ;;
+    en:vault_risk)   echo 'at risk while open' ;; ru:vault_risk) echo 'под угрозой, пока открыт' ;;
+    en:fv)           echo 'FileVault:' ;;    ru:fv)           echo 'FileVault:' ;;
+    en:on)           echo 'ON' ;;            ru:on)           echo 'ВКЛ' ;;
+    en:off)          echo 'OFF' ;;           ru:off)          echo 'ВЫКЛ' ;;
+    en:unknown)      echo 'unknown' ;;       ru:unknown)      echo 'неизвестно' ;;
+    en:vw)           echo 'vaultwatch:' ;;   ru:vw)           echo 'vaultwatch:' ;;
+    en:vw_active)    echo 'active' ;;        ru:vw_active)    echo 'активен' ;;
+    en:vw_idle)      echo 'idle' ;;          ru:vw_idle)      echo 'нет сессий' ;;
+    en:m_status)     echo 'Status — full read-only check' ;;
+    ru:m_status)     echo 'Статус — полная проверка (только чтение)' ;;
+    en:m_panic)      echo 'PANIC NOW — hide & lock (confirm)' ;;
+    ru:m_panic)      echo 'ПАНИКА — спрятать и запереть (подтвердить)' ;;
+    en:m_vault)      echo 'Vault — open / close' ;;
+    ru:m_vault)      echo 'Сейф — открыть / закрыть' ;;
+    en:m_split)      echo 'Split a secret (seedsplit)' ;;
+    ru:m_split)      echo 'Разбить секрет (seedsplit)' ;;
+    en:m_combine)    echo 'Combine shares (seedsplit)' ;;
+    ru:m_combine)    echo 'Собрать из долей (seedsplit)' ;;
+    en:m_ghost)      echo 'Ghostdraft — ephemeral note / pipe' ;;
+    ru:m_ghost)      echo 'Ghostdraft — эфемерная заметка / pipe' ;;
+    en:m_watch)      echo 'Watch vault — guard + TTL (vaultwatch)' ;;
+    ru:m_watch)      echo 'Сторожить сейф — guard + TTL (vaultwatch)' ;;
+    en:m_quit)       echo 'Quit' ;;          ru:m_quit)       echo 'Выход' ;;
+    en:not_installed) echo 'not installed' ;; ru:not_installed) echo 'не установлен' ;;
+    en:install_hint)  printf 'Install %s: %s' "$2" "$3" ;;
+    ru:install_hint)  printf 'Установить %s: %s' "$2" "$3" ;;
+    en:choose)       echo 'Choose' ;;        ru:choose)       echo 'Выбор' ;;
+    en:press_enter)  echo 'Press Enter to continue' ;;
+    ru:press_enter)  echo 'Нажми Enter, чтобы продолжить' ;;
+    en:confirm_panic) echo 'Run panic now? This hides & locks everything.' ;;
+    ru:confirm_panic) echo 'Запустить панику? Это спрячет и запрёт всё.' ;;
+    en:ask_hard)     echo 'Also kill cloud daemons & clear recent items (--hard)?' ;;
+    ru:ask_hard)     echo 'Также прибить cloud-демоны и очистить recent (--hard)?' ;;
+    en:ask_ttl)      echo 'Auto-exit after (e.g. 30m, 2h; empty = no timer):' ;;
+    ru:ask_ttl)      echo 'Авто-выход через (напр. 30m, 2h; пусто = без таймера):' ;;
+    en:cancelled)    echo 'Cancelled.' ;;    ru:cancelled)    echo 'Отменено.' ;;
+    en:ghost_new)    echo 'new — edit an ephemeral draft' ;;
+    ru:ghost_new)    echo 'new — редактировать эфемерный черновик' ;;
+    en:ghost_pipe)   echo 'pipe — paste, view, write nothing to disk' ;;
+    ru:ghost_pipe)   echo 'pipe — вставить, посмотреть, на диск ничего' ;;
+    en:type_yes)     echo '[type yes]' ;;    ru:type_yes)     echo '[введите yes]' ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# --- инструменты экосистемы: имя|репо (для хинта на установку) ---
+_tool_repo() {
+  case "$1" in
+    securetrash) echo 'https://github.com/Di-kairos/securetrash' ;;
+    vaultwatch)  echo 'https://github.com/Di-kairos/vaultwatch' ;;
+    panic)       echo 'https://github.com/Di-kairos/panic' ;;
+    seedsplit)   echo 'https://github.com/Di-kairos/seedsplit' ;;
+    ghostdraft)  echo 'https://github.com/Di-kairos/ghostdraft' ;;
+  esac
+}
+
+_tool_installed() { command -v "$1" >/dev/null 2>&1; }
+
+# Запустить тул, не убивая цикл при ненулевом коде. Если тула нет — хинт.
+_run_tool() {
+  local tool="$1"; shift
+  if ! _tool_installed "$tool"; then
+    echo "${C_YEL}$(t install_hint "$tool" "$(_tool_repo "$tool")")${C_RST}" >&2
+    return 0
+  fi
+  "$tool" "$@" || true
+}
+
+# --- статус для dashboard (только чтение; деградирует в unknown, не угадывает) ---
+_status_vault() {
+  # Открыт = том примонтирован. ASSUMPTION: на macOS hdiutil создаёт mountpoint-каталог
+  # /Volumes/SecretVault при attach и удаляет его при detach — поэтому наличие каталога
+  # эквивалентно «смонтирован». Stale-каталог (ручной mkdir) дал бы ложный «open», но это
+  # вне обычного потока securetrash vault open/close.
+  if [[ -d "$VAULT_VOLUME" ]]; then echo open; else echo closed; fi
+}
+_status_filevault() {
+  command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
+  if fdesetup status 2>/dev/null | grep -qi "FileVault is On"; then echo on
+  elif fdesetup status 2>/dev/null | grep -qi "FileVault is Off"; then echo off
+  else echo unknown; fi
+}
+_status_vaultwatch() {
+  _tool_installed vaultwatch || { echo absent; return; }
+  # Активная сессия = вывод status содержит "session:"/"сессия:".
+  if vaultwatch status 2>/dev/null | grep -qiE 'session:|сессия:'; then echo active; else echo idle; fi
+}
+
+# Цветная точка по состоянию: ok=green, warn=yellow, dim=grey.
+_dot() {
+  case "$1" in
+    ok)   printf '%s●%s' "$C_GRN" "$C_RST" ;;
+    warn) printf '%s●%s' "$C_YEL" "$C_RST" ;;
+    *)    printf '%s●%s' "$C_DIM" "$C_RST" ;;
+  esac
+}
+
+# Один пункт меню: серый + (not installed), если тул отсутствует.
+_menu_item() {
+  local num="$1" label="$2" tool="${3:-}"
+  if [[ -n "$tool" ]] && ! _tool_installed "$tool"; then
+    printf '  %s%s) %s (%s)%s\n' "$C_DIM" "$num" "$label" "$(t not_installed)" "$C_RST"
+  else
+    printf '  %s) %s\n' "$num" "$label"
+  fi
+}
+
+_render() {
+  local v fv vw vline
+  v="$(_status_vault)"; fv="$(_status_filevault)"; vw="$(_status_vaultwatch)"
+  clear 2>/dev/null || true
+  printf '\n  %s%s%s' "$C_BLD" "$(t title)" "$C_RST"
+  printf '                          macOS\n\n'
+
+  # Vault
+  if [[ "$v" == open ]]; then
+    printf '  %s      %s %s  (%s)   %s⚠ %s%s\n' \
+      "$(t vault)" "$(_dot warn)" "$(t vault_open)" "$VAULT_VOLUME" "$C_YEL" "$(t vault_risk)" "$C_RST"
+  else
+    printf '  %s      %s %s\n' "$(t vault)" "$(_dot ok)" "$(t vault_closed)"
+  fi
+  # FileVault
+  case "$fv" in
+    on)  printf '  %s  %s %s\n' "$(t fv)" "$(_dot ok)"   "$(t on)" ;;
+    off) printf '  %s  %s %s\n' "$(t fv)" "$(_dot warn)" "$(t off)" ;;
+    *)   printf '  %s  %s %s\n' "$(t fv)" "$(_dot dim)"  "$(t unknown)" ;;
+  esac
+  # vaultwatch
+  case "$vw" in
+    active) vline="$(vaultwatch status 2>/dev/null | grep -iE 'TTL|auto-exit|авто-выход' | head -1 | sed 's/^ *//')"
+            printf '  %s %s %s%s\n' "$(t vw)" "$(_dot ok)" "$(t vw_active)" "${vline:+ — $vline}" ;;
+    idle)   printf '  %s %s %s\n' "$(t vw)" "$(_dot dim)" "$(t vw_idle)" ;;
+    *)      : ;;  # absent → строку vaultwatch не показываем
+  esac
+  echo
+  _menu_item 1 "$(t m_status)"
+  if _tool_installed panic; then
+    printf '  %s2)%s 🔒 %s\n' "$C_BLD" "$C_RST" "$(t m_panic)"
+  else
+    printf '  %s2) 🔒 %s (%s)%s\n' "$C_DIM" "$(t m_panic)" "$(t not_installed)" "$C_RST"
+  fi
+  _menu_item 3 "$(t m_vault)"  securetrash
+  _menu_item 4 "$(t m_split)"  seedsplit
+  _menu_item 5 "$(t m_combine)" seedsplit
+  _menu_item 6 "$(t m_ghost)"  ghostdraft
+  _menu_item 7 "$(t m_watch)"  vaultwatch
+  printf '  0) %s\n\n' "$(t m_quit)"
+}
+
+_pause() { read -r -p "  $(t press_enter)… " _ <&0 || true; }
+
+# Подтверждение: 0 только при точном 'yes'.
+_confirm() {
+  local ans
+  read -r -p "  $1 $(t type_yes): " ans <&0 || return 1
+  [[ "$ans" == "yes" ]]
+}
+
+# --- действия ---
+_act_status() {
+  _run_tool securetrash check
+  if _tool_installed vaultwatch; then echo; _run_tool vaultwatch status; fi
+  _pause
+}
+_act_panic() {
+  if ! _tool_installed panic; then
+    echo "${C_YEL}$(t install_hint panic "$(_tool_repo panic)")${C_RST}" >&2
+    _pause; return
+  fi
+  if ! _confirm "$(t confirm_panic)"; then echo "  $(t cancelled)"; _pause; return; fi
+  local hard=""
+  if _confirm "$(t ask_hard)"; then hard="--hard"; fi
+  # shellcheck disable=SC2086
+  _run_tool panic now $hard
+  _pause
+}
+_act_vault() {
+  if [[ "$(_status_vault)" == open ]]; then _run_tool securetrash vault close
+  else _run_tool securetrash vault open; fi
+  _pause
+}
+_act_split()   { _run_tool seedsplit split;   _pause; }
+_act_combine() { _run_tool seedsplit combine; _pause; }
+_act_ghost() {
+  echo "  1) $(t ghost_new)"
+  echo "  2) $(t ghost_pipe)"
+  local c; read -r -p "  $(t choose): " c <&0 || c=""
+  case "$c" in
+    1) _run_tool ghostdraft new ;;
+    2) _run_tool ghostdraft pipe ;;
+    *) : ;;
+  esac
+  _pause
+}
+_act_watch() {
+  local ttl; read -r -p "  $(t ask_ttl) " ttl <&0 || ttl=""
+  if [[ -n "$ttl" ]]; then _run_tool vaultwatch start --ttl "$ttl" "$VAULT_VOLUME"
+  else _run_tool vaultwatch start "$VAULT_VOLUME"; fi
+  _pause
+}
+
+usage() {
+  cat <<EOF
+paranoid $PARANOID_VERSION — interactive launcher for the Paranoid Tools ecosystem.
+
+Usage: paranoid            launch the interactive dashboard
+       paranoid version    print the version
+       paranoid help       show this help
+
+A thin launcher over the five CLIs (securetrash, vaultwatch, panic, seedsplit,
+ghostdraft). It holds no secrets and adds no crypto — it runs the same signed
+tools and shows their output (limits and verdicts included) unaltered.
+EOF
+}
+
+main() {
+  case "${1:-}" in
+    version|-v|--version) echo "paranoid $PARANOID_VERSION"; return 0 ;;
+    help|-h|--help)       usage; return 0 ;;
+    "") : ;;
+    *) echo "Unknown command: $1" >&2; usage >&2; return 1 ;;
+  esac
+
+  # Ctrl-C в подпункте → назад в меню (не выход). На dashboard — чистый выход.
+  trap 'echo' INT
+  local choice
+  while true; do
+    _render
+    read -r -p "  $(t choose): " choice <&0 || { echo; return 0; }
+    case "$choice" in
+      1) _act_status ;;
+      2) _act_panic ;;
+      3) _act_vault ;;
+      4) _act_split ;;
+      5) _act_combine ;;
+      6) _act_ghost ;;
+      7) _act_watch ;;
+      0|q|Q) echo; return 0 ;;
+      *) : ;;   # неверный ввод → перерисовать меню
+    esac
+  done
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

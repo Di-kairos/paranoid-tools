@@ -30,7 +30,7 @@ TOOLS=(securetrash vaultwatch panic ghostdraft seedsplit)
 # Режим удаления.
 if [[ "${1:-}" == "--uninstall" ]]; then
   echo "Удаляю Paranoid Tools из ${DEST}..."
-  for t in "${TOOLS[@]}"; do
+  for t in "${TOOLS[@]}" paranoid; do
     if [[ -e "${DEST}/${t}" ]]; then
       rm -f "${DEST}/${t}"
       echo "  ✓ удалён ${t}"
@@ -55,8 +55,13 @@ for t in "${TOOLS[@]}"; do
   installed=$((installed + 1))
 done
 
+# Лаунчер paranoid лежит в корне этого репо (рядом с install.sh), а не в
+# отдельном репо, как пять тулов — потому всегда на месте, ставим отдельно.
+install -m 0755 "${ROOT}/paranoid" "${DEST}/paranoid"
+echo "  ✓ paranoid → ${DEST}/paranoid"
+
 echo
-echo "Установлено инструментов: ${installed}/${#TOOLS[@]}."
+echo "Установлено инструментов: ${installed}/${#TOOLS[@]} (+ лаунчер paranoid)."
 
 # Проверка PATH: без этого тулы стоят, но не вызываются по имени.
 case ":$PATH:" in
