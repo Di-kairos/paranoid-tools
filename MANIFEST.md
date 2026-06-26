@@ -8,7 +8,7 @@
 
 ## Where we stand
 
-Digitalization stopped being an event and became the weather. Most of us now
+Digitalization stopped being an event and became a condition of life. Most of us now
 live partly inside the machine: our memory sits in the cloud, our judgment is
 shared with models, our day runs through systems that watch, index, sync, and
 remember by default. The line between a person and their digital extension has
