@@ -66,6 +66,13 @@ function T {
         'ru:m_panic'      { return 'ПАНИКА — спрятать и запереть (подтвердить)' }
         'en:m_vault'      { return 'Vault — create / open / close' }
         'ru:m_vault'      { return 'Сейф — создать / открыть / закрыть' }
+        'en:m_destroy'    { return 'Destroy the vault (irreversible)' }
+        'ru:m_destroy'    { return 'Уничтожить сейф (необратимо)' }
+        'en:destroy_na'   { return 'no vault' }       'ru:destroy_na'   { return 'нет сейфа' }
+        'en:destroy_hint' { return 'This permanently destroys the vault and everything inside it. securetrash will ask you to confirm with "yes".' }
+        'ru:destroy_hint' { return 'Это безвозвратно уничтожит сейф и всё, что внутри. securetrash попросит подтвердить словом «yes».' }
+        'en:destroy_none' { return 'No vault to destroy — create one first (menu item 3).' }
+        'ru:destroy_none' { return 'Уничтожать нечего — сначала создай сейф (пункт 3).' }
         'en:m_split'      { return 'Split a secret (seedsplit)' }
         'ru:m_split'      { return 'Разбить секрет (seedsplit)' }
         'en:m_combine'    { return 'Combine shares (seedsplit)' }
@@ -74,6 +81,8 @@ function T {
         'ru:m_ghost'      { return 'Ghostdraft — эфемерная заметка / pipe' }
         'en:m_watch'      { return 'Watch vault — guard + TTL (vaultwatch)' }
         'ru:m_watch'      { return 'Сторожить сейф — guard + TTL (vaultwatch)' }
+        'en:m_unwatch'    { return 'Stop watching the vault (vaultwatch)' }
+        'ru:m_unwatch'    { return 'Снять охрану сейфа (vaultwatch)' }
         'en:m_quit'       { return 'Quit' }         'ru:m_quit'       { return 'Выход' }
         'en:not_installed'{ return 'not installed' } 'ru:not_installed'{ return 'не установлен' }
         'en:install_hint' { return "Install ${A}: $B" }   'ru:install_hint' { return "Установить ${A}: $B" }
@@ -91,6 +100,13 @@ function T {
         'ru:ghost_new'    { return 'new — редактировать эфемерный черновик' }
         'en:ghost_pipe'   { return 'pipe — paste, view, write nothing to disk' }
         'ru:ghost_pipe'   { return 'pipe — вставить, посмотреть, на диск ничего' }
+        # Windows clipboard НЕ авто-чистится (история Win+V + Cloud Clipboard) — подпись
+        # честно отличается от macOS-варианта «auto-wipes after ~20s». Сам ghostdraft Win-порт
+        # дополнительно показывает DANGER и просит confirm перед записью в буфер.
+        'en:ghost_new_clip' { return 'new + copy to clipboard (no auto-clear on Windows)' }
+        'ru:ghost_new_clip' { return 'new + скопировать в буфер (на Windows без авто-очистки)' }
+        'en:ghost_clip_hint' { return 'On exit the draft is copied to the clipboard (after a confirmation). Windows has NO auto-clear — Win+V history and Cloud Clipboard keep it — so clear it yourself.' }
+        'ru:ghost_clip_hint' { return 'По выходу черновик копируется в буфер (после подтверждения). На Windows авто-очистки НЕТ — история Win+V и Cloud Clipboard его хранят — чисти сам.' }
         'en:type_yes'     { return '[type yes]' }   'ru:type_yes'     { return '[введите yes]' }
         default           { return $Key }
     }
@@ -204,10 +220,24 @@ function Get-PnDashboard {
         $lines += "  2) $(T 'm_panic') ($(T 'not_installed'))"
     }
     $lines += (Format-PnMenuItem 3 (T 'm_vault')   'securetrash')
-    $lines += (Format-PnMenuItem 4 (T 'm_split')   'seedsplit')
-    $lines += (Format-PnMenuItem 5 (T 'm_combine') 'seedsplit')
-    $lines += (Format-PnMenuItem 6 (T 'm_ghost')   'ghostdraft')
-    $lines += (Format-PnMenuItem 7 (T 'm_watch')   'vaultwatch')
+    # П.4 Destroy — необратимо. «(not installed)», если securetrash нет; «(no vault)», если
+    # контейнера ещё нет (нечего уничтожать) — иначе пункт вёл бы в тупик «нет сейфа».
+    if (-not (Test-PnTool 'securetrash')) {
+        $lines += "  4) $(T 'm_destroy') ($(T 'not_installed'))"
+    } elseif ($v -eq 'none') {
+        $lines += "  4) $(T 'm_destroy') ($(T 'destroy_na'))"
+    } else {
+        $lines += "  4) $(T 'm_destroy')"
+    }
+    $lines += (Format-PnMenuItem 5 (T 'm_split')   'seedsplit')
+    $lines += (Format-PnMenuItem 6 (T 'm_combine') 'seedsplit')
+    $lines += (Format-PnMenuItem 7 (T 'm_ghost')   'ghostdraft')
+    # П.8 — toggle: активна охрана → «снять», иначе → «сторожить» (иначе из меню не выключить).
+    if ($vw -eq 'active') {
+        $lines += (Format-PnMenuItem 8 (T 'm_unwatch') 'vaultwatch')
+    } else {
+        $lines += (Format-PnMenuItem 8 (T 'm_watch')   'vaultwatch')
+    }
     $lines += "  0) $(T 'm_quit')"
     $lines += ''
     return ($lines -join "`n")
@@ -257,19 +287,47 @@ function Invoke-PnActVault {
     }
     Invoke-PnPause
 }
+# Уничтожение сейфа — необратимо. Лаунчер предупреждает, но реальное подтверждение (yes)
+# и отказ при смонтированном томе с открытыми файлами — на стороне securetrash.
+function Invoke-PnActDestroy {
+    if (-not (Test-PnTool 'securetrash')) {
+        [Console]::Error.WriteLine((T 'install_hint' 'securetrash' (Get-PnToolRepo 'securetrash')))
+        Invoke-PnPause; return
+    }
+    if ((Get-PnVaultState) -eq 'none') {
+        Write-Output "  $(T 'destroy_none')"; Invoke-PnPause; return
+    }
+    Write-Output "  $(T 'destroy_hint')"
+    Invoke-PnTool 'securetrash' @('vault', 'destroy')
+    Invoke-PnPause
+}
 function Invoke-PnActSplit   { Invoke-PnTool 'seedsplit' @('split');   Invoke-PnPause }
 function Invoke-PnActCombine { Invoke-PnTool 'seedsplit' @('combine'); Invoke-PnPause }
 function Invoke-PnActGhost {
     Write-Output "  1) $(T 'ghost_new')"
     Write-Output "  2) $(T 'ghost_pipe')"
+    Write-Output "  3) $(T 'ghost_new_clip')"
     switch (Read-PnLine "  $(T 'choose')") {
         '1' { Invoke-PnTool 'ghostdraft' @('new') }
         '2' { Invoke-PnTool 'ghostdraft' @('pipe') }
+        # «новый + в буфер»: ghostdraft new --clipboard сам предупреждает (DANGER) и просит
+        # confirm. На Windows авто-очистки буфера НЕТ — лаунчер дублирует caveat честной подписью.
+        '3' { Write-Output "  $(T 'ghost_clip_hint')"; Invoke-PnTool 'ghostdraft' @('new', '--clipboard') }
         default { }
     }
     Invoke-PnPause
 }
 function Invoke-PnActWatch {
+    # Перечитываем активную букву прямо здесь (как делает Get-PnDashboard): на Windows том
+    # монтируется на ПЕРВУЮ свободную букву динамически, и она могла появиться/смениться с
+    # прошлого рендера. Без рефреша start/stop рискуют получить устаревший/$null mount.
+    $script:VAULT_VOLUME = Get-PnVaultMount
+    # Охрана уже активна → действие работает как «снять» (toggle). Иначе из меню её было
+    # не выключить (тупик: только старт, без стопа).
+    if ((Get-PnVaultwatchState) -eq 'active') {
+        Invoke-PnTool 'vaultwatch' @('stop', $script:VAULT_VOLUME)
+        Invoke-PnPause; return
+    }
     $ttl = Read-PnLine "  $(T 'ask_ttl')"
     if ($ttl) { Invoke-PnTool 'vaultwatch' @('start', '--ttl', $ttl, $script:VAULT_VOLUME) }
     else { Invoke-PnTool 'vaultwatch' @('start', $script:VAULT_VOLUME) }
@@ -283,10 +341,11 @@ function Invoke-PnDispatch {
         '1' { Invoke-PnActStatus }
         '2' { Invoke-PnActPanic }
         '3' { Invoke-PnActVault }
-        '4' { Invoke-PnActSplit }
-        '5' { Invoke-PnActCombine }
-        '6' { Invoke-PnActGhost }
-        '7' { Invoke-PnActWatch }
+        '4' { Invoke-PnActDestroy }
+        '5' { Invoke-PnActSplit }
+        '6' { Invoke-PnActCombine }
+        '7' { Invoke-PnActGhost }
+        '8' { Invoke-PnActWatch }
         { $_ -in '0', 'q', 'Q' } { return $true }
         default { }   # неверный ввод → перерисовать меню
     }
