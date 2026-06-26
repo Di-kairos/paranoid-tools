@@ -53,22 +53,23 @@ before you trust the tool.
 
 ## Install
 
-Each tool installs independently with a verify-then-run script from its release
-(see the tool's README). For personal use across all five at once, this repo
-ships a local installer that puts every tool on your `PATH`:
+One command installs all five tools plus the launcher into `~/.local/bin`:
 
 ```bash
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools
-bash install.sh            # installs all 5 into ~/.local/bin
+bash install.sh            # installs all 5 + the paranoid launcher
 bash install.sh --uninstall
 ```
 
-> Note: `install.sh` copies the tool scripts from a working copy that already
-> contains them (the maintainer's checkout). The five tools live in separate
-> repos and are not vendored here, so a fresh clone of this repo has no tool
-> scripts — `install.sh` would install nothing. Public users should install
-> each tool via its own `curl … | bash` verify-then-run installer (linked above).
+On a fresh clone each tool is pulled from its own **signed release** with verify-then-run:
+the installer checks the Ed25519 signature over `SHA256SUMS`, then the checksum of the
+tool's own `install.sh`, and only then runs it — which in turn verifies the binary before
+installing. Nothing executes until it has been verified. Pin a version with, e.g.,
+`PT_PANIC_VERSION=0.1.5`; change the target dir with `PT_DEST=/usr/local/bin`.
+
+Prefer to install just one tool, or inspect each step by hand? Every tool's README carries a
+standalone verify-then-run snippet plus a one-line quick form. See [the tools](#the-tools).
 
 Plain-Russian usage guide: [КАК-ПОЛЬЗОВАТЬСЯ.ru.md](КАК-ПОЛЬЗОВАТЬСЯ.ru.md).
 
