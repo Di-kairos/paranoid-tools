@@ -12,14 +12,14 @@
 > и тег. Рассинхрон этой таблицы с реальными HEAD не ломает сборку/установку ни одного тула —
 > он лишь означает, что снимок устарел. Обновлять при закрытии сессии вместе с `HANDOFF.md`.
 
-Обновлено: 2026-06-25 (securetrash v0.4.5 — Windows vault-хуки F1; доки 4 тулов: Windows-порт
-помечен shipped beta + version bump; HEADs синкнуты).
+Обновлено: 2026-06-26 (panic v0.1.4 — глобальный хоткей через skhd; securetrash v0.4.5 — Windows
+vault-хуки F1; доки 4 тулов: Windows-порт shipped beta + version bump; HEADs синкнуты).
 
 | Tool | Repo | Tag (release) | HEAD commit | Version | Статус |
 |------|------|---------------|-------------|---------|--------|
 | securetrash | `Di-kairos/securetrash` | `v0.4.5` | `917a0ed` | **0.4.5** | CI ✅ · Release подписан ✅ · Windows (beta) |
 | vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.3` | `7b019af` | **0.1.3** | CI ✅ · Release подписан ✅ · Windows (beta) |
-| panic       | `Di-kairos/panic`       | `v0.1.3` | `2b68551` | **0.1.3** | CI ✅ · Release подписан ✅ · Windows (beta) |
+| panic       | `Di-kairos/panic`       | `v0.1.4` | `a6a8386` | **0.1.4** | CI ✅ (main) · Release подписан ✅ · Windows (beta) · global hotkey (skhd) |
 | ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.3` | `ecbe234` | **0.1.3** | CI ✅ · Release подписан ✅ · Windows (beta) |
 | seedsplit   | `Di-kairos/seedsplit`   | `v0.3.2` | `e1cf0e0` | **0.3.2** | CI ✅ · Release подписан ✅ · Windows (beta) |
 
