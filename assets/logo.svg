@@ -1,24 +1,30 @@
-<svg width="760" height="200" viewBox="0 0 760 200" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Paranoid Tools">
+<svg width="760" height="380" viewBox="0 0 760 380" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Paranoid Tools — open-source privacy toolkit">
   <style>
-    .mono { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .ink  { stroke: #1A1A1A; }
+    .word { font-family: Rockwell, 'Roboto Slab', Georgia, 'Times New Roman', serif; fill: #1A1A1A; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; fill: #1A1A1A; }
+    .mut  { fill: #6B6358; }
   </style>
-  <!-- self-contained dark card: renders identically on light and dark GitHub themes -->
-  <rect x="1" y="1" width="758" height="198" rx="24" fill="#0F172A" stroke="#1E293B" stroke-width="2"/>
 
-  <!-- terminal tile -->
-  <rect x="44" y="50" width="100" height="100" rx="20" fill="#1E293B" stroke="#334155" stroke-width="2"/>
-  <!-- green prompt >_ -->
-  <text x="66" y="118" class="mono" font-size="46" font-weight="700" fill="#22C55E">&gt;_</text>
-  <!-- small padlock badge, top-right of the tile -->
-  <g stroke="#22C55E" stroke-width="4" fill="none" stroke-linecap="round">
-    <path d="M120 70 v-6 a8 8 0 0 1 16 0 v6"/>
+  <!-- self-contained cream card: consistent on light & dark GitHub themes -->
+  <rect x="1" y="1" width="758" height="378" rx="20" fill="#EFEDE4" stroke="#DAD5C7" stroke-width="2"/>
+
+  <!-- key + terminal-square icon (line art) -->
+  <g class="ink" fill="none" stroke-width="7" stroke-linejoin="round" stroke-linecap="round">
+    <!-- square head -->
+    <rect x="452" y="58" width="116" height="116" rx="2"/>
+    <!-- chevron prompt > inside -->
+    <path d="M498 86 L536 116 L498 146"/>
+    <!-- shaft (outline) -->
+    <path d="M452 98 H250 l-22 18 22 18 H452"/>
+    <!-- teeth (key bit) -->
+    <path d="M276 134 v22 h18 v-22"/>
+    <path d="M312 134 v15 h16 v-15"/>
   </g>
-  <rect x="116" y="70" width="24" height="18" rx="4" fill="#22C55E"/>
-  <circle cx="128" cy="78" r="2.6" fill="#0F172A"/>
 
   <!-- wordmark -->
-  <text x="184" y="103" class="mono" font-size="56" font-weight="700" letter-spacing="1" fill="#F8FAFC">PARANOID</text>
-  <text x="184" y="156" class="mono" font-size="34" font-weight="500" letter-spacing="2" fill="#22C55E">TOOLS</text>
+  <text x="380" y="262" text-anchor="middle" class="word" font-size="62" font-weight="700" letter-spacing="6">PARANOID TOOLS</text>
   <!-- tagline -->
-  <text x="324" y="156" class="mono" font-size="17" fill="#94A3B8">honest privacy · one job each</text>
+  <text x="380" y="304" text-anchor="middle" class="mono" font-size="21" letter-spacing="4">OPEN-SOURCE PRIVACY TOOLKIT</text>
+  <text x="380" y="336" text-anchor="middle" class="mono mut" font-size="14" letter-spacing="3">MINIMALIST · BASH CLI · PRECISION-ENGRAVED</text>
 </svg>
