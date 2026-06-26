@@ -89,6 +89,10 @@ t() {
     ru:ghost_new)    echo 'new — редактировать эфемерный черновик' ;;
     en:ghost_pipe)   echo 'pipe — paste, view, write nothing to disk' ;;
     ru:ghost_pipe)   echo 'pipe — вставить, посмотреть, на диск ничего' ;;
+    en:ghost_new_clip) echo 'new + copy to clipboard (auto-wipes after ~20s)' ;;
+    ru:ghost_new_clip) echo 'new + скопировать в буфер (авто-очистка через ~20с)' ;;
+    en:ghost_clip_hint) echo 'On exit the draft goes to the clipboard (with a prompt) and is wiped after ~20s if you have not replaced it.' ;;
+    ru:ghost_clip_hint) echo 'По выходу черновик ляжет в буфер (с подтверждением) и сотрётся через ~20с, если ты его не сменишь.' ;;
     en:type_yes)     echo '[type yes]' ;;    ru:type_yes)     echo '[введите yes]' ;;
     en:split_prompt)  echo 'Paste the secret, then press Ctrl-D on an empty line:' ;;
     ru:split_prompt)  echo 'Вставь секрет, затем нажми Ctrl-D на пустой строке:' ;;
@@ -289,16 +293,33 @@ _act_combine() {
   _run_tool seedsplit combine
   _pause
 }
+# Запуск `ghostdraft new` с подсказкой про редактор. $1 — опц. флаг (напр. --clipboard).
+_ghost_new() {
+  local flag="$1" ed
+  # Зеркалим выбор редактора ghostdraft (иначе подсказка врёт): $EDITOR → vim → nano.
+  if [[ -n "${EDITOR:-}" ]]; then ed="$EDITOR"
+  elif command -v vim >/dev/null 2>&1; then ed="vim"
+  else ed="nano"; fi
+  echo "  $(t ghost_editor_hint "$ed" "$(_editor_exit_hint "$ed")")"
+  if [[ -n "$flag" ]]; then
+    echo "  $(t ghost_clip_hint)"
+    _run_tool ghostdraft new "$flag"
+  else
+    _run_tool ghostdraft new
+  fi
+}
 _act_ghost() {
   echo "  1) $(t ghost_new)"
   echo "  2) $(t ghost_pipe)"
+  echo "  3) $(t ghost_new_clip)"
   local c; read -r -p "  $(t choose): " c <&0 || c=""
   case "$c" in
-    1) local ed="${EDITOR:-nano}"
-       echo "  $(t ghost_editor_hint "$ed" "$(_editor_exit_hint "$ed")")"
-       _run_tool ghostdraft new ;;
+    1) _ghost_new "" ;;
     # pipe читает stdin — без него висел бы на пустом курсоре. Подаём буфер обмена.
     2) echo "  $(t ghost_pipe_hint)"; pbpaste 2>/dev/null | _run_tool ghostdraft pipe ;;
+    # «новый + скопировать»: для рабочего «написал ключ → вставил в приложение» —
+    # ghostdraft new --clipboard сам кладёт в буфер и чистит его через ~20с.
+    3) _ghost_new --clipboard ;;
     *) : ;;
   esac
   _pause

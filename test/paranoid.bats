@@ -188,6 +188,19 @@ run_paranoid() {
   grep -qx "ghostdraft pipe" "$LOG"
 }
 
+@test "ghostdraft submenu 3 dispatches 'ghostdraft new --clipboard'" {
+  run_paranoid $'6\n3\n\n0\n'
+  [ "$status" -eq 0 ]
+  grep -qx "ghostdraft new --clipboard" "$LOG"
+}
+
+@test "ghost submenu 3 warns the clipboard auto-wipes" {
+  run_paranoid $'6\n3\n\n0\n'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"clipboard"* ]]
+  [[ "$output" == *"20s"* ]]
+}
+
 # --- vaultwatch start (пункт 7) ---
 
 @test "watch with TTL dispatches 'vaultwatch start --ttl <X> <vault>'" {
