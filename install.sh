@@ -175,4 +175,4 @@ esac
 echo
 echo "Проверь: securetrash version  |  panic version  |  ghostdraft version"
 echo "Запусти лаунчер: paranoid"
-echo "Гайд по-русски: КАК-ПОЛЬЗОВАТЬСЯ.ru.md"
+echo "Гайд по-русски: ИНСТРУКЦИЯ.md"

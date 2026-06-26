@@ -71,7 +71,7 @@ installing. Nothing executes until it has been verified. Pin a version with, e.g
 Prefer to install just one tool, or inspect each step by hand? Every tool's README carries a
 standalone verify-then-run snippet plus a one-line quick form. See [the tools](#the-tools).
 
-Plain-Russian usage guide: [КАК-ПОЛЬЗОВАТЬСЯ.ru.md](КАК-ПОЛЬЗОВАТЬСЯ.ru.md).
+Plain-Russian usage guide: [ИНСТРУКЦИЯ.md](ИНСТРУКЦИЯ.md).
 
 ## The launcher
 
