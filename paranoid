@@ -69,6 +69,8 @@ t() {
     ru:m_ghost)      echo 'Ghostdraft — эфемерная заметка / pipe' ;;
     en:m_watch)      echo 'Watch vault — guard + TTL (vaultwatch)' ;;
     ru:m_watch)      echo 'Сторожить сейф — guard + TTL (vaultwatch)' ;;
+    en:m_unwatch)    echo 'Stop watching the vault (vaultwatch)' ;;
+    ru:m_unwatch)    echo 'Снять охрану сейфа (vaultwatch)' ;;
     en:m_quit)       echo 'Quit' ;;          ru:m_quit)       echo 'Выход' ;;
     en:not_installed) echo 'not installed' ;; ru:not_installed) echo 'не установлен' ;;
     en:install_hint)  printf 'Install %s: %s' "$2" "$3" ;;
@@ -88,6 +90,18 @@ t() {
     en:ghost_pipe)   echo 'pipe — paste, view, write nothing to disk' ;;
     ru:ghost_pipe)   echo 'pipe — вставить, посмотреть, на диск ничего' ;;
     en:type_yes)     echo '[type yes]' ;;    ru:type_yes)     echo '[введите yes]' ;;
+    en:split_prompt)  echo 'Paste the secret, then press Ctrl-D on an empty line:' ;;
+    ru:split_prompt)  echo 'Вставь секрет, затем нажми Ctrl-D на пустой строке:' ;;
+    en:split_done)    echo '↑ Save each share above in a SEPARATE place. They disappear when you press Enter.' ;;
+    ru:split_done)    echo '↑ Сохрани каждую долю выше в ОТДЕЛЬНОМ месте. После Enter они исчезнут.' ;;
+    en:combine_prompt) echo 'Paste the shares — one per line — then press Ctrl-D:' ;;
+    ru:combine_prompt) echo 'Вставь доли — по одной на строку — затем нажми Ctrl-D:' ;;
+    en:ghost_editor_hint) printf 'Opens in %s. To save and exit: %s.' "$2" "$3" ;;
+    ru:ghost_editor_hint) printf 'Откроется в %s. Сохранить и выйти: %s.' "$2" "$3" ;;
+    en:ghost_pipe_hint) echo 'Showing the clipboard (nothing is written to disk):' ;;
+    ru:ghost_pipe_hint) echo 'Показываю буфер обмена (на диск ничего не пишется):' ;;
+    en:ttl_bad)      echo 'Invalid format. Use 30m, 2h, 45s, 1d or a plain number of seconds.' ;;
+    ru:ttl_bad)      echo 'Неверный формат. Используй 30m, 2h, 45s, 1d или просто число секунд.' ;;
     *) echo "$1" ;;
   esac
 }
@@ -206,17 +220,24 @@ _render() {
   _menu_item 4 "$(t m_split)"  seedsplit
   _menu_item 5 "$(t m_combine)" seedsplit
   _menu_item 6 "$(t m_ghost)"  ghostdraft
-  _menu_item 7 "$(t m_watch)"  vaultwatch
+  # П.7 — toggle: активна охрана → «снять», иначе → «сторожить». Иначе охрану
+  # нельзя было выключить из меню (тупик: только старт, без стопа).
+  if [[ "$vw" == active ]]; then
+    _menu_item 7 "$(t m_unwatch)" vaultwatch
+  else
+    _menu_item 7 "$(t m_watch)"   vaultwatch
+  fi
   printf '  0) %s\n\n' "$(t m_quit)"
 }
 
 _pause() { read -r -p "  $(t press_enter)… " _ <&0 || true; }
 
-# Подтверждение: 0 только при точном 'yes'.
+# Подтверждение: 0 только при 'yes' (регистр не важен: yes/YES/Yes). Целое слово —
+# одной буквы 'y' мало для необратимых операций. `case` — bash 3.2-safe (без ${ans,,}).
 _confirm() {
   local ans
   read -r -p "  $1 $(t type_yes): " ans <&0 || return 1
-  [[ "$ans" == "yes" ]]
+  case "$ans" in [Yy][Ee][Ss]) return 0 ;; *) return 1 ;; esac
 }
 
 # --- действия ---
@@ -248,23 +269,58 @@ _act_vault() {
   esac
   _pause
 }
-_act_split()   { _run_tool seedsplit split;   _pause; }
-_act_combine() { _run_tool seedsplit combine; _pause; }
+# Подсказка по выходу из редактора (иначе новичок не знает, как сохранить и выйти).
+_editor_exit_hint() {
+  case "$1" in
+    *vim|*vi)  echo ':wq' ;;
+    *nano|*pico) echo 'Ctrl-O, Enter, Ctrl-X' ;;
+    *emacs)    echo 'Ctrl-X Ctrl-S, Ctrl-X Ctrl-C' ;;
+    *)         echo 'save & quit' ;;
+  esac
+}
+_act_split() {
+  # seedsplit split молча читает stdin — без подсказки новичок видит пустой курсор.
+  echo "  $(t split_prompt)"
+  if _run_tool seedsplit split; then echo; echo "  $(t split_done)"; fi
+  _pause
+}
+_act_combine() {
+  echo "  $(t combine_prompt)"
+  _run_tool seedsplit combine
+  _pause
+}
 _act_ghost() {
   echo "  1) $(t ghost_new)"
   echo "  2) $(t ghost_pipe)"
   local c; read -r -p "  $(t choose): " c <&0 || c=""
   case "$c" in
-    1) _run_tool ghostdraft new ;;
-    2) _run_tool ghostdraft pipe ;;
+    1) local ed="${EDITOR:-nano}"
+       echo "  $(t ghost_editor_hint "$ed" "$(_editor_exit_hint "$ed")")"
+       _run_tool ghostdraft new ;;
+    # pipe читает stdin — без него висел бы на пустом курсоре. Подаём буфер обмена.
+    2) echo "  $(t ghost_pipe_hint)"; pbpaste 2>/dev/null | _run_tool ghostdraft pipe ;;
     *) : ;;
   esac
   _pause
 }
 _act_watch() {
+  # Охрана уже активна → п.7 работает как «снять» (toggle). Иначе из меню её было
+  # не выключить.
+  if [[ "$(_status_vaultwatch)" == active ]]; then
+    _run_tool vaultwatch stop "$VAULT_VOLUME"
+    _pause; return
+  fi
   local ttl; read -r -p "  $(t ask_ttl) " ttl <&0 || ttl=""
-  if [[ -n "$ttl" ]]; then _run_tool vaultwatch start --ttl "$ttl" "$VAULT_VOLUME"
-  else _run_tool vaultwatch start "$VAULT_VOLUME"; fi
+  if [[ -n "$ttl" ]]; then
+    # Валидируем формат тут: иначе кривой ввод даёт ошибку vaultwatch + «idle» в
+    # дашборде, и непонятно, запустилось оно или нет.
+    if ! [[ "$ttl" =~ ^[0-9]+[smhd]?$ ]]; then
+      echo "  ${C_YEL}$(t ttl_bad)${C_RST}" >&2; _pause; return
+    fi
+    _run_tool vaultwatch start --ttl "$ttl" "$VAULT_VOLUME"
+  else
+    _run_tool vaultwatch start "$VAULT_VOLUME"
+  fi
   _pause
 }
 

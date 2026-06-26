@@ -271,3 +271,56 @@ STUB
   run_paranoid $'Q\n'
   [ "$status" -eq 0 ]
 }
+
+# --- UX: подсказки и тупики ---
+
+@test "split prints a paste prompt before reading stdin" {
+  run_paranoid $'4\n\n0\n'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Paste the secret"* ]]
+}
+
+@test "combine prints a one-per-line paste prompt" {
+  run_paranoid $'5\n\n0\n'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"one per line"* ]]
+}
+
+@test "ghost new shows which editor opens and how to exit" {
+  EDITOR=nano run_paranoid $'6\n1\n\n0\n' EDITOR=nano
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nano"* ]]
+  [[ "$output" == *"Ctrl-X"* ]]
+}
+
+@test "ghost pipe shows a hint (does not silently wait on stdin)" {
+  run_paranoid $'6\n2\n\n0\n'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"clipboard"* ]]
+}
+
+@test "confirm accepts YES/Yes case-insensitively" {
+  run_paranoid $'2\nYES\nno\n\n0\n'
+  [ "$status" -eq 0 ]
+  grep -qx "panic now" "$LOG"
+}
+
+@test "invalid TTL is rejected and does not start vaultwatch" {
+  run_paranoid $'7\n30min\n\n0\n' ST_VAULT_VOLUME="$TMP/vault"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Invalid format"* ]]
+  ! grep -q "vaultwatch start" "$LOG"
+}
+
+@test "menu item 7 stops the watch when a session is active" {
+  cat >"$STUBS/vaultwatch" <<EOF
+#!/usr/bin/env bash
+printf 'vaultwatch %s\n' "\$*" >>"$LOG"
+[ "\${1:-}" = "status" ] && echo "session: active"
+exit 0
+EOF
+  chmod +x "$STUBS/vaultwatch"
+  run_paranoid $'7\n\n0\n' ST_VAULT_VOLUME="$TMP/vault"
+  [ "$status" -eq 0 ]
+  grep -qx "vaultwatch stop $TMP/vault" "$LOG"
+}
