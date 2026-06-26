@@ -1,18 +1,30 @@
-# Paranoid Tools
+<div align="center">
 
 [English](README.md) · **Русский**
 
+<img src="assets/logo.svg" alt="Paranoid Tools" width="620">
+
+### Честные privacy/security-утилиты для macOS и Windows — каждая делает одно дело, без шарлатанства.
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-![platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-blue)
-![dependencies](https://img.shields.io/badge/dependencies-zero-success)
-![releases](https://img.shields.io/badge/releases-Ed25519%20signed-blueviolet)
-![tools](https://img.shields.io/badge/tools-5-informational)
+&nbsp;![platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-blue)
+&nbsp;![dependencies](https://img.shields.io/badge/dependencies-zero-success)
+&nbsp;![releases](https://img.shields.io/badge/releases-Ed25519%20signed-blueviolet)
+&nbsp;![tools](https://img.shields.io/badge/tools-5-informational)
 
-Честные privacy/security-утилиты для macOS и Windows — каждая делает одно дело, без шарлатанства.
+**[Манифест](MANIFEST.ru.md)** &nbsp;·&nbsp; **[Инструменты](#состав)** &nbsp;·&nbsp; **[Установка](#установка)** &nbsp;·&nbsp; **[Лаунчер](#лаунчер)**
 
-> **Зачем эти инструменты →** [Манифест Paranoid Tools](MANIFEST.ru.md)
+</div>
+
+> **Не доверяй — проверяй.** Релизы подписаны Ed25519 · ноль зависимостей · один читаемый
+> файл на инструмент · shellcheck-clean. Каждое ограничение названо прямо — см. *Scope &amp;
+> limitations* у каждого инструмента. Сторонний аудит мы не заявляем: код мал настолько,
+> что его можно прочитать самому.
 
 Зонтик небольших CLI-инструментов вокруг **жизненного цикла секрета**
+(seed-фраза / пароль / ключ). Каждый инструмент — отдельный git-репозиторий,
+один файл-скрипт (чистый Bash на macOS/Linux, PowerShell-порт на Windows) с
+**нулём зависимостей**, и честно говорит о пределах своих гарантий.
 (seed-фраза / пароль / ключ). Каждый инструмент — отдельный git-репозиторий,
 один файл-скрипт (чистый Bash на macOS/Linux, PowerShell-порт на Windows) с
 **нулём зависимостей**, и честно говорит о пределах своих гарантий.

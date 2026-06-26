@@ -1,18 +1,30 @@
-# Paranoid Tools
+<div align="center">
 
 **English** · [Русский](README.ru.md)
 
+<img src="assets/logo.svg" alt="Paranoid Tools" width="620">
+
+### Honest privacy &amp; security tools for macOS &amp; Windows — one job each, no snake oil.
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-![platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-blue)
-![dependencies](https://img.shields.io/badge/dependencies-zero-success)
-![releases](https://img.shields.io/badge/releases-Ed25519%20signed-blueviolet)
-![tools](https://img.shields.io/badge/tools-5-informational)
+&nbsp;![platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-blue)
+&nbsp;![dependencies](https://img.shields.io/badge/dependencies-zero-success)
+&nbsp;![releases](https://img.shields.io/badge/releases-Ed25519%20signed-blueviolet)
+&nbsp;![tools](https://img.shields.io/badge/tools-5-informational)
 
-Honest privacy & security tools for macOS & Windows — one job each, no snake oil.
+**[Manifesto](MANIFEST.md)** &nbsp;·&nbsp; **[Tools](#the-tools)** &nbsp;·&nbsp; **[Install](#install)** &nbsp;·&nbsp; **[Launcher](#the-launcher)**
 
-> **Why these tools exist →** [The Paranoid Tools Manifesto](MANIFEST.md)
+</div>
+
+> **Don't trust, verify.** Ed25519-signed releases · zero runtime dependencies · one
+> auditable file per tool · shellcheck-clean. Every limitation is stated plainly — see each
+> tool's *Scope &amp; limitations*. No third-party audit is claimed; the code is small enough
+> to read yourself.
 
 An umbrella of small command-line tools around the **lifecycle of a secret**
+(seed phrase / password / key). Each tool is its own git repo — a single-file
+script (pure Bash on macOS/Linux, a PowerShell port on Windows) with **zero
+runtime dependencies** — and is honest about the limits of what it can guarantee.
 (seed phrase / password / key). Each tool is its own git repo — a single-file
 script (pure Bash on macOS/Linux, a PowerShell port on Windows) with **zero
 runtime dependencies** — and is honest about the limits of what it can guarantee.
