@@ -75,9 +75,9 @@ them is not part of the ecosystem.
 
 ## The tools are the argument
 
-A manifesto that stays words is just an opinion. Ours lives in five small
-instruments, each covering one step in **the lifecycle of a secret** — write it,
-store it, guard it, hide it under threat, distribute it, destroy it:
+A manifesto that stays words is just an opinion. Ours lives in five small tools
+that together cover **the lifecycle of a secret** — write it, store it, guard it,
+hide it under threat, distribute it, destroy it:
 
 | Step | Tool | One job |
 |------|------|---------|
