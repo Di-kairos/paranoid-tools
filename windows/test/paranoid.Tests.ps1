@@ -448,11 +448,12 @@ Describe 'notepad submenu dispatch (ghostdraft)' {
             $Tool -eq 'ghostdraft' -and ($ToolArgs -contains 'new') -and (-not ($ToolArgs -contains '--clipboard'))
         }
     }
-    It '2 runs ghostdraft pipe' {
-        Invoke-PnNotepadDispatch '2' | Out-Null
+    It '2 runs ghostdraft pipe (and shows a paste hint first)' {
+        $out = (Invoke-PnNotepadDispatch '2' 6>&1) -join "`n"
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'ghostdraft' -and ($ToolArgs -contains 'pipe')
         }
+        $out | Should -Match 'nothing is written to disk'
     }
     It '3 runs ghostdraft new --clipboard' {
         Invoke-PnNotepadDispatch '3' | Out-Null
@@ -482,17 +483,19 @@ Describe 'secrets submenu dispatch (seedsplit) + status (top 1)' {
             $Tool -eq 'vaultwatch' -and ($ToolArgs -contains 'status')
         }
     }
-    It 'secrets 1 runs seedsplit split' {
-        Invoke-PnSecretsDispatch '1' | Should -BeFalse
+    It 'secrets 1 runs seedsplit split (and shows a paste prompt first)' {
+        $out = (Invoke-PnSecretsDispatch '1' 6>&1) -join "`n"
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'seedsplit' -and ($ToolArgs -contains 'split')
         }
+        $out | Should -Match 'Paste the secret'
     }
-    It 'secrets 2 runs seedsplit combine' {
-        Invoke-PnSecretsDispatch '2' | Out-Null
+    It 'secrets 2 runs seedsplit combine (and shows a one-per-line prompt)' {
+        $out = (Invoke-PnSecretsDispatch '2' 6>&1) -join "`n"
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'seedsplit' -and ($ToolArgs -contains 'combine')
         }
+        $out | Should -Match 'one per line'
     }
     It 'returns $true on back (0)' { (Invoke-PnSecretsDispatch '0') | Should -BeTrue }
 }

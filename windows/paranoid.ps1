@@ -139,6 +139,13 @@ function T {
         'ru:ghost_new_clip' { return 'new + скопировать в буфер (на Windows без авто-очистки)' }
         'en:ghost_clip_hint' { return 'On exit the draft is copied to the clipboard (after a confirmation). Windows has NO auto-clear — Win+V history and Cloud Clipboard keep it — so clear it yourself.' }
         'ru:ghost_clip_hint' { return 'По выходу черновик копируется в буфер (после подтверждения). На Windows авто-очистки НЕТ — история Win+V и Cloud Clipboard его хранят — чисти сам.' }
+        # Подсказки ввода (паритет с bash). На Windows конец ввода — Ctrl-Z затем Enter (НЕ Ctrl-D).
+        'en:split_prompt'    { return 'Paste the secret, then press Ctrl-Z and Enter:' }
+        'ru:split_prompt'    { return 'Вставь секрет, затем нажми Ctrl-Z и Enter:' }
+        'en:combine_prompt'  { return 'Paste the shares — one per line — then press Ctrl-Z and Enter:' }
+        'ru:combine_prompt'  { return 'Вставь доли — по одной на строку — затем нажми Ctrl-Z и Enter:' }
+        'en:ghost_pipe_hint' { return 'Paste text, then Ctrl-Z and Enter — nothing is written to disk:' }
+        'ru:ghost_pipe_hint' { return 'Вставь текст, затем Ctrl-Z и Enter — на диск ничего не пишется:' }
         'en:type_yes'     { return '[type yes]' }   'ru:type_yes'     { return '[введите yes]' }
         default           { return $Key }
     }
@@ -428,12 +435,15 @@ function Invoke-PnActEmpty {
     }
     Invoke-PnPause
 }
-function Invoke-PnActSplit   { Invoke-PnTool 'seedsplit' @('split');   Invoke-PnPause }
-function Invoke-PnActCombine { Invoke-PnTool 'seedsplit' @('combine'); Invoke-PnPause }
+# seedsplit split/combine молча читают stdin — без подсказки новичок видит пустой курсор
+# и не знает, что вставлять и чем завершить ввод (паритет с bash).
+function Invoke-PnActSplit   { Write-Output "  $(T 'split_prompt')";   Invoke-PnTool 'seedsplit' @('split');   Invoke-PnPause }
+function Invoke-PnActCombine { Write-Output "  $(T 'combine_prompt')"; Invoke-PnTool 'seedsplit' @('combine'); Invoke-PnPause }
 # Ghost-действия (из notepad-подменю). new --clipboard: ghostdraft сам показывает DANGER +
 # confirm; на Windows авто-очистки буфера НЕТ — лаунчер дублирует caveat честной подписью.
 function Invoke-PnActGhostNew  { Invoke-PnTool 'ghostdraft' @('new') }
-function Invoke-PnActGhostPipe { Invoke-PnTool 'ghostdraft' @('pipe') }
+# pipe читает stdin — подсказываем, что вставить и чем завершить (паритет с bash).
+function Invoke-PnActGhostPipe { Write-Output "  $(T 'ghost_pipe_hint')"; Invoke-PnTool 'ghostdraft' @('pipe') }
 function Invoke-PnActGhostClip { Write-Output "  $(T 'ghost_clip_hint')"; Invoke-PnTool 'ghostdraft' @('new', '--clipboard') }
 function Invoke-PnActWatch {
     # Перечитываем активную букву прямо здесь (как делает Get-PnDashboard): на Windows том
