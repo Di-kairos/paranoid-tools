@@ -47,14 +47,28 @@ paranoid
 ```
 1) Status        — full read-only check (what actually protects you on your hardware)
 2) 🔒 PANIC NOW  — hide & lock everything (with confirmation)
-3) Vault         — create / open / close the vault
-4) 💣 Destroy    — destroy the vault and all its contents (irreversible; greyed if no vault)
-5) Split         — split a secret into shares (seedsplit)
-6) Combine       — rebuild a secret from shares (seedsplit)
-7) Ghostdraft    — leave no disk trace: 1) new  2) pipe  3) new + copy to clipboard
-8) Watch vault   — guard an open vault + TTL (vaultwatch)
+3) Vault ▸       — open / close / create, empty, destroy, watch
+4) Notepad ▸     — ghostdraft: new / pipe / new + copy to clipboard
+5) Secrets ▸     — seedsplit: split / combine
 0) Quit
 ```
+
+The menu is grouped into submenus; **PANIC NOW** stays at the top level so it's one keypress
+away. Each submenu has its own `0) Back`.
+
+**3) Vault ▸**
+```
+1) Open / Close / Create  — label follows the current state
+2) Empty                  — crypto-shred everything, keep a fresh empty vault
+3) Destroy                — remove the vault and its contents (irreversible)
+4) Watch                  — guard / stop the open vault (vaultwatch)
+0) Back
+```
+Watch lives here because vaultwatch's whole job is guarding the *open* vault.
+
+**4) Notepad ▸** — `1) new`, `2) pipe`, `3) new + copy to clipboard` (ghostdraft).
+
+**5) Secrets ▸** — `1) split`, `2) combine` (seedsplit).
 
 The launcher holds no secrets and adds no crypto of its own: it runs the same five signed
 CLIs and shows their output verbatim — every caveat and `check` verdict included. Anything
@@ -71,9 +85,12 @@ container.
 
 ```bash
 securetrash check              # honest verdict: which guarantees are real on your disk
-securetrash vault create       # create the encrypted vault
+securetrash vault create [size] # create the encrypted vault (size = ceiling, optional)
 securetrash vault open         # open (mount) the vault
 securetrash vault close        # close the vault
+securetrash vault reset [size] # crypto-shred everything, recreate a fresh EMPTY vault
+securetrash vault destroy      # remove the vault and its contents (irreversible)
+securetrash vault status       # is the vault present / open?
 securetrash shred ~/secret.pdf # wipe a single file
 
 # Wipe several at once — list paths, pass a glob, or a whole folder (one confirmation for
@@ -98,6 +115,21 @@ the volume from Finder unmounts it — the same as `vault close`, and your secre
 at rest again. Want maximum privacy (the volume kept off the sidebar and desktop)? Open with
 `ST_VAULT_HIDDEN=1 securetrash vault open`; then the only way to bring the window back is the
 `open` command.
+
+**Empty the vault for sure.** `securetrash vault reset` (Vault ▸ → 2, Empty) crypto-shreds the
+current container — it throws the key away — and recreates a fresh, **empty** vault in its place.
+Why not just delete the files inside? Wiping files in place inside a live vault on an SSD is only
+best-effort: the same key still decrypts whatever blocks are left behind. The one real
+irreversibility guarantee is destroying the container's key, so "empty" literally means
+*destroy + recreate*. You're left with a working (empty) vault, ready to use again. This covers
+the everyday workflow: accumulate files → wipe everything for certain → keep working.
+securetrash asks you to type `yes` and set a password for the fresh vault.
+
+**Vault size (a ceiling, not reserved space).** When the launcher creates a vault — or empties
+one and recreates it — it asks for a size. This is only an upper limit: the container
+(sparsebundle on macOS, VHDX on Windows) is thin and grows as you add files, so picking a large
+cap costs you nothing up front. Press Enter for the default (1 GB). On macOS the format is like
+`5g` / `500m`; on Windows it's a number of megabytes (e.g. `5120`).
 
 **Delete the vault entirely.** `securetrash vault destroy` removes the container
 (`~/SecureVault.sparsebundle`) and crypto-shreds it — the key is gone, the icon disappears
@@ -159,7 +191,9 @@ pbpaste | ghostdraft pipe   # show the clipboard in the terminal, writing nothin
 
 1. `paranoid` → `6` (Ghostdraft) → `3` (new + copy to clipboard).
 2. The editor opens (`vim` with soft wrap — a long key won't run off the edge or get broken by
-   inserted newlines). Type the secret, then save and quit: `:wq`.
+   inserted newlines). Type the secret, then exit: an always-visible hint line shows
+   **F2 = save & exit**, **F3 = discard** — both work even from `-- INSERT --`, so you're never
+   stuck. The colon commands `:wq` / `:q!` still work too.
 3. ghostdraft asks to confirm copying to the clipboard — answer `yes`.
 4. Paste the secret into the app you need (`Cmd+V`).
 5. After ~20 seconds the clipboard wipes itself — but only if you haven't overwritten it in the
@@ -169,7 +203,10 @@ The same directly, without the menu: `ghostdraft new --clipboard`.
 
 **Bottom line:** ghostdraft makes no "zero traces" claim where the OS itself leaves them (swap,
 terminal scrollback, and for `vim`, `~/.viminfo`) — it lists them honestly on exit. The default
-editor `vim -i NONE` disables `~/.viminfo`. The clipboard is dangerous by nature (clipboard
+editor `vim -i NONE` disables `~/.viminfo` and maps **F2** (save & exit) / **F3** (discard) so
+new users are never trapped in `-- INSERT --`; on Windows the default editor is notepad. Set your
+own `$EDITOR` and these mappings don't apply — your editor is left untouched. The clipboard is
+dangerous by nature (clipboard
 managers, iCloud Universal Clipboard), which is why copying is explicit, confirmed, and
 auto-wiped.
 

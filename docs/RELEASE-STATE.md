@@ -12,16 +12,16 @@
 > и тег. Рассинхрон этой таблицы с реальными HEAD не ломает сборку/установку ни одного тула —
 > он лишь означает, что снимок устарел. Обновлять при закрытии сессии вместе с `HANDOFF.md`.
 
-Обновлено: 2026-06-26 (panic v0.1.5 — глобальный хоткей через skhd; securetrash v0.4.5 — Windows
-vault-хуки F1; доки 4 тулов: Windows-порт shipped beta + version bump; HEADs синкнуты).
+Обновлено: 2026-06-27 (securetrash v0.4.10 — `vault reset` = crypto-shred + recreate; ghostdraft
+v0.1.6 — простой выход из vim F2/F3; лаунчер: подменю-навигация + Empty + выбор размера; verify 5/5).
 
 | Tool | Repo | Tag (release) | HEAD commit | Version | Статус |
 |------|------|---------------|-------------|---------|--------|
-| securetrash | `Di-kairos/securetrash` | `v0.4.5` | `917a0ed` | **0.4.5** | CI ✅ · Release подписан ✅ · Windows (beta) |
-| vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.3` | `7b019af` | **0.1.3** | CI ✅ · Release подписан ✅ · Windows (beta) |
+| securetrash | `Di-kairos/securetrash` | `v0.4.10` | `472a346` | **0.4.10** | CI ✅ · Release подписан ✅ · Windows (beta) · `vault reset` |
+| vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.4` | `d1bd90b` | **0.1.4** | CI ✅ · Release подписан ✅ · Windows (beta) |
 | panic       | `Di-kairos/panic`       | `v0.1.5` | `50af6d4` | **0.1.5** | CI ✅ · Release подписан ✅ · Windows (beta) · global hotkey (skhd) |
-| ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.3` | `ecbe234` | **0.1.3** | CI ✅ · Release подписан ✅ · Windows (beta) |
-| seedsplit   | `Di-kairos/seedsplit`   | `v0.3.2` | `e1cf0e0` | **0.3.2** | CI ✅ · Release подписан ✅ · Windows (beta) |
+| ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.6` | `7ead035` | **0.1.6** | CI ✅ · Release подписан ✅ · Windows (beta) · simple editor exit |
+| seedsplit   | `Di-kairos/seedsplit`   | `v0.3.3` | `a47037d` | **0.3.3** | CI ✅ · Release подписан ✅ · Windows (beta) |
 
 Все пять инструментов — open source, опубликованы публично (исходники и релизы открыты).
 

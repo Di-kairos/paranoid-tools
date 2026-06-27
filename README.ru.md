@@ -32,10 +32,10 @@
 
 | # | Инструмент | Шаг жизни секрета | Платформа | Версия |
 |---|------------|-------------------|-----------|--------|
-| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить в зашифрованном vault, затем уничтожить | macOS · Windows (beta) | `v0.4.9` |
+| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить в зашифрованном vault, очистить или уничтожить | macOS · Windows (beta) | `v0.4.10` |
 | 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый vault | macOS · Windows (beta) | `v0.1.4` |
 | 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | macOS · Windows (beta) | `v0.1.5` |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть без следов на диске | macOS · Windows (beta) | `v0.1.5` |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть без следов на диске | macOS · Windows (beta) | `v0.1.6` |
 | 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | разбить секрет на доли (Шамир) | macOS · Windows (beta) | `v0.3.3` |
 
 > **Windows.** У всех пяти инструментов есть PowerShell-порты (beta, покрыты Pester на CI;
@@ -89,7 +89,11 @@ close`, затем `securetrash vault open`.
 ## Лаунчер
 
 `paranoid` — интерактивный лаунчер: дашборд состояния и меню поверх пяти CLI.
-Чистый Bash, ноль зависимостей — как и инструменты, которыми он управляет.
+Чистый Bash, ноль зависимостей — как и инструменты, которыми он управляет. Меню
+сгруппировано в подменю — **Сейф** (открыть/закрыть · очистить · уничтожить · сторожить),
+**Блокнот** (ghostdraft), **Секреты** (seedsplit) — а *Статус* и *ПАНИКА* в один нажим
+оставлены наверху. **Очистить** crypto-shred'ит содержимое сейфа и даёт новый пустой
+(настоящая гарантия, в отличие от перезаписи файлов на месте на SSD).
 
 Своих секретов не держит и своей криптографии не добавляет: запускает те же подписанные
 инструменты и показывает их вывод — вместе с *Scope & limitations* и вердиктами `check` —

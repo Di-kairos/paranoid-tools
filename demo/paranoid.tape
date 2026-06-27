@@ -25,6 +25,16 @@ Type "paranoid"
 Enter
 Sleep 3500ms
 
+# Пункт 3 — подменю «Сейф»: все операции с контейнером в одном месте
+Type "3"
+Enter
+Sleep 3800ms
+
+# 0 — назад в главное меню
+Type "0"
+Enter
+Sleep 1800ms
+
 # Пункт 1 — живой honest-статус (securetrash check) прямо из дашборда
 Type "1"
 Enter
@@ -32,7 +42,7 @@ Sleep 4500ms
 
 # Enter — назад в меню
 Enter
-Sleep 2200ms
+Sleep 2000ms
 
 # 0 — чистый выход
 Type "0"

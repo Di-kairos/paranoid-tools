@@ -32,10 +32,10 @@ runtime dependencies** — and is honest about the limits of what it can guarant
 
 | # | Tool | Step in a secret's life | Platform | Latest |
 |---|------|-------------------------|----------|--------|
-| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store in an encrypted vault, then destroy | macOS · Windows (beta) | `v0.4.9` |
+| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | `v0.4.10` |
 | 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS · Windows (beta) | `v0.1.4` |
 | 3 | [`panic`](https://github.com/Di-kairos/panic)             | hide & lock everything, instantly | macOS · Windows (beta) | `v0.1.5` |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text leaving no disk trace | macOS · Windows (beta) | `v0.1.5` |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text leaving no disk trace | macOS · Windows (beta) | `v0.1.6` |
 | 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares | macOS · Windows (beta) | `v0.3.3` |
 
 > **Windows.** All five tools ship PowerShell ports (beta, Pester-tested in CI; seedsplit
@@ -89,7 +89,11 @@ Usage guides: **[English](GUIDE.md)** · [Русский](ИНСТРУКЦИЯ.m
 ## The launcher
 
 `paranoid` is an interactive launcher — a status dashboard plus a menu — over the
-five CLIs. Pure Bash, zero dependencies, just like the tools it drives.
+five CLIs. Pure Bash, zero dependencies, just like the tools it drives. The menu is
+grouped into submenus — **Vault** (open/close · empty · destroy · watch), **Notepad**
+(ghostdraft), **Secrets** (seedsplit) — with *Status* and one-key *PANIC* kept at the top.
+**Empty** crypto-shreds the vault's contents and hands you a fresh empty one (a real
+guarantee, unlike wiping files in place on an SSD).
 
 It holds no secrets and adds no crypto of its own: it runs the same signed tools
 and shows their output — *Scope & limitations* and `check` verdicts included —
