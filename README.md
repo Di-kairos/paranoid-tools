@@ -33,10 +33,10 @@ runtime dependencies** — and is honest about the limits of what it can guarant
 | # | Tool | Step in a secret's life | Platform | Latest |
 |---|------|-------------------------|----------|--------|
 | 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | `v0.4.10` |
-| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS · Windows (beta) | `v0.1.4` |
+| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS · Windows (beta) | `v0.1.5` |
 | 3 | [`panic`](https://github.com/Di-kairos/panic)             | hide & lock everything, instantly | macOS · Windows (beta) | `v0.1.5` |
 | 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text leaving no disk trace | macOS · Windows (beta) | `v0.1.6` |
-| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares | macOS · Windows (beta) | `v0.3.3` |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares (+ passphrase) | macOS · Windows (beta) | `v0.4.0` |
 
 > **Windows.** All five tools ship PowerShell ports (beta, Pester-tested in CI; seedsplit
 > shares are byte-compatible with the macOS build). The macOS primitives — Spotlight, Time
