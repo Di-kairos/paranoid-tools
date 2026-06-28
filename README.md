@@ -2,7 +2,7 @@
 
 **English** · [Русский](README.ru.md)
 
-<img src="assets/logo.svg" alt="Paranoid Tools" width="620">
+<img src="assets/logo.png" alt="Paranoid Tools" width="620">
 
 ### Honest privacy &amp; security tools for macOS &amp; Windows — one job each, no snake oil.
 
@@ -125,6 +125,13 @@ same five PowerShell ports.
   the container's lifecycle through them.
 - **The ecosystem law.** One tool = one job. Every README must carry an honest
   *Scope & limitations* section. Never manufacture a false sense of security.
+
+## Support
+
+Paranoid Tools is free and open-source (MIT). If it saved you from a leak — or you just
+want the work to continue — you can support it via **[GitHub Sponsors](https://github.com/sponsors/Di-kairos)**.
+No paywalls, no telemetry, no upsell: the tools stay fully usable without paying. Sponsorship
+funds maintenance and the optional convenience layer (the native menu-bar / tray, Phase B).
 
 ## License
 
