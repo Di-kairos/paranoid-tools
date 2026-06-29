@@ -38,6 +38,23 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $empty = (Get-PtMenuSpec -VaultState 'open') | Where-Object { $_.Label -match 'Empty' }
         $empty.Command | Should -Be 'securetrash vault reset'
     }
+    It 'содержит пункт автостарта (Start at login / __autostart__)' {
+        $auto = (Get-PtMenuSpec -VaultState 'closed') | Where-Object { $_.Label -match 'Start at login' }
+        $auto.Command | Should -Be '__autostart__'
+    }
+    It 'пункт сейфа остаётся на индексе 3 после добавления автостарта' {
+        (Get-PtMenuSpec -VaultState 'closed')[3].Command | Should -Be 'securetrash vault open'
+    }
+}
+
+Describe 'Get-PtAutostartSpec — спецификация автозапуска' {
+    It 'указывает на HKCU Run и запускает сам tray-скрипт через pwsh' {
+        $s = Get-PtAutostartSpec
+        $s.Path  | Should -Be 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        $s.Name  | Should -Be 'ParanoidTray'
+        $s.Value | Should -Match 'pwsh'
+        $s.Value | Should -Match 'paranoid-tray\.ps1'
+    }
 }
 
 Describe 'Invoke-PtTool — диспетчер CLI' {
@@ -53,6 +70,10 @@ Describe 'Invoke-PtTool — диспетчер CLI' {
     }
     It '__quit__ ничего не запускает (выход обрабатывает сам tray)' {
         Invoke-PtTool -Command '__quit__'
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+    It '__autostart__ ничего не запускает (toggle обрабатывает сам tray)' {
+        Invoke-PtTool -Command '__autostart__'
         Should -Invoke Start-Process -Times 0 -Exactly
     }
 }

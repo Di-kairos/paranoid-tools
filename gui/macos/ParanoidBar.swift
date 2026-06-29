@@ -37,7 +37,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refresh() {
         let open = vaultOpen()
-        statusItem.button?.title = open ? "🔓⚠" : "🔒"
+        // Monochrome SF-Symbol глиф (template) — адаптируется под тёмную/светлую строку меню, в
+        // отличие от цветного emoji. Fallback на emoji, если символ недоступен (до macOS 11).
+        let symbol = open ? "lock.open.fill" : "lock.fill"
+        if let img = NSImage(systemSymbolName: symbol,
+                             accessibilityDescription: open ? "Vault open" : "Vault closed") {
+            img.isTemplate = true
+            statusItem.button?.image = img
+            statusItem.button?.title = open ? " ⚠" : ""   // при открытом сейфе — предупреждение
+        } else {
+            statusItem.button?.image = nil
+            statusItem.button?.title = open ? "🔓⚠" : "🔒"
+        }
         statusItem.button?.toolTip = open ? "Vault is OPEN — at risk while open" : "Vault closed"
         rebuildMenu(open: open)
     }
@@ -64,6 +75,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(item("Open the full launcher (paranoid)", #selector(doLauncher)))
         menu.addItem(.separator())
+
+        // Автостарт при логине — галочка отражает текущее состояние LaunchAgent.
+        let loginItem = item("Start at login", #selector(doToggleLogin))
+        loginItem.state = loginEnabled() ? .on : .off
+        menu.addItem(loginItem)
+        menu.addItem(.separator())
         menu.addItem(item("Quit Paranoid Bar", #selector(doQuit)))
         statusItem.menu = menu
     }
@@ -87,6 +104,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func doVaultDestroy()  { runInTerminal("securetrash vault destroy") }
     @objc private func doLauncher()      { runInTerminal("paranoid") }
     @objc private func doQuit()          { NSApp.terminate(nil) }
+
+    // --- автостарт при логине (LaunchAgent) ---
+    // Пишем per-user LaunchAgent plist напрямую: работает с НЕподписанной локальной сборкой (в
+    // отличие от SMAppService.mainApp, которому нужна подпись/реестрация бандла). Указывает на
+    // текущий исполняемый файл; .accessory-политика задаётся в коде, так что Dock-иконки не будет.
+    private let loginLabel = "com.di-kairos.paranoidbar"
+    private var loginPlistURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(loginLabel).plist")
+    }
+    private func loginEnabled() -> Bool { FileManager.default.fileExists(atPath: loginPlistURL.path) }
+    private func setLogin(_ on: Bool) {
+        let fm = FileManager.default
+        if on {
+            guard let exe = Bundle.main.executableURL?.path else { return }
+            let plist: [String: Any] = [
+                "Label": loginLabel,
+                "ProgramArguments": [exe],
+                "RunAtLoad": true,
+                "ProcessType": "Interactive",
+            ]
+            try? fm.createDirectory(at: loginPlistURL.deletingLastPathComponent(),
+                                    withIntermediateDirectories: true)
+            if let data = try? PropertyListSerialization.data(fromPropertyList: plist,
+                                                              format: .xml, options: 0) {
+                try? data.write(to: loginPlistURL)
+            }
+        } else {
+            try? fm.removeItem(at: loginPlistURL)
+        }
+    }
+    @objc private func doToggleLogin() { setLogin(!loginEnabled()); refresh() }
 
     // Запустить команду в Terminal.app — пользователь видит вывод и вводит секреты прямо в CLI,
     // НЕ через GUI. AppleScript-строка экранирует кавычки; команды фиксированы (не из польз. ввода).

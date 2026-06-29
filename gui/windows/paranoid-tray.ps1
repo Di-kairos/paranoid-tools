@@ -41,14 +41,40 @@ function Get-PtMenuSpec {
         [pscustomobject]@{ Label = '-';                              Command = '' }
         [pscustomobject]@{ Label = 'Open the full launcher (paranoid)'; Command = 'paranoid' }
         [pscustomobject]@{ Label = '-';                              Command = '' }
+        [pscustomobject]@{ Label = 'Start at login';                 Command = '__autostart__' }
+        [pscustomobject]@{ Label = '-';                              Command = '' }
         [pscustomobject]@{ Label = 'Quit Paranoid Tray';            Command = '__quit__' }
     )
+}
+
+# --- автостарт при логине (HKCU Run; без админ-прав/подписи) ---
+# Спецификация ключа реестра отдельной функцией → Pester проверяет её БЕЗ записи в реестр.
+function Get-PtAutostartSpec {
+    $script = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
+    return [pscustomobject]@{
+        Path  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        Name  = 'ParanoidTray'
+        Value = "pwsh -WindowStyle Hidden -File `"$script`""
+    }
+}
+function Test-PtAutostart {
+    $s = Get-PtAutostartSpec
+    $v = (Get-ItemProperty -LiteralPath $s.Path -Name $s.Name -ErrorAction SilentlyContinue).$($s.Name)
+    return [bool]$v
+}
+function Enable-PtAutostart {
+    $s = Get-PtAutostartSpec
+    Set-ItemProperty -LiteralPath $s.Path -Name $s.Name -Value $s.Value
+}
+function Disable-PtAutostart {
+    $s = Get-PtAutostartSpec
+    Remove-ItemProperty -LiteralPath $s.Path -Name $s.Name -ErrorAction SilentlyContinue
 }
 
 # Запустить CLI в НОВОМ окне консоли (pwsh) — вывод и ввод секретов идут в сам CLI, не через tray.
 function Invoke-PtTool {
     param([string]$Command)
-    if (-not $Command -or $Command -eq '__quit__') { return }
+    if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__') { return }
     # Команда фиксирована (из Get-PtMenuSpec), не из пользовательского ввода → инъекций нет.
     Start-Process -FilePath 'pwsh' -ArgumentList @('-NoExit', '-Command', $Command) | Out-Null
 }
@@ -74,6 +100,9 @@ function Start-PtTray {
             $it = New-Object System.Windows.Forms.ToolStripMenuItem($entry.Label)
             if ($cmd -eq '__quit__') {
                 $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
+            } elseif ($cmd -eq '__autostart__') {
+                $it.Checked = [bool](Test-PtAutostart)
+                $it.Add_Click({ if (Test-PtAutostart) { Disable-PtAutostart } else { Enable-PtAutostart } }.GetNewClosure())
             } else {
                 $it.Add_Click({ Invoke-PtTool -Command $cmd }.GetNewClosure())
             }

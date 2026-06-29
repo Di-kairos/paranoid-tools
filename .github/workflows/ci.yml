@@ -22,8 +22,10 @@ jobs:
       - name: Install Pester 5
         shell: pwsh
         run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
-      - name: Pester (paranoid.ps1 launcher)
+      - name: Pester (paranoid.ps1 launcher + GUI tray)
         shell: pwsh
         run: |
-          $r = Invoke-Pester windows/test -Output Detailed -PassThru
+          # Лаунчер-зеркало + логика system-tray агента (Phase B). Tray-тесты дот-сорсят скрипт
+          # под ST_NO_MAIN=1 → WinForms-цикл не стартует, проверяется чистая логика меню/автостарта.
+          $r = Invoke-Pester @('windows/test', 'gui/windows/test') -Output Detailed -PassThru
           if ($r.FailedCount -gt 0) { throw "$($r.FailedCount) Pester test(s) failed" }
