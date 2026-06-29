@@ -57,6 +57,42 @@ Describe 'Get-PtAutostartSpec — спецификация автозапуск�
     }
 }
 
+Describe 'Format-PtDuration — формат как у vaultwatch CLI' {
+    It '3909s → 1h 5m 9s' { Format-PtDuration 3909 | Should -Be '1h 5m 9s' }
+    It '309s → 5m 9s'     { Format-PtDuration 309  | Should -Be '5m 9s' }
+    It '0s → 0m 0s'       { Format-PtDuration 0    | Should -Be '0m 0s' }
+}
+
+Describe 'Get-PtVaultwatchSessions — чтение session-файлов vaultwatch' {
+    BeforeAll {
+        $script:vwDir = Join-Path $TestDrive 'vw-sessions'
+        New-Item -ItemType Directory -Path $vwDir -Force | Out-Null
+        $env:VW_STATE_DIR = $vwDir
+    }
+    AfterAll { Remove-Item Env:\VW_STATE_DIR -ErrorAction SilentlyContinue }
+    BeforeEach { Get-ChildItem -LiteralPath $vwDir | Remove-Item -Force -ErrorAction SilentlyContinue }
+
+    It 'TTL-сессия: remaining = started + ttl_secs - now' {
+        Set-Content -LiteralPath (Join-Path $vwDir '_Volumes_SecretVault') -Value @(
+            'mount=/Volumes/SecretVault', 'started=1000', 'ttl_secs=3600', 'ttl_force=0')
+        $s = Get-PtVaultwatchSessions -Now 1900
+        $s.Count        | Should -Be 1
+        $s[0].Mount     | Should -Be '/Volumes/SecretVault'
+        $s[0].Remaining | Should -Be 2700
+    }
+    It 'сессия без TTL (ttl_secs=0) → Remaining = $null' {
+        Set-Content -LiteralPath (Join-Path $vwDir 's2') -Value @('mount=/Volumes/V', 'started=1000', 'ttl_secs=0')
+        (Get-PtVaultwatchSessions -Now 1900)[0].Remaining | Should -BeNullOrEmpty
+    }
+    It 'истёкший TTL → Remaining = 0 (не отрицательное)' {
+        Set-Content -LiteralPath (Join-Path $vwDir 's3') -Value @('mount=/Volumes/V', 'started=1000', 'ttl_secs=100')
+        (Get-PtVaultwatchSessions -Now 5000)[0].Remaining | Should -Be 0
+    }
+    It 'пустой каталог → пусто' {
+        (Get-PtVaultwatchSessions -Now 1900).Count | Should -Be 0
+    }
+}
+
 Describe 'Invoke-PtTool — диспетчер CLI' {
     BeforeEach { Mock Start-Process { } }
 

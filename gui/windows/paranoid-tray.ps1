@@ -71,6 +71,45 @@ function Disable-PtAutostart {
     Remove-ItemProperty -LiteralPath $s.Path -Name $s.Name -ErrorAction SilentlyContinue
 }
 
+# --- статус vaultwatch (только чтение тех же session-файлов, что пишет vaultwatch CLI) ---
+function Get-PtVwStateDir {
+    if ($env:VW_STATE_DIR) { return $env:VW_STATE_DIR }
+    $home = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
+    if (-not $home) { return $null }
+    return (Join-Path $home '.vaultwatch\sessions')
+}
+# Формат как у vaultwatch CLI (Format-VwDuration): "1h 5m 9s" / "5m 9s".
+function Format-PtDuration {
+    param([int]$S)
+    $h = [math]::Floor($S / 3600); $m = [math]::Floor(($S % 3600) / 60); $sec = $S % 60
+    if ($h -gt 0) { return "${h}h ${m}m ${sec}s" } else { return "${m}m ${sec}s" }
+}
+# Парсим key=value session-файлы (mount/started/ttl_secs). remaining = started+ttl_secs-now;
+# $null если ttl_secs=0 (сессия без TTL). -Now параметризован для детерминированных тестов.
+function Get-PtVaultwatchSessions {
+    param([int]$Now = [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+    $dir = Get-PtVwStateDir
+    if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { return @() }
+    $out = @()
+    foreach ($f in (Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $mount = ''; $started = 0; $ttl = 0
+        foreach ($line in (Get-Content -LiteralPath $f.FullName)) {
+            $i = $line.IndexOf('=')
+            if ($i -lt 1) { continue }
+            $k = $line.Substring(0, $i); $v = $line.Substring($i + 1)
+            switch ($k) {
+                'mount'    { $mount = $v }
+                'started'  { $started = [int]$v }
+                'ttl_secs' { $ttl = [int]$v }
+            }
+        }
+        if (-not $mount) { continue }
+        $remaining = if ($ttl -gt 0) { [math]::Max(0, $started + $ttl - $Now) } else { $null }
+        $out += [pscustomobject]@{ Mount = $mount; Remaining = $remaining }
+    }
+    return $out
+}
+
 # Запустить CLI в НОВОМ окне консоли (pwsh) — вывод и ввод секретов идут в сам CLI, не через tray.
 function Invoke-PtTool {
     param([string]$Command)
@@ -93,7 +132,22 @@ function Start-PtTray {
     $rebuild = {
         $menu.Items.Clear()
         $state = Get-PtVaultState
-        $notify.Text = if ($state -eq 'open') { 'Paranoid Tools - vault OPEN (at risk)' } else { 'Paranoid Tools' }
+        $sessions = Get-PtVaultwatchSessions
+        $ttl = ($sessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
+        $notify.Text =
+            if ($state -eq 'open' -and $null -ne $ttl) { "Paranoid Tools - vault OPEN, auto-exit in $(Format-PtDuration $ttl)" }
+            elseif ($state -eq 'open')                 { 'Paranoid Tools - vault OPEN (at risk)' }
+            elseif ($null -ne $ttl)                    { "Paranoid Tools - vaultwatch auto-exit in $(Format-PtDuration $ttl)" }
+            else                                       { 'Paranoid Tools' }
+        # vaultwatch-сессии — отключённые заголовки сверху меню (точка монтирования + TTL-отсчёт).
+        foreach ($s in $sessions) {
+            $name = Split-Path -Leaf $s.Mount
+            $detail = if ($null -ne $s.Remaining) { "auto-exit in $(Format-PtDuration $s.Remaining)" } else { 'watching (no TTL)' }
+            $h = New-Object System.Windows.Forms.ToolStripMenuItem("vaultwatch: $name - $detail")
+            $h.Enabled = $false
+            $menu.Items.Add($h) | Out-Null
+        }
+        if ($sessions.Count -gt 0) { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null }
         foreach ($entry in (Get-PtMenuSpec -VaultState $state)) {
             if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
             $cmd = $entry.Command

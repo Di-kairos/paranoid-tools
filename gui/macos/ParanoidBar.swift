@@ -35,8 +35,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private func fileVaultOn() -> Bool { capture("/usr/bin/fdesetup", ["status"]).contains("FileVault is On") }
 
+    // --- статус vaultwatch (только чтение тех же session-файлов, что пишет vaultwatch CLI) ---
+    private struct VWSession { let mount: String; let remaining: Int? }  // remaining=nil → сессия без TTL
+    private var vwStateDir: String {
+        ProcessInfo.processInfo.environment["VW_STATE_DIR"]
+            ?? (FileManager.default.homeDirectoryForCurrentUser.path + "/.vaultwatch/sessions")
+    }
+    // Парсим key=value session-файлы (mount/started/ttl_secs). remaining = started+ttl_secs-now.
+    private func vaultwatchSessions() -> [VWSession] {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: vwStateDir) else { return [] }
+        let now = Int(Date().timeIntervalSince1970)
+        var out: [VWSession] = []
+        for f in files.sorted() {
+            guard let text = try? String(contentsOfFile: vwStateDir + "/" + f, encoding: .utf8) else { continue }
+            var mount = "", started = 0, ttl = 0
+            for line in text.split(separator: "\n") {
+                guard let eq = line.firstIndex(of: "=") else { continue }
+                let k = String(line[..<eq]); let v = String(line[line.index(after: eq)...])
+                switch k {
+                case "mount":    mount = v
+                case "started":  started = Int(v) ?? 0
+                case "ttl_secs": ttl = Int(v) ?? 0
+                default: break
+                }
+            }
+            guard !mount.isEmpty else { continue }
+            out.append(VWSession(mount: mount, remaining: ttl > 0 ? max(0, started + ttl - now) : nil))
+        }
+        return out
+    }
+    // Формат как у vaultwatch CLI: "1h 5m 9s" / "5m 9s".
+    private func fmtDuration(_ s: Int) -> String {
+        let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
+        return h > 0 ? "\(h)h \(m)m \(sec)s" : "\(m)m \(sec)s"
+    }
+
     private func refresh() {
         let open = vaultOpen()
+        let sessions = vaultwatchSessions()
+        let ttl = sessions.compactMap { $0.remaining }.min()   // ближайший авто-выход (если есть)
         // Monochrome SF-Symbol глиф (template) — адаптируется под тёмную/светлую строку меню, в
         // отличие от цветного emoji. Fallback на emoji, если символ недоступен (до macOS 11).
         let symbol = open ? "lock.open.fill" : "lock.fill"
@@ -44,20 +82,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              accessibilityDescription: open ? "Vault open" : "Vault closed") {
             img.isTemplate = true
             statusItem.button?.image = img
-            statusItem.button?.title = open ? " ⚠" : ""   // при открытом сейфе — предупреждение
+            // Активен TTL-сторож → обратный отсчёт в строке меню; иначе ⚠ при открытом сейфе.
+            statusItem.button?.title = ttl.map { " " + fmtDuration($0) } ?? (open ? " ⚠" : "")
         } else {
             statusItem.button?.image = nil
-            statusItem.button?.title = open ? "🔓⚠" : "🔒"
+            statusItem.button?.title = ttl.map { fmtDuration($0) } ?? (open ? "🔓⚠" : "🔒")
         }
-        statusItem.button?.toolTip = open ? "Vault is OPEN — at risk while open" : "Vault closed"
-        rebuildMenu(open: open)
+        let tip = open ? "Vault is OPEN — at risk while open" : "Vault closed"
+        statusItem.button?.toolTip = ttl.map { tip + " · vaultwatch auto-exit in " + fmtDuration($0) } ?? tip
+        rebuildMenu(open: open, sessions: sessions)
     }
 
     // --- меню ---
-    private func rebuildMenu(open: Bool) {
+    private func rebuildMenu(open: Bool, sessions: [VWSession]) {
         let menu = NSMenu()
         menu.addItem(header("Vault:      " + (open ? "OPEN — at risk" : (vaultExists() ? "closed" : "not set up"))))
         menu.addItem(header("FileVault:  " + (fileVaultOn() ? "ON" : "off / unknown")))
+        // Активные vaultwatch-сессии: точка монтирования + обратный отсчёт TTL (или «no TTL»).
+        for s in sessions {
+            let name = (s.mount as NSString).lastPathComponent
+            let detail = s.remaining.map { "auto-exit in " + fmtDuration($0) } ?? "watching (no TTL)"
+            menu.addItem(header("vaultwatch: " + name + " — " + detail))
+        }
         menu.addItem(.separator())
 
         menu.addItem(item("Status — full read-only check", #selector(doStatus)))

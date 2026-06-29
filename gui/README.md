@@ -18,8 +18,8 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
 
 | Platform | File | Status |
 |----------|------|--------|
-| macOS | `macos/ParanoidBar.swift` + `macos/build.sh` | **Source compiles** with `swiftc` (Command Line Tools). AppKit `NSStatusItem` menu-bar agent: monochrome SF-Symbol status glyph (adapts to light/dark menu bar), live vault/FileVault status, Status/PANIC/Vault▸(open·close·empty·destroy)/launcher, **Start at login** toggle (LaunchAgent), runs CLIs via Terminal. |
-| Windows | `windows/paranoid-tray.ps1` (+ Pester) | **Runnable PowerShell** (no compile). `NotifyIcon` tray, same menu + **Start at login** toggle (HKCU Run), runs CLIs in a new console. Menu/status/autostart logic Pester-tested. |
+| macOS | `macos/ParanoidBar.swift` + `macos/build.sh` | **Source compiles** with `swiftc` (Command Line Tools). AppKit `NSStatusItem` menu-bar agent: monochrome SF-Symbol status glyph (adapts to light/dark menu bar), live vault/FileVault status, **vaultwatch session + TTL countdown** (in the glyph + menu), Status/PANIC/Vault▸(open·close·empty·destroy)/launcher, **Start at login** toggle (LaunchAgent), runs CLIs via Terminal. |
+| Windows | `windows/paranoid-tray.ps1` (+ Pester) | **Runnable PowerShell** (no compile). `NotifyIcon` tray, same menu + **vaultwatch TTL countdown** (tooltip + menu headers) + **Start at login** toggle (HKCU Run), runs CLIs in a new console. Menu/status/autostart/vaultwatch logic Pester-tested. |
 
 Verified here: macOS source compiles cleanly (`swiftc -O`); Windows tray menu/dispatch/autostart
 logic is Pester-tested in CI (`gui/windows/test` runs on `windows-latest`). The two mirror each
@@ -44,8 +44,9 @@ pwsh -File windows/paranoid-tray.ps1   # a Shield icon appears in the tray; righ
 - **Code signing + notarization + packaging** (macOS `.app` → Developer ID + `notarytool` + staple;
   Windows tray → signed `.exe`/MSIX or a signed launch shim). Needs an **Apple Developer account** and
   a Windows code-signing cert — a distribution step, not a code step.
-- Richer status (vaultwatch session + TTL countdown) and a settings pane. *(Auto-start at login
-  and monochrome status glyphs are now done — see the table above.)*
+- A settings pane (vault-volume override, poll interval, language) — a UX-design decision, staged
+  separately. *(Auto-start at login, monochrome status glyphs, and vaultwatch session + TTL
+  countdown are now done — see the table above.)*
 - **Open-core packaging** (the convenience layer is the paid tier per the project's monetization
   direction; the CLIs stay free + fully usable without the GUI).
 
