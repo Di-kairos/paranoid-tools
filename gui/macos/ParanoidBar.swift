@@ -92,6 +92,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let open = vaultOpen()
         let sessions = vaultwatchSessions()
         let ttl = sessions.compactMap { $0.remaining }.min()   // ближайший авто-выход (если есть)
+        // Текст справа от глифа: отсчёт TTL / «истёк» (⚠) / ⚠ при открытом сейфе / пусто.
+        let suffix: String
+        if let t = ttl { suffix = t == 0 ? " ⚠" : " " + fmtDuration(t) } else { suffix = open ? " ⚠" : "" }
         // Monochrome SF-Symbol глиф (template) — адаптируется под тёмную/светлую строку меню, в
         // отличие от цветного emoji. Fallback на emoji, если символ недоступен (до macOS 11).
         let symbol = open ? "lock.open.fill" : "lock.fill"
@@ -99,14 +102,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              accessibilityDescription: open ? "Vault open" : "Vault closed") {
             img.isTemplate = true
             statusItem.button?.image = img
-            // Активен TTL-сторож → обратный отсчёт в строке меню; иначе ⚠ при открытом сейфе.
-            statusItem.button?.title = ttl.map { " " + fmtDuration($0) } ?? (open ? " ⚠" : "")
+            statusItem.button?.title = suffix
         } else {
             statusItem.button?.image = nil
-            statusItem.button?.title = ttl.map { fmtDuration($0) } ?? (open ? "🔓⚠" : "🔒")
+            statusItem.button?.title = ttl != nil ? suffix.trimmingCharacters(in: .whitespaces) : (open ? "🔓⚠" : "🔒")
         }
         let tip = open ? "Vault is OPEN — at risk while open" : "Vault closed"
-        statusItem.button?.toolTip = ttl.map { tip + " · vaultwatch auto-exit in " + fmtDuration($0) } ?? tip
+        if let t = ttl {
+            statusItem.button?.toolTip = tip + (t == 0 ? " · vaultwatch TTL expired" : " · vaultwatch auto-exit in " + fmtDuration(t))
+        } else {
+            statusItem.button?.toolTip = tip
+        }
         rebuildMenu(open: open, sessions: sessions)
     }
 
@@ -118,7 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Активные vaultwatch-сессии: точка монтирования + обратный отсчёт TTL (или «no TTL»).
         for s in sessions {
             let name = (s.mount as NSString).lastPathComponent
-            let detail = s.remaining.map { "auto-exit in " + fmtDuration($0) } ?? "watching (no TTL)"
+            let detail: String
+            if let r = s.remaining { detail = r == 0 ? "TTL expired" : "auto-exit in " + fmtDuration(r) }
+            else { detail = "watching (no TTL)" }
             menu.addItem(header("vaultwatch: " + name + " — " + detail))
         }
         menu.addItem(.separator())
