@@ -13,6 +13,16 @@ jobs:
       - name: Unit tests
         run: bats test/
 
+  macos-gui:
+    # Нативный menu-bar агент gui/macos/ParanoidBar.swift (Swift/AppKit, Phase B). README обещает
+    # «source compiles» — этот job ловит Swift/AppKit-регрессии компиляции, невидимые bash/Pester-джобам.
+    # Без упаковки/подписи (нужен Apple Dev аккаунт) — только swiftc -O.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile menu-bar agent (swiftc)
+        run: bash gui/macos/build.sh
+
   windows:
     # Windows-зеркало `windows/paranoid.ps1` (PowerShell, BETA): Pester проверяет оркестровку
     # (dashboard-текст, диспетч в правильный CLI, panic-greying/confirm) с замоканными тулами.
