@@ -52,16 +52,23 @@ function Get-PtMenuSpec {
 # Спецификация ключа реестра отдельной функцией → Pester проверяет её БЕЗ записи в реестр.
 function Get-PtAutostartSpec {
     $script = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
+    # Полный путь к pwsh, не голый `pwsh`: при логине PATH может не содержать pwsh (особенно
+    # WindowStyle Hidden без shell-инициализации) → автостарт тихо ломался. Путь в кавычках
+    # (Program Files\PowerShell\7 содержит пробел). Fallback на 'pwsh', если резолв не удался.
+    $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+    if (-not $pwshPath) { $pwshPath = 'pwsh' }
     return [pscustomobject]@{
         Path  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
         Name  = 'ParanoidTray'
-        Value = "pwsh -WindowStyle Hidden -File `"$script`""
+        Value = "`"$pwshPath`" -WindowStyle Hidden -File `"$script`""
     }
 }
 function Test-PtAutostart {
+    # ВКЛ только если записанное значение совпадает с ТЕКУЩЕЙ спекой: устаревшая запись
+    # (скрипт/pwsh переехал) — это сломанный автостарт, галочку «вкл» он не заслуживает.
     $s = Get-PtAutostartSpec
     $v = (Get-ItemProperty -LiteralPath $s.Path -Name $s.Name -ErrorAction SilentlyContinue).$($s.Name)
-    return [bool]$v
+    return ($v -eq $s.Value)
 }
 function Enable-PtAutostart {
     $s = Get-PtAutostartSpec
@@ -93,20 +100,25 @@ function Get-PtVaultwatchSessions {
     if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { return @() }
     $out = @()
     foreach ($f in (Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
-        $mount = ''; $started = 0; $ttl = 0
-        foreach ($line in (Get-Content -LiteralPath $f.FullName)) {
-            $i = $line.IndexOf('=')
-            if ($i -lt 1) { continue }
-            $k = $line.Substring(0, $i); $v = $line.Substring($i + 1)
-            switch ($k) {
-                'mount'    { $mount = $v }
-                'started'  { $started = [int]$v }
-                'ttl_secs' { $ttl = [int]$v }
+        # Per-file try/catch: файл могли удалить между листингом и чтением (vaultwatch stop),
+        # либо он записан частично/битый. Один такой файл НЕ должен ронять весь rebuild
+        # меню/таймера — просто пропускаем его.
+        try {
+            $mount = ''; $started = 0L; $ttl = 0L
+            foreach ($line in (Get-Content -LiteralPath $f.FullName -ErrorAction Stop)) {
+                $i = $line.IndexOf('=')
+                if ($i -lt 1) { continue }
+                $k = $line.Substring(0, $i); $v = $line.Substring($i + 1)
+                switch ($k) {
+                    'mount'    { $mount = $v }
+                    'started'  { $n = 0L; if ([int64]::TryParse($v, [ref]$n)) { $started = $n } }
+                    'ttl_secs' { $n = 0L; if ([int64]::TryParse($v, [ref]$n)) { $ttl = $n } }
+                }
             }
-        }
-        if (-not $mount) { continue }
-        $remaining = if ($ttl -gt 0) { [math]::Max(0, $started + $ttl - $Now) } else { $null }
-        $out += [pscustomobject]@{ Mount = $mount; Remaining = $remaining }
+            if (-not $mount) { continue }
+            $remaining = if ($ttl -gt 0) { [math]::Max(0, $started + $ttl - $Now) } else { $null }
+            $out += [pscustomobject]@{ Mount = $mount; Remaining = $remaining }
+        } catch { continue }
     }
     return $out
 }
@@ -129,12 +141,14 @@ function Get-PtSettings {
             if ($null -ne ($j.PollSeconds -as [int])) { $s.PollSeconds = [int]$j.PollSeconds }
         } catch { }   # битый файл → дефолты
     }
-    if ($s.PollSeconds -lt 5) { $s.PollSeconds = 5 }   # нижняя граница (батарея/CPU)
+    # Clamp в [5, 3600]: руками вписанный в JSON PollSeconds > 3600 иначе бросал на
+    # NumericUpDown.Value (Maximum=3600) при открытии settings-панели.
+    if ($s.PollSeconds -lt 5) { $s.PollSeconds = 5 } elseif ($s.PollSeconds -gt 3600) { $s.PollSeconds = 3600 }
     return $s
 }
 function Set-PtSettings {
     param([string]$VaultVolume = '', [int]$PollSeconds = 15)
-    if ($PollSeconds -lt 5) { $PollSeconds = 5 }
+    if ($PollSeconds -lt 5) { $PollSeconds = 5 } elseif ($PollSeconds -gt 3600) { $PollSeconds = 3600 }
     $f = Get-PtSettingsFile
     if (-not $f) { return }
     $dir = Split-Path -Parent $f
