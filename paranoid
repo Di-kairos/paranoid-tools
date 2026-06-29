@@ -137,8 +137,8 @@ t() {
     ru:split_done)    echo '↑ Сохрани каждую долю выше в ОТДЕЛЬНОМ месте. После Enter они исчезнут.' ;;
     en:combine_prompt) echo 'Paste the shares — one per line — then press Ctrl-D:' ;;
     ru:combine_prompt) echo 'Вставь доли — по одной на строку — затем нажми Ctrl-D:' ;;
-    en:ghost_editor_hint) printf 'Opens in %s. To save and exit: %s.' "$2" "$3" ;;
-    ru:ghost_editor_hint) printf 'Откроется в %s. Сохранить и выйти: %s.' "$2" "$3" ;;
+    en:ghost_editor_hint) printf 'Opens in %s. To exit — %s.' "$2" "$3" ;;
+    ru:ghost_editor_hint) printf 'Откроется в %s. Как выйти — %s.' "$2" "$3" ;;
     en:ghost_pipe_hint) echo 'Showing the clipboard (nothing is written to disk):' ;;
     ru:ghost_pipe_hint) echo 'Показываю буфер обмена (на диск ничего не пишется):' ;;
     en:ttl_bad)      echo 'Invalid format. Use 30m, 2h, 45s, 1d or a plain number of seconds.' ;;
@@ -359,14 +359,25 @@ _act_empty() {
   fi
   _pause
 }
-# Подсказка по выходу из редактора (иначе новичок не знает, как сохранить и выйти).
+# Подсказка по выходу из редактора (иначе новичок застревает — особенно в vim). Показываем
+# ОБА пути (сохранить И выбросить) клавиатурой: F-клавиши в терминалах (Warp) ненадёжны,
+# а человек часто хочет именно выйти БЕЗ сохранения. Esc-then-... работает из любого режима.
 _editor_exit_hint() {
-  case "$1" in
-    *vim|*vi)  echo ':wq' ;;
-    *nano|*pico) echo 'Ctrl-O, Enter, Ctrl-X' ;;
-    *emacs)    echo 'Ctrl-X Ctrl-S, Ctrl-X Ctrl-C' ;;
-    *)         echo 'save & quit' ;;
-  esac
+  if [[ "$LOCALE" == ru ]]; then
+    case "$1" in
+      *vim|*vi)    echo 'нажми Esc, затем ZZ = сохранить и выйти, ZQ = выйти без сохранения (или :wq / :q!)' ;;
+      *nano|*pico) echo 'Ctrl-O Enter Ctrl-X = сохранить и выйти; Ctrl-X затем N = выйти без сохранения' ;;
+      *emacs)      echo 'Ctrl-X Ctrl-S затем Ctrl-X Ctrl-C = сохранить и выйти' ;;
+      *)           echo 'сохранить и выйти' ;;
+    esac
+  else
+    case "$1" in
+      *vim|*vi)    echo 'press Esc, then ZZ = save & exit, ZQ = discard & exit (or :wq / :q!)' ;;
+      *nano|*pico) echo 'Ctrl-O Enter Ctrl-X = save & exit; Ctrl-X then N = discard' ;;
+      *emacs)      echo 'Ctrl-X Ctrl-S then Ctrl-X Ctrl-C = save & exit' ;;
+      *)           echo 'save & quit' ;;
+    esac
+  fi
 }
 _act_split() {
   # seedsplit split молча читает stdin — без подсказки новичок видит пустой курсор.

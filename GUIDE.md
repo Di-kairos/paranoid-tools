@@ -191,9 +191,12 @@ pbpaste | ghostdraft pipe   # show the clipboard in the terminal, writing nothin
 
 1. `paranoid` → `6` (Ghostdraft) → `3` (new + copy to clipboard).
 2. The editor opens (`vim` with soft wrap — a long key won't run off the edge or get broken by
-   inserted newlines). Type the secret, then exit: an always-visible hint line shows
-   **F2 = save & exit**, **F3 = discard** — both work even from `-- INSERT --`, so you're never
-   stuck. The colon commands `:wq` / `:q!` still work too.
+   inserted newlines). Type the secret, then exit. **How to quit vim (reliable way):** press
+   **`Esc`**, then type **`ZZ`** to save & exit, or **`ZQ`** to quit **without** saving (discard
+   the draft). The colon commands **`:wq`** (save) / **`:q!`** (discard) also work — `Esc`, then
+   colon, the command, `Enter`. An always-visible hint line is shown at the bottom.
+   > ⚠️ The **F2/F3** keys (save/discard) are also mapped, but **some terminals (e.g. Warp)
+   > intercept them** before they reach vim — so rely on `Esc` → `ZZ`/`ZQ`, not the F-keys.
 3. ghostdraft asks to confirm copying to the clipboard — answer `yes`.
 4. Paste the secret into the app you need (`Cmd+V`).
 5. After ~20 seconds the clipboard wipes itself — but only if you haven't overwritten it in the

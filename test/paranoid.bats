@@ -378,6 +378,17 @@ STUB
   [[ "$output" == *"Ctrl-X"* ]]
 }
 
+@test "ghost new (vim) hint shows how to DISCARD, not just save" {
+  # Live-тест: новичок застрял в vim, видел только сохранение (:wq), хотел выйти БЕЗ
+  # сохранения. Подсказка обязана давать оба пути клавиатурой (F-клавиши в Warp не проходят).
+  EDITOR=vim run_paranoid $'4\n1\n\n0\n0\n' EDITOR=vim
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vim"* ]]
+  [[ "$output" == *"ZQ"* ]] || [[ "$output" == *":q!"* ]]   # выйти без сохранения
+  [[ "$output" == *"ZZ"* ]] || [[ "$output" == *":wq"* ]]   # сохранить и выйти
+  [[ "$output" == *"Esc"* ]]
+}
+
 @test "ghost pipe shows a hint (does not silently wait on stdin)" {
   run_paranoid $'4\n2\n\n0\n0\n'
   [ "$status" -eq 0 ]
