@@ -1,8 +1,8 @@
 # Pester 5 — логика paranoid.ps1 (Windows-зеркало лаунчера). Дот-сорс под ST_NO_MAIN=1:
 # определяет функции, не запуская интерактивный цикл. paranoid — тонкий лаунчер: он сам
 # ничего не делает с секретами, а только диспетчеризует пять CLI. Поэтому МОКАЮТСЯ сидячие
-# места (Invoke-PnTool, Read-PnLine, Confirm-Pn, *-State), а тест проверяет оркестровку:
-# какой тул с какими аргументами вызван, гейт --hard у паники, open/close сейфа, ttl у watch.
+# места (Invoke-PnTool, Read-PnLine, *-State), а тест проверяет оркестровку: какой тул с
+# какими аргументами вызван, мгновенную панику (now --hard), open/close сейфа, ttl у watch.
 # CLI-уровень (version, exit-коды) — через свежий pwsh.
 
 BeforeAll {
@@ -230,36 +230,18 @@ Describe 'dispatch — panic (choice 2)' {
         Mock Test-PnTool { $true } -ParameterFilter { $Tool -eq 'panic' }
     }
 
-    It 'runs panic now --hard when both confirmations are yes' {
-        Mock Confirm-Pn { $true }
+    It 'dispatches panic now --hard instantly (no confirm)' {
+        # Паника мгновенна и всегда --hard: кнопка, требующая «yes», теряет смысл.
         Invoke-PnDispatch '2' | Should -BeFalse
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'panic' -and ($ToolArgs -contains 'now') -and ($ToolArgs -contains '--hard')
         }
     }
 
-    It 'runs panic now WITHOUT --hard when the hard confirmation is no' {
-        # Первый Confirm-Pn (запуск) → yes, второй (--hard) → no.
-        $script:calls = 0
-        Mock Confirm-Pn { $script:calls++; if ($script:calls -eq 1) { $true } else { $false } }
-        Invoke-PnDispatch '2' | Out-Null
-        Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
-            $Tool -eq 'panic' -and ($ToolArgs -contains 'now') -and (-not ($ToolArgs -contains '--hard'))
-        }
-    }
-
-    It 'does NOT run panic when the first confirmation is no' {
-        Mock Confirm-Pn { $false }
-        Invoke-PnDispatch '2' | Out-Null
-        Should -Invoke Invoke-PnTool -Times 0 -Exactly
-    }
-
-    It 'when panic is absent, runs nothing and never asks for confirmation' {
+    It 'when panic is absent, runs nothing' {
         Mock Test-PnTool { $false } -ParameterFilter { $Tool -eq 'panic' }
-        Mock Confirm-Pn { $true }
         Invoke-PnDispatch '2' | Out-Null
         Should -Invoke Invoke-PnTool -Times 0 -Exactly
-        Should -Invoke Confirm-Pn -Times 0 -Exactly
     }
 }
 

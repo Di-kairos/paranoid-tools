@@ -62,8 +62,8 @@ function T {
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
         'en:m_status'     { return 'Status — full read-only check' }
         'ru:m_status'     { return 'Статус — полная проверка (только чтение)' }
-        'en:m_panic'      { return 'PANIC NOW — hide & lock (confirm)' }
-        'ru:m_panic'      { return 'ПАНИКА — спрятать и запереть (подтвердить)' }
+        'en:m_panic'      { return 'PANIC NOW — hide & lock everything (instant, no confirm)' }
+        'ru:m_panic'      { return 'ПАНИКА — спрятать и запереть всё (мгновенно, без подтверждения)' }
         'en:m_vault'      { return 'Vault — create / open / close' }
         'ru:m_vault'      { return 'Сейф — создать / открыть / закрыть' }
         'en:m_destroy'    { return 'Destroy the vault (irreversible)' }
@@ -121,13 +121,8 @@ function T {
         'en:choose'       { return 'Choose' }       'ru:choose'       { return 'Выбор' }
         'en:press_enter'  { return 'Press Enter to continue' }
         'ru:press_enter'  { return 'Нажми Enter, чтобы продолжить' }
-        'en:confirm_panic'{ return 'Run panic now? This hides & locks everything.' }
-        'ru:confirm_panic'{ return 'Запустить панику? Это спрячет и запрёт всё.' }
-        'en:ask_hard'     { return 'Also kill cloud daemons & clear recent items (--hard)?' }
-        'ru:ask_hard'     { return 'Также прибить cloud-демоны и очистить recent (--hard)?' }
         'en:ask_ttl'      { return 'Auto-exit after (e.g. 30m, 2h; empty = no timer):' }
         'ru:ask_ttl'      { return 'Авто-выход через (напр. 30m, 2h; пусто = без таймера):' }
-        'en:cancelled'    { return 'Cancelled.' }   'ru:cancelled'    { return 'Отменено.' }
         'en:ghost_new'    { return 'new — edit an ephemeral draft' }
         'ru:ghost_new'    { return 'new — редактировать эфемерный черновик' }
         'en:ghost_pipe'   { return 'pipe — paste, view, write nothing to disk' }
@@ -146,7 +141,6 @@ function T {
         'ru:combine_prompt'  { return 'Вставь доли — по одной на строку — затем нажми Ctrl-Z и Enter:' }
         'en:ghost_pipe_hint' { return 'Paste text, then Ctrl-Z and Enter — nothing is written to disk:' }
         'ru:ghost_pipe_hint' { return 'Вставь текст, затем Ctrl-Z и Enter — на диск ничего не пишется:' }
-        'en:type_yes'     { return '[type yes]' }   'ru:type_yes'     { return '[введите yes]' }
         default           { return $Key }
     }
 }
@@ -350,10 +344,6 @@ function Format-PnMenuItem {
 # --- ввод (мокается в Pester) ---
 function Read-PnLine { param([string]$Prompt) return (Read-Host -Prompt $Prompt) }
 function Invoke-PnPause { Read-PnLine "  $(T 'press_enter')" | Out-Null }
-function Confirm-Pn {
-    param([string]$Prompt)
-    return ((Read-PnLine "  $Prompt $(T 'type_yes')") -eq 'yes')
-}
 
 # --- действия ---
 function Invoke-PnActStatus {
@@ -366,10 +356,11 @@ function Invoke-PnActPanic {
         [Console]::Error.WriteLine((T 'install_hint' 'panic' (Get-PnToolRepo 'panic')))
         Invoke-PnPause; return
     }
-    if (-not (Confirm-Pn (T 'confirm_panic'))) { Write-Output "  $(T 'cancelled')"; Invoke-PnPause; return }
-    $pargs = @('now')
-    if (Confirm-Pn (T 'ask_hard')) { $pargs += '--hard' }
-    Invoke-PnTool 'panic' $pargs
+    # Режим паники: МГНОВЕННО, без подтверждений — скорость и есть весь смысл кнопки. Всегда
+    # --hard (спрятать/запереть + прибить cloud-демоны + очистить recent). Защита от случайного
+    # нажатия — то, что пункт явно помечен «instant», а сам `panic now` требует явный verb.
+    # Паника обратима: это hide & lock, НЕ уничтожение данных (для уничтожения — securetrash).
+    Invoke-PnTool 'panic' @('now', '--hard')
     Invoke-PnPause
 }
 # Спросить потолок размера нового сейфа (Windows: целое МБ для diskpart). Возвращает строку
