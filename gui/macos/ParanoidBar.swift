@@ -256,10 +256,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh()           // подхватить новую точку монтирования
     }
 
+    // Обернуть значение в одинарные кавычки для shell (экранируя внутренние `'`). Нужно,
+    // чтобы префикс ST_VAULT_VOLUME пережил произвольный путь сейфа.
+    private func shQuote(_ s: String) -> String {
+        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     // Запустить команду в Terminal.app — пользователь видит вывод и вводит секреты прямо в CLI,
-    // НЕ через GUI. AppleScript-строка экранирует кавычки; команды фиксированы (не из польз. ввода).
+    // НЕ через GUI. Terminal.app стартует свежий shell, который НЕ наследует окружение GUI →
+    // префиксуем `ST_VAULT_VOLUME=<quoted>`, иначе securetrash/paranoid работали бы с дефолтным
+    // сейфом, пока GUI показывает кастомный (паритет с Windows-tray, который ставит $env заранее).
     private func runInTerminal(_ command: String) {
-        let escaped = command.replacingOccurrences(of: "\"", with: "\\\"")
+        let full = "ST_VAULT_VOLUME=\(shQuote(vaultVolume)) " + command
+        // AppleScript-строка: экранируем backslash ПЕРЕД кавычками (shQuote может внести `\`).
+        let escaped = full
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
         let script = "tell application \"Terminal\"\n  activate\n  do script \"\(escaped)\"\nend tell"
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
