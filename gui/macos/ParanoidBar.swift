@@ -11,18 +11,35 @@
 
 import AppKit
 
-// Точка монтирования vault — та же, что у securetrash (переопределяема через окружение).
-private let vaultVolume = ProcessInfo.processInfo.environment["ST_VAULT_VOLUME"] ?? "/Volumes/SecretVault"
+// Точка монтирования vault — та же, что у securetrash. Приоритет: настройки (settings-панель) →
+// окружение ST_VAULT_VOLUME → дефолт. Computed, чтобы подхватывать изменение настроек без рестарта.
+private var vaultVolume: String {
+    if let v = UserDefaults.standard.string(forKey: "vaultVolume"), !v.isEmpty { return v }
+    return ProcessInfo.processInfo.environment["ST_VAULT_VOLUME"] ?? "/Volumes/SecretVault"
+}
+// Интервал опроса статуса (сек) из настроек; нижняя граница 5 с (батарея/CPU), дефолт 15.
+private func pollSeconds() -> Double {
+    let v = UserDefaults.standard.double(forKey: "pollSeconds")
+    return v >= 5 ? v : 15
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
+    private var settingsWindow: NSWindow?
+    private var volField: NSTextField?
+    private var pollField: NSTextField?
 
     func applicationDidFinishLaunching(_ note: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         refresh()
-        // Периодический опрос статуса (дёшево: только наличие mountpoint + fdesetup).
-        timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+        rescheduleTimer()   // периодический опрос статуса (интервал из настроек)
+    }
+
+    // Перезапустить таймер опроса с текущим интервалом (вызывается при старте и сохранении настроек).
+    private func rescheduleTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: pollSeconds(), repeats: true) { [weak self] _ in
             self?.refresh()
         }
     }
@@ -122,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item("Open the full launcher (paranoid)", #selector(doLauncher)))
         menu.addItem(.separator())
 
+        menu.addItem(item("Settings…", #selector(doSettings)))
         // Автостарт при логине — галочка отражает текущее состояние LaunchAgent.
         let loginItem = item("Start at login", #selector(doToggleLogin))
         loginItem.state = loginEnabled() ? .on : .off
@@ -182,6 +200,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc private func doToggleLogin() { setLogin(!loginEnabled()); refresh() }
+
+    // --- settings-панель (override точки монтирования vault + интервал опроса) ---
+    // Секретов не касается: только пути/интервал, хранятся в UserDefaults, применяются без рестарта.
+    @objc private func doSettings() {
+        if let w = settingsWindow {
+            w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
+        }
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 150),
+                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.title = "Paranoid Bar — Settings"
+        w.isReleasedWhenClosed = false
+        let v = w.contentView!
+
+        v.addSubview(settingsLabel("Vault volume:", y: 110))
+        let vol = NSTextField(frame: NSRect(x: 130, y: 106, width: 234, height: 24))
+        vol.stringValue = vaultVolume
+        v.addSubview(vol); volField = vol
+
+        v.addSubview(settingsLabel("Poll interval (s):", y: 70))
+        let poll = NSTextField(frame: NSRect(x: 130, y: 66, width: 70, height: 24))
+        poll.stringValue = String(Int(pollSeconds()))
+        v.addSubview(poll); pollField = poll
+
+        let save = NSButton(frame: NSRect(x: 274, y: 16, width: 90, height: 30))
+        save.title = "Save"; save.bezelStyle = .rounded; save.keyEquivalent = "\r"
+        save.target = self; save.action = #selector(saveSettings)
+        v.addSubview(save)
+
+        settingsWindow = w
+        w.center(); w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func settingsLabel(_ s: String, y: CGFloat) -> NSTextField {
+        let l = NSTextField(labelWithString: s)
+        l.frame = NSRect(x: 16, y: y, width: 110, height: 20)
+        return l
+    }
+
+    @objc private func saveSettings() {
+        if let vf = volField { UserDefaults.standard.set(vf.stringValue.trimmingCharacters(in: .whitespaces), forKey: "vaultVolume") }
+        if let pf = pollField, let n = Int(pf.stringValue), n >= 5 {
+            UserDefaults.standard.set(Double(n), forKey: "pollSeconds")
+        }
+        settingsWindow?.close()
+        rescheduleTimer()   // подхватить новый интервал
+        refresh()           // подхватить новую точку монтирования
+    }
 
     // Запустить команду в Terminal.app — пользователь видит вывод и вводит секреты прямо в CLI,
     // НЕ через GUI. AppleScript-строка экранирует кавычки; команды фиксированы (не из польз. ввода).

@@ -42,6 +42,7 @@ function Get-PtMenuSpec {
         [pscustomobject]@{ Label = 'Open the full launcher (paranoid)'; Command = 'paranoid' }
         [pscustomobject]@{ Label = '-';                              Command = '' }
         [pscustomobject]@{ Label = 'Start at login';                 Command = '__autostart__' }
+        [pscustomobject]@{ Label = 'Settings...';                    Command = '__settings__' }
         [pscustomobject]@{ Label = '-';                              Command = '' }
         [pscustomobject]@{ Label = 'Quit Paranoid Tray';            Command = '__quit__' }
     )
@@ -110,12 +111,80 @@ function Get-PtVaultwatchSessions {
     return $out
 }
 
+# --- настройки трея (override точки монтирования vault + интервал опроса) ---
+# JSON в %APPDATA%\ParanoidTools\settings.json; путь переопределяем через PT_SETTINGS_FILE (тесты).
+function Get-PtSettingsFile {
+    if ($env:PT_SETTINGS_FILE) { return $env:PT_SETTINGS_FILE }
+    $base = if ($env:APPDATA) { $env:APPDATA } elseif ($env:HOME) { Join-Path $env:HOME '.config' } else { $null }
+    if (-not $base) { return $null }
+    return (Join-Path $base 'ParanoidTools\settings.json')
+}
+function Get-PtSettings {
+    $s = [pscustomobject]@{ VaultVolume = ''; PollSeconds = 15 }
+    $f = Get-PtSettingsFile
+    if ($f -and (Test-Path -LiteralPath $f)) {
+        try {
+            $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+            if ($null -ne $j.VaultVolume) { $s.VaultVolume = [string]$j.VaultVolume }
+            if ($null -ne ($j.PollSeconds -as [int])) { $s.PollSeconds = [int]$j.PollSeconds }
+        } catch { }   # битый файл → дефолты
+    }
+    if ($s.PollSeconds -lt 5) { $s.PollSeconds = 5 }   # нижняя граница (батарея/CPU)
+    return $s
+}
+function Set-PtSettings {
+    param([string]$VaultVolume = '', [int]$PollSeconds = 15)
+    if ($PollSeconds -lt 5) { $PollSeconds = 5 }
+    $f = Get-PtSettingsFile
+    if (-not $f) { return }
+    $dir = Split-Path -Parent $f
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    [pscustomobject]@{ VaultVolume = $VaultVolume; PollSeconds = $PollSeconds } | ConvertTo-Json | Set-Content -LiteralPath $f
+}
+
 # Запустить CLI в НОВОМ окне консоли (pwsh) — вывод и ввод секретов идут в сам CLI, не через tray.
 function Invoke-PtTool {
     param([string]$Command)
-    if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__') { return }
+    if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__' -or $Command -eq '__settings__') { return }
     # Команда фиксирована (из Get-PtMenuSpec), не из пользовательского ввода → инъекций нет.
     Start-Process -FilePath 'pwsh' -ArgumentList @('-NoExit', '-Command', $Command) | Out-Null
+}
+
+# WinForms-диалог настроек (только GUI-путь; логика Get/Set-PtSettings тестируется отдельно).
+# Возвращает применённые настройки при Save, иначе $null. Секретов не касается — только пути/интервал.
+function Show-PtSettingsForm {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    $cur = Get-PtSettings
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'Paranoid Tools - Settings'
+    $form.FormBorderStyle = 'FixedDialog'; $form.MaximizeBox = $false; $form.MinimizeBox = $false
+    $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(380, 150)
+
+    $lblVol = New-Object System.Windows.Forms.Label
+    $lblVol.Text = 'Vault volume:'; $lblVol.SetBounds(12, 18, 110, 20)
+    $tbVol = New-Object System.Windows.Forms.TextBox
+    $tbVol.SetBounds(130, 15, 235, 22); $tbVol.Text = $cur.VaultVolume
+
+    $lblPoll = New-Object System.Windows.Forms.Label
+    $lblPoll.Text = 'Poll interval (s):'; $lblPoll.SetBounds(12, 52, 110, 20)
+    $nudPoll = New-Object System.Windows.Forms.NumericUpDown
+    $nudPoll.SetBounds(130, 49, 70, 22); $nudPoll.Minimum = 5; $nudPoll.Maximum = 3600; $nudPoll.Value = $cur.PollSeconds
+
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = 'Save'; $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK; $ok.SetBounds(190, 110, 80, 28)
+    $cancel = New-Object System.Windows.Forms.Button
+    $cancel.Text = 'Cancel'; $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; $cancel.SetBounds(280, 110, 80, 28)
+
+    $form.Controls.AddRange(@($lblVol, $tbVol, $lblPoll, $nudPoll, $ok, $cancel))
+    $form.AcceptButton = $ok; $form.CancelButton = $cancel
+
+    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        Set-PtSettings -VaultVolume ($tbVol.Text.Trim()) -PollSeconds ([int]$nudPoll.Value)
+        return (Get-PtSettings)
+    }
+    return $null
 }
 
 # --- WinForms tray (стартует только как самостоятельный скрипт; под ST_NO_MAIN=1 — нет) ---
@@ -129,6 +198,14 @@ function Start-PtTray {
     $notify.Visible = $true
 
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
+
+    # Настройки: override точки монтирования (через env, который чтит Get-PtVaultMount) + интервал.
+    $settings = Get-PtSettings
+    if ($settings.VaultVolume) { $env:ST_VAULT_VOLUME = $settings.VaultVolume }
+    # Периодический опрос — раньше tooltip обновлялся только при открытии меню; теперь живой.
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = [math]::Max(5, $settings.PollSeconds) * 1000
+
     $rebuild = {
         $menu.Items.Clear()
         $state = Get-PtVaultState
@@ -157,17 +234,30 @@ function Start-PtTray {
             } elseif ($cmd -eq '__autostart__') {
                 $it.Checked = [bool](Test-PtAutostart)
                 $it.Add_Click({ if (Test-PtAutostart) { Disable-PtAutostart } else { Enable-PtAutostart } }.GetNewClosure())
+            } elseif ($cmd -eq '__settings__') {
+                $it.Add_Click({
+                    $s = Show-PtSettingsForm
+                    if ($s) {
+                        if ($s.VaultVolume) { $env:ST_VAULT_VOLUME = $s.VaultVolume }
+                        else { Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue }
+                        $timer.Interval = [math]::Max(5, $s.PollSeconds) * 1000
+                    }
+                    & $rebuild
+                }.GetNewClosure())
             } else {
                 $it.Add_Click({ Invoke-PtTool -Command $cmd }.GetNewClosure())
             }
             $menu.Items.Add($it) | Out-Null
         }
     }
+    $timer.Add_Tick($rebuild)     # живой опрос статуса/TTL по интервалу из настроек
     & $rebuild
-    $menu.Add_Opening($rebuild)   # перестраивать (статус/метки) при каждом открытии
+    $menu.Add_Opening($rebuild)   # плюс мгновенный rebuild при открытии меню
     $notify.ContextMenuStrip = $menu
+    $timer.Start()
 
     [System.Windows.Forms.Application]::Run()
+    $timer.Stop()
 }
 
 if (-not $env:ST_NO_MAIN) { Start-PtTray }

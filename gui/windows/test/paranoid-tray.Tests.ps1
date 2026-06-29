@@ -42,7 +42,11 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $auto = (Get-PtMenuSpec -VaultState 'closed') | Where-Object { $_.Label -match 'Start at login' }
         $auto.Command | Should -Be '__autostart__'
     }
-    It 'пункт сейфа остаётся на индексе 3 после добавления автостарта' {
+    It 'содержит пункт настроек (Settings / __settings__)' {
+        $set = (Get-PtMenuSpec -VaultState 'closed') | Where-Object { $_.Label -match 'Settings' }
+        $set.Command | Should -Be '__settings__'
+    }
+    It 'пункт сейфа остаётся на индексе 3 после добавления автостарта/настроек' {
         (Get-PtMenuSpec -VaultState 'closed')[3].Command | Should -Be 'securetrash vault open'
     }
 }
@@ -111,5 +115,36 @@ Describe 'Invoke-PtTool — диспетчер CLI' {
     It '__autostart__ ничего не запускает (toggle обрабатывает сам tray)' {
         Invoke-PtTool -Command '__autostart__'
         Should -Invoke Start-Process -Times 0 -Exactly
+    }
+    It '__settings__ ничего не запускает (диалог обрабатывает сам tray)' {
+        Invoke-PtTool -Command '__settings__'
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+}
+
+Describe 'Get-PtSettings / Set-PtSettings — хранилище настроек' {
+    BeforeAll { $env:PT_SETTINGS_FILE = Join-Path $TestDrive 'settings.json' }
+    AfterAll  { Remove-Item Env:\PT_SETTINGS_FILE -ErrorAction SilentlyContinue }
+    BeforeEach { Remove-Item -LiteralPath $env:PT_SETTINGS_FILE -ErrorAction SilentlyContinue }
+
+    It 'нет файла → дефолты (VaultVolume пуст, PollSeconds 15)' {
+        $s = Get-PtSettings
+        $s.VaultVolume | Should -BeNullOrEmpty
+        $s.PollSeconds | Should -Be 15
+    }
+    It 'round-trip Set → Get' {
+        Set-PtSettings -VaultVolume '/Volumes/X' -PollSeconds 30
+        $s = Get-PtSettings
+        $s.VaultVolume | Should -Be '/Volumes/X'
+        $s.PollSeconds | Should -Be 30
+    }
+    It 'PollSeconds ниже 5 зажимается до 5' {
+        Set-PtSettings -VaultVolume '' -PollSeconds 2
+        (Get-PtSettings).PollSeconds | Should -Be 5
+    }
+    It 'битый JSON → дефолты, без исключения' {
+        Set-Content -LiteralPath $env:PT_SETTINGS_FILE -Value '{ not valid json'
+        $s = Get-PtSettings
+        $s.PollSeconds | Should -Be 15
     }
 }
