@@ -57,8 +57,8 @@ t() {
     en:vw_idle)      echo 'idle' ;;          ru:vw_idle)      echo 'нет сессий' ;;
     en:m_status)     echo 'Status — full read-only check' ;;
     ru:m_status)     echo 'Статус — полная проверка (только чтение)' ;;
-    en:m_panic)      echo 'PANIC NOW — hide & lock (confirm)' ;;
-    ru:m_panic)      echo 'ПАНИКА — спрятать и запереть (подтвердить)' ;;
+    en:m_panic)      echo 'PANIC NOW — hide & lock everything (instant, no confirm)' ;;
+    ru:m_panic)      echo 'ПАНИКА — спрятать и запереть всё (мгновенно, без подтверждения)' ;;
     en:m_vault)      echo 'Vault — create / open / close' ;;
     ru:m_vault)      echo 'Сейф — создать / открыть / закрыть' ;;
     en:m_destroy)    echo 'Destroy the vault (irreversible)' ;;
@@ -121,13 +121,8 @@ t() {
     en:choose)       echo 'Choose' ;;        ru:choose)       echo 'Выбор' ;;
     en:press_enter)  echo 'Press Enter to continue' ;;
     ru:press_enter)  echo 'Нажми Enter, чтобы продолжить' ;;
-    en:confirm_panic) echo 'Run panic now? This hides & locks everything.' ;;
-    ru:confirm_panic) echo 'Запустить панику? Это спрячет и запрёт всё.' ;;
-    en:ask_hard)     echo 'Also kill cloud daemons & clear recent items (--hard)?' ;;
-    ru:ask_hard)     echo 'Также прибить cloud-демоны и очистить recent (--hard)?' ;;
     en:ask_ttl)      echo 'Auto-exit after (e.g. 30m, 2h; empty = no timer):' ;;
     ru:ask_ttl)      echo 'Авто-выход через (напр. 30m, 2h; пусто = без таймера):' ;;
-    en:cancelled)    echo 'Cancelled.' ;;    ru:cancelled)    echo 'Отменено.' ;;
     en:ghost_new)    echo 'new — edit an ephemeral draft' ;;
     ru:ghost_new)    echo 'new — редактировать эфемерный черновик' ;;
     en:ghost_pipe)   echo 'pipe — paste, view, write nothing to disk' ;;
@@ -136,7 +131,6 @@ t() {
     ru:ghost_new_clip) echo 'new + скопировать в буфер (авто-очистка через ~20с)' ;;
     en:ghost_clip_hint) echo 'On exit the draft goes to the clipboard (with a prompt) and is wiped after ~20s if you have not replaced it.' ;;
     ru:ghost_clip_hint) echo 'По выходу черновик ляжет в буфер (с подтверждением) и сотрётся через ~20с, если ты его не сменишь.' ;;
-    en:type_yes)     echo '[type yes]' ;;    ru:type_yes)     echo '[введите yes]' ;;
     en:split_prompt)  echo 'Paste the secret, then press Ctrl-D on an empty line:' ;;
     ru:split_prompt)  echo 'Вставь секрет, затем нажми Ctrl-D на пустой строке:' ;;
     en:split_done)    echo '↑ Save each share above in a SEPARATE place. They disappear when you press Enter.' ;;
@@ -274,14 +268,6 @@ _render() {
 
 _pause() { read -r -p "  $(t press_enter)… " _ <&0 || true; }
 
-# Подтверждение: 0 только при 'yes' (регистр не важен: yes/YES/Yes). Целое слово —
-# одной буквы 'y' мало для необратимых операций. `case` — bash 3.2-safe (без ${ans,,}).
-_confirm() {
-  local ans
-  read -r -p "  $1 $(t type_yes): " ans <&0 || return 1
-  case "$ans" in [Yy][Ee][Ss]) return 0 ;; *) return 1 ;; esac
-}
-
 # --- действия ---
 _act_status() {
   _run_tool securetrash check
@@ -293,11 +279,11 @@ _act_panic() {
     echo "${C_YEL}$(t install_hint panic "$(_tool_repo panic)")${C_RST}" >&2
     _pause; return
   fi
-  if ! _confirm "$(t confirm_panic)"; then echo "  $(t cancelled)"; _pause; return; fi
-  local hard=""
-  if _confirm "$(t ask_hard)"; then hard="--hard"; fi
-  # shellcheck disable=SC2086
-  _run_tool panic now $hard
+  # Режим паники: МГНОВЕННО, без подтверждений — скорость и есть весь смысл кнопки. Всегда --hard
+  # (спрятать/запереть + прибить cloud-демоны + очистить recent). Защита от случайного нажатия — то,
+  # что пункт явно помечен «instant», а сам `panic now` требует явный verb. Паника обратима: это
+  # hide & lock, НЕ уничтожение данных (для уничтожения — securetrash destroy).
+  _run_tool panic now --hard
   _pause
 }
 # Спросить потолок размера для нового сейфа. Echo выбранного размера в stdout (пусто = дефолт

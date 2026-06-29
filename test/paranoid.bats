@@ -98,23 +98,18 @@ run_paranoid() {
 
 # --- паника (пункт 2) ---
 
-@test "panic confirm yes + hard yes dispatches 'panic now --hard'" {
-  run_paranoid $'2\nyes\nyes\n\n0\n'
+@test "panic dispatches 'panic now --hard' instantly (no confirm)" {
+  run_paranoid $'2\n\n0\n'
   [ "$status" -eq 0 ]
   grep -qx "panic now --hard" "$LOG"
 }
 
-@test "panic confirm yes + hard no dispatches 'panic now' (no --hard)" {
-  run_paranoid $'2\nyes\nno\n\n0\n'
+@test "panic asks for NO confirmation (speed is the point)" {
+  run_paranoid $'2\n\n0\n'
   [ "$status" -eq 0 ]
-  grep -qx "panic now" "$LOG"
-  ! grep -q -- "--hard" "$LOG"
-}
-
-@test "panic confirm no does NOT run panic" {
-  run_paranoid $'2\nno\n\n0\n'
-  [ "$status" -eq 0 ]
-  ! grep -q "^panic " "$LOG"
+  [[ "$output" != *"Run panic now"* ]]
+  [[ "$output" != *"type yes"* ]]
+  [[ "$output" != *"--hard)?"* ]]
 }
 
 @test "panic item greys out when panic is not installed" {
@@ -387,12 +382,6 @@ STUB
   run_paranoid $'4\n2\n\n0\n0\n'
   [ "$status" -eq 0 ]
   [[ "$output" == *"clipboard"* ]]
-}
-
-@test "confirm accepts YES/Yes case-insensitively" {
-  run_paranoid $'2\nYES\nno\n\n0\n'
-  [ "$status" -eq 0 ]
-  grep -qx "panic now" "$LOG"
 }
 
 @test "invalid TTL is rejected and does not start vaultwatch" {
