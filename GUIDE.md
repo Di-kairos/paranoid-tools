@@ -48,7 +48,7 @@ paranoid
 1) Status        — full read-only check (what actually protects you on your hardware)
 2) 🔒 PANIC NOW  — hide & lock everything (with confirmation)
 3) Vault ▸       — open / close / create, empty, destroy, watch
-4) Notepad ▸     — ghostdraft: new / pipe / new + copy to clipboard
+4) Notepad ▸     — ghostdraft: note (write/edit/copy, vanishes) / show clipboard
 5) Secrets ▸     — seedsplit: split / combine
 0) Quit
 ```
@@ -66,7 +66,8 @@ away. Each submenu has its own `0) Back`.
 ```
 Watch lives here because vaultwatch's whole job is guarding the *open* vault.
 
-**4) Notepad ▸** — `1) new`, `2) pipe`, `3) new + copy to clipboard` (ghostdraft).
+**4) Notepad ▸** — `1) note` (write / edit / copy, vanishes on exit — clipboard auto-clears
+~20s), `2) show clipboard` (ghostdraft).
 
 **5) Secrets ▸** — `1) split`, `2) combine` (seedsplit).
 
@@ -189,7 +190,7 @@ pbpaste | ghostdraft pipe   # show the clipboard in the terminal, writing nothin
 
 **Copy a secret once (via the launcher):**
 
-1. `paranoid` → `6` (Ghostdraft) → `3` (new + copy to clipboard).
+1. `paranoid` → `4` (Notepad) → `1` (note).
 2. The editor opens (`vim` with soft wrap — a long key won't run off the edge or get broken by
    inserted newlines). Type the secret, then exit. **How to quit vim (reliable way):** press
    **`Esc`**, then type **`ZZ`** to save & exit, or **`ZQ`** to quit **without** saving (discard

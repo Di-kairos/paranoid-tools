@@ -123,15 +123,13 @@ function T {
         'ru:press_enter'  { return 'Нажми Enter, чтобы продолжить' }
         'en:ask_ttl'      { return 'Auto-exit after (e.g. 30m, 2h; empty = no timer):' }
         'ru:ask_ttl'      { return 'Авто-выход через (напр. 30m, 2h; пусто = без таймера):' }
-        'en:ghost_new'    { return 'new — edit an ephemeral draft' }
-        'ru:ghost_new'    { return 'new — редактировать эфемерный черновик' }
-        'en:ghost_pipe'   { return 'pipe — paste, view, write nothing to disk' }
-        'ru:ghost_pipe'   { return 'pipe — вставить, посмотреть, на диск ничего' }
+        'en:ghost_note'   { return 'note — write, edit, copy; vanishes on exit (clipboard: no auto-clear on Windows)' }
+        'ru:ghost_note'   { return 'заметка — написать, править, скопировать; на выходе исчезает (буфер: на Windows без авто-очистки)' }
+        'en:ghost_pipe'   { return 'show clipboard — paste & view, write nothing to disk' }
+        'ru:ghost_pipe'   { return 'показать буфер — вставь и посмотри, на диск ничего' }
         # Windows clipboard НЕ авто-чистится (история Win+V + Cloud Clipboard) — подпись
         # честно отличается от macOS-варианта «auto-wipes after ~20s». Сам ghostdraft Win-порт
         # дополнительно показывает DANGER и просит confirm перед записью в буфер.
-        'en:ghost_new_clip' { return 'new + copy to clipboard (no auto-clear on Windows)' }
-        'ru:ghost_new_clip' { return 'new + скопировать в буфер (на Windows без авто-очистки)' }
         'en:ghost_clip_hint' { return 'On exit the draft is copied to the clipboard (after a confirmation). Windows has NO auto-clear — Win+V history and Cloud Clipboard keep it — so clear it yourself.' }
         'ru:ghost_clip_hint' { return 'По выходу черновик копируется в буфер (после подтверждения). На Windows авто-очистки НЕТ — история Win+V и Cloud Clipboard его хранят — чисти сам.' }
         # Подсказки ввода (паритет с bash). На Windows конец ввода — Ctrl-Z затем Enter (НЕ Ctrl-D).
@@ -311,9 +309,8 @@ function Get-PnNotepadMenu {
     $lines += ''
     $lines += "  $(T 'h_notepad')"
     $lines += ''
-    $lines += (Format-PnMenuItem 1 (T 'ghost_new')      'ghostdraft')
-    $lines += (Format-PnMenuItem 2 (T 'ghost_pipe')     'ghostdraft')
-    $lines += (Format-PnMenuItem 3 (T 'ghost_new_clip') 'ghostdraft')
+    $lines += (Format-PnMenuItem 1 (T 'ghost_note') 'ghostdraft')
+    $lines += (Format-PnMenuItem 2 (T 'ghost_pipe') 'ghostdraft')
     $lines += "  0) $(T 'back')"
     $lines += ''
     return ($lines -join "`n")
@@ -432,7 +429,6 @@ function Invoke-PnActSplit   { Write-Output "  $(T 'split_prompt')";   Invoke-Pn
 function Invoke-PnActCombine { Write-Output "  $(T 'combine_prompt')"; Invoke-PnTool 'seedsplit' @('combine'); Invoke-PnPause }
 # Ghost-действия (из notepad-подменю). new --clipboard: ghostdraft сам показывает DANGER +
 # confirm; на Windows авто-очистки буфера НЕТ — лаунчер дублирует caveat честной подписью.
-function Invoke-PnActGhostNew  { Invoke-PnTool 'ghostdraft' @('new') }
 # pipe читает stdin — подсказываем, что вставить и чем завершить (паритет с bash).
 function Invoke-PnActGhostPipe { Write-Output "  $(T 'ghost_pipe_hint')"; Invoke-PnTool 'ghostdraft' @('pipe') }
 function Invoke-PnActGhostClip { Write-Output "  $(T 'ghost_clip_hint')"; Invoke-PnTool 'ghostdraft' @('new', '--clipboard') }
@@ -469,9 +465,10 @@ function Invoke-PnVaultDispatch {
 function Invoke-PnNotepadDispatch {
     param([string]$Choice)
     switch ($Choice) {
-        '1' { Invoke-PnActGhostNew;  Invoke-PnPause }
+        # Единая «заметка» = new --clipboard: пишешь/правишь, на выходе предлагает копию.
+        # На Windows авто-очистки буфера нет → GhostClip печатает честный DANGER-caveat.
+        '1' { Invoke-PnActGhostClip; Invoke-PnPause }
         '2' { Invoke-PnActGhostPipe; Invoke-PnPause }
-        '3' { Invoke-PnActGhostClip; Invoke-PnPause }
         { $_ -in '0', 'q', 'Q' } { return $true }
         default { }
     }

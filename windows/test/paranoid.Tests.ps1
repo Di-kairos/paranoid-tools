@@ -424,11 +424,15 @@ Describe 'notepad submenu dispatch (ghostdraft)' {
         Mock Invoke-PnPause { }
         $script:PN_LOCALE = 'en'
     }
-    It '1 runs ghostdraft new' {
-        Invoke-PnNotepadDispatch '1' | Should -BeFalse
+    It '1 (unified note) runs ghostdraft new --clipboard (with a DANGER caveat first)' {
+        # Заметка схлопнута в один пункт: пишешь/правишь/копируешь. На Windows честный
+        # DANGER-caveat (нет авто-очистки буфера) печатается через Write-Output перед запуском,
+        # поэтому проверяем сам вызов (Out-Null глушит подсказку), а не возврат.
+        $out = (Invoke-PnNotepadDispatch '1' 6>&1) -join "`n"
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
-            $Tool -eq 'ghostdraft' -and ($ToolArgs -contains 'new') -and (-not ($ToolArgs -contains '--clipboard'))
+            $Tool -eq 'ghostdraft' -and ($ToolArgs -contains 'new') -and ($ToolArgs -contains '--clipboard')
         }
+        $out | Should -Match 'auto-clear'
     }
     It '2 runs ghostdraft pipe (and shows a paste hint first)' {
         $out = (Invoke-PnNotepadDispatch '2' 6>&1) -join "`n"
@@ -437,11 +441,9 @@ Describe 'notepad submenu dispatch (ghostdraft)' {
         }
         $out | Should -Match 'nothing is written to disk'
     }
-    It '3 runs ghostdraft new --clipboard' {
+    It '3 runs nothing (third item collapsed away)' {
         Invoke-PnNotepadDispatch '3' | Out-Null
-        Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
-            $Tool -eq 'ghostdraft' -and ($ToolArgs -contains 'new') -and ($ToolArgs -contains '--clipboard')
-        }
+        Should -Invoke Invoke-PnTool -Times 0 -Exactly
     }
     It 'unknown choice runs nothing' {
         Invoke-PnNotepadDispatch 'x' | Out-Null

@@ -230,10 +230,18 @@ run_paranoid() {
 
 # --- блокнот: подменю (пункт 4 → ...) ---
 
-@test "notepad submenu 1 dispatches 'ghostdraft new'" {
+@test "notepad submenu 1 (unified note) dispatches 'ghostdraft new --clipboard'" {
+  # Заметка схлопнута: единый пункт пишет/правит/копирует (копия с авто-очисткой ~20с).
   run_paranoid $'4\n1\n\n0\n0\n'
   [ "$status" -eq 0 ]
-  grep -qx "ghostdraft new" "$LOG"
+  grep -qx "ghostdraft new --clipboard" "$LOG"
+}
+
+@test "notepad submenu 1 warns the clipboard auto-wipes" {
+  run_paranoid $'4\n1\n\n0\n0\n'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"clipboard"* ]]
+  [[ "$output" == *"20s"* ]]
 }
 
 @test "notepad submenu 2 dispatches 'ghostdraft pipe'" {
@@ -242,17 +250,11 @@ run_paranoid() {
   grep -qx "ghostdraft pipe" "$LOG"
 }
 
-@test "notepad submenu 3 dispatches 'ghostdraft new --clipboard'" {
+@test "notepad submenu has no third item (collapsed to note + show-clipboard)" {
+  # Пункт 3 (старый new+clipboard) убран — '3' теперь невалиден, ничего не диспатчит.
   run_paranoid $'4\n3\n\n0\n0\n'
   [ "$status" -eq 0 ]
-  grep -qx "ghostdraft new --clipboard" "$LOG"
-}
-
-@test "notepad submenu 3 warns the clipboard auto-wipes" {
-  run_paranoid $'4\n3\n\n0\n0\n'
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"clipboard"* ]]
-  [[ "$output" == *"20s"* ]]
+  ! grep -q "^ghostdraft" "$LOG"
 }
 
 # --- сейф: vaultwatch start (подменю 3 → 4) ---
