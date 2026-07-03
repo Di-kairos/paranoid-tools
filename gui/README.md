@@ -32,18 +32,41 @@ other and the bash launcher's grouping.
 cd macos
 ./build.sh            # → ./ParanoidBar  (run it: a 🔒 appears in the menu bar)
 ./build.sh --bundle   # → ParanoidBar.app (LSUIElement: menu-bar agent, no Dock icon)
+
+# distribution (needs an Apple Developer account — see below):
+./build.sh --bundle --sign "Developer ID Application: NAME (TEAMID)" --notarize <profile>
+./build.sh --bundle --sign -   # ad-hoc: exercises the codesign path locally (NOT distributable)
 ```
+`build.sh` is distribution-ready: `--sign` runs `codesign` with hardened runtime + `--verify`;
+`--notarize <profile>` zips, submits via `notarytool --wait`, then staples + validates.
+`--version X.Y.Z` stamps the bundle. Only the real Developer-ID sign + notary submission need the
+account; the pipeline mechanics are exercised by the ad-hoc path.
 
 **Windows**
 ```powershell
 pwsh -File windows/paranoid-tray.ps1   # a Shield icon appears in the tray; right-click for the menu
 ```
 
+## Distribution readiness (what the maintainer must obtain)
+
+The macOS pipeline (`build.sh --sign --notarize`) is ready; it only needs credentials:
+
+| Need | What / where | Cost | Unblocks |
+|------|--------------|------|----------|
+| **Apple Developer Program** | developer.apple.com/programs — enroll the Di-kairos Apple ID | **$99/yr** | Developer ID cert + notarization |
+| **Developer ID Application cert** | Xcode/Keychain or developer.apple.com → Certificates | included | `codesign` that passes Gatekeeper |
+| **notarytool keychain profile** | `xcrun notarytool store-credentials <profile> --apple-id … --team-id … --password <app-specific>` | included | `--notarize <profile>` |
+| **xcodebuild / real Mac** | this machine has Command Line Tools only (`codesign`/`notarytool`/`stapler` present) — full `.app` sign+notarize best run on the **home machine** | — | end-to-end release |
+
+> App-specific password: appleid.apple.com → Sign-In & Security → App-Specific Passwords.
+> One `store-credentials` per machine; then release is a single `build.sh --sign … --notarize …`.
+
+**Windows tray** (`.ps1`, not a compiled exe) → Authenticode-sign the script with a code-signing
+cert (`Set-AuthenticodeSignature`) or ship a signed launch shim. Needs a Windows code-signing cert
+(OV ~$100–400/yr, or EV for instant SmartScreen trust) — separate pack, not yet scripted.
+
 ## Not done yet (honest scope — the rest of Phase B)
 
-- **Code signing + notarization + packaging** (macOS `.app` → Developer ID + `notarytool` + staple;
-  Windows tray → signed `.exe`/MSIX or a signed launch shim). Needs an **Apple Developer account** and
-  a Windows code-signing cert — a distribution step, not a code step.
 - A settings pane (vault-volume override, poll interval, language) — a UX-design decision, staged
   separately. *(Auto-start at login, monochrome status glyphs, and vaultwatch session + TTL
   countdown are now done — see the table above.)*
