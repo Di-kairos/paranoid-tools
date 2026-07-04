@@ -32,11 +32,11 @@
 
 | # | Инструмент | Шаг жизни секрета | Платформа | Версия |
 |---|------------|-------------------|-----------|--------|
-| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить в зашифрованном vault, очистить или уничтожить | macOS · Windows (beta) | `v0.4.10` |
-| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый vault | macOS · Windows (beta) | `v0.1.5` |
-| 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | macOS · Windows (beta) | `v0.1.6` |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть без следов на диске | macOS · Windows (beta) | `v0.1.6` |
-| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | разбить секрет на доли (Шамир) + passphrase | macOS · Windows (beta) | `v0.4.0` |
+| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить в зашифрованном vault, очистить или уничтожить | macOS · Windows (beta) | `v0.4.11` |
+| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый vault | macOS · Windows (beta) | `v0.1.6` |
+| 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | macOS · Windows (beta) | `v0.1.7` |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть без следов на диске | macOS · Windows (beta) | `v0.1.7` |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | разбить секрет на доли (Шамир) + passphrase | macOS · Windows (beta) | `v0.4.1` |
 
 > **Windows.** У всех пяти инструментов есть PowerShell-порты (beta, покрыты Pester на CI;
 > доли seedsplit байт-совместимы с macOS-сборкой). macOS-примитивы — Spotlight, Time Machine,
@@ -63,7 +63,7 @@ bash install.sh --uninstall
 verify-then-run: установщик проверяет подпись Ed25519 над `SHA256SUMS`, затем контрольную
 сумму install.sh самого инструмента и только потом запускает его — а тот, в свою очередь,
 проверяет бинарь до установки. Ничего не выполняется, пока не проверено. Закрепить версию —
-`PT_PANIC_VERSION=0.1.6`; сменить каталог — `PT_DEST=/usr/local/bin`.
+`PT_PANIC_VERSION=0.1.7`; сменить каталог — `PT_DEST=/usr/local/bin`.
 
 Нужен только один инструмент или хочется пройти каждый шаг руками? В README каждого
 инструмента есть отдельный verify-then-run сниппет и однострочная быстрая форма. См. [состав](#состав).

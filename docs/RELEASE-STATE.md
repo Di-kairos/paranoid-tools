@@ -12,24 +12,21 @@
 > и тег. Рассинхрон этой таблицы с реальными HEAD не ломает сборку/установку ни одного тула —
 > он лишь означает, что снимок устарел. Обновлять при закрытии сессии вместе с `HANDOFF.md`.
 
-Обновлено: 2026-06-27 (securetrash v0.4.10 — `vault reset` = crypto-shred + recreate; ghostdraft
-v0.1.6 — простой выход из vim F2/F3; лаунчер: подменю-навигация + Empty + выбор размера; verify 5/5).
+Обновлено: 2026-07-04 (сессия 20 — РЕЛИЗ-КАТ всей экосистемы: весь аудит `AUDIT_2026-07-03.md`
+закрыт/смягчён и ОТГРУЖЕН. Ключевое: P1-2 Ed25519 sig-verify во всех 5 Windows-инсталляторах;
+vaultwatch P1-1/P2-4/P2-6/P2-8; seedsplit P1-5 + split self-check; umbrella install.sh P1-4/P2-3;
+GUI P2-7/P2-10; honesty/version/EN-RU по всем тулам).
 
-> ⚠ **Сессия 20 (2026-07-04): main КАЖДОГО тула ушёл ВПЕРЁД релизных тегов ниже.** На main —
-> существенные НЕзарелиженные фиксы аудита `AUDIT_2026-07-03.md`: P1-2 (Ed25519 sig-verify во всех
-> 5 Windows-инсталляторах), P1-1/P2-4/P2-6/P2-8 (vaultwatch), P1-5 + round-trip self-check
-> (seedsplit), P1-4/P2-3 (umbrella install.sh), honesty/version-drift/EN-RU parity по всем тулам,
-> GUI P2-7/P2-10. Таблица Tag/Version = что ОПУБЛИКОВАНО; чтобы фиксы дошли до пользователей —
-> нужен **релиз-кат** (version bump + tag + подписанный release CI) по каждому тулу. HEAD-колонка
-> устарела намеренно (обновляется при следующем релиз-кате).
+| Tool | Repo | Tag (release) | Version | Статус |
+|------|------|---------------|---------|--------|
+| securetrash | `Di-kairos/securetrash` | `v0.4.11` | **0.4.11** | CI ✅ · Release подписан ✅ · Windows sig-verify · P0-1/P2-2/P2-5 |
+| vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.6` | **0.1.6** | CI ✅ · Release подписан ✅ · `--force` safety-gate · Win unmount-guard · sig-verify |
+| panic       | `Di-kairos/panic`       | `v0.1.7` | **0.1.7** | CI ✅ · Release подписан ✅ · Windows sig-verify · honesty doc-pass |
+| ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.7` | **0.1.7** | CI ✅ · Release подписан ✅ · Windows sig-verify |
+| seedsplit   | `Di-kairos/seedsplit`   | `v0.4.1` | **0.4.1** | CI ✅ · Release подписан ✅ · passphrase no-spill · split self-check · sig-verify |
 
-| Tool | Repo | Tag (release) | HEAD commit | Version | Статус |
-|------|------|---------------|-------------|---------|--------|
-| securetrash | `Di-kairos/securetrash` | `v0.4.10` | `472a346` | **0.4.10** | CI ✅ · Release подписан ✅ · Windows (beta) · `vault reset` |
-| vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.5` | `a05ab25` | **0.1.5** | CI ✅ · Release подписан ✅ · Windows (beta) · macOS unmount-guard |
-| panic       | `Di-kairos/panic`       | `v0.1.6` | `da3a313` | **0.1.6** | CI ✅ · Release подписан ✅ · Windows (beta) · честная блокировка экрана (macOS+Win) |
-| ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.6` | `7ead035` | **0.1.6** | CI ✅ · Release подписан ✅ · Windows (beta) · simple editor exit |
-| seedsplit   | `Di-kairos/seedsplit`   | `v0.4.0` | `a238724` | **0.4.0** | CI ✅ · Release подписан ✅ · Windows (beta) · passphrase-слой (-p) |
+> Формулы Homebrew обновлены на новые теги + sha256 (source-тарбол). `verify-releases.sh` пиннут
+> на эти теги. HEAD-колонка убрана — дрейфует; смотри `git -C <tool> describe --tags`.
 
 Все пять инструментов — open source, опубликованы публично (исходники и релизы открыты).
 
