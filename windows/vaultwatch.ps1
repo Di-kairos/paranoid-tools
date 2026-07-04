@@ -254,14 +254,37 @@ function Unregister-VwTtlTask {
     try { Unregister-ScheduledTask -TaskName $Label -Confirm:$false -ErrorAction Stop } catch { }
 }
 
-# Том занят открытыми файлами? Best-effort (на Windows точный хэндл-чек дорог) → $false.
-function Test-VwMountBusy { param([string]$Mount) return $false }
+# Том занят открытыми файлами? Best-effort: Get-SmbOpenFile ловит только СЕТЕВЫЕ (SMB) открытия
+# файлов на этом хосте; локальные хэндлы Windows дёшево не перечислить. Потому детект positive-only:
+# $true только если точно нашли открытый файл на диске тома, иначе $false. Жёсткий fail-closed для
+# локальных хэндлов даёт сам Invoke-VwDismount (без -Force BitLocker откажется запирать занятый том).
+# Паритет с bash `lsof` — частичный и честно ограничен (манифест > фичи).
+function Test-VwMountBusy {
+    param([string]$Mount)
+    if ($Mount.Length -lt 2) { return $false }
+    $drive = $Mount.Substring(0, 2)   # "V:" из "V:\"
+    try {
+        $open = @(Get-SmbOpenFile -ErrorAction Stop | Where-Object {
+            $_.Path -and $_.Path.StartsWith($drive, [System.StringComparison]::OrdinalIgnoreCase)
+        })
+        return ($open.Count -gt 0)
+    } catch {
+        return $false   # детект недоступен — safety держит Invoke-VwDismount
+    }
+}
 
-# Размонтировать/запереть vault (lock BitLocker -ForceDismount). Возвращает $true при успехе.
+# Размонтировать/запереть vault. С -Force → BitLocker -ForceDismount (рвёт открытые хэндлы,
+# риск data-loss — только по явному --force + подтверждению). Без -Force → обычный Lock-BitLocker:
+# BitLocker сам ОТКАЖЕТСЯ запирать занятый том (fail-closed, паритет с bash `hdiutil detach` без -force).
+# Возвращает $true при успехе.
 function Invoke-VwDismount {
     param([string]$Mount, [bool]$Force)
     try {
-        Lock-BitLocker -MountPoint $Mount -ForceDismount -ErrorAction Stop | Out-Null
+        if ($Force) {
+            Lock-BitLocker -MountPoint $Mount -ForceDismount -ErrorAction Stop | Out-Null
+        } else {
+            Lock-BitLocker -MountPoint $Mount -ErrorAction Stop | Out-Null
+        }
         return $true
     } catch { return $false }
 }

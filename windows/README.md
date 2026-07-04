@@ -58,7 +58,7 @@ vaultwatch stop V:\               # restore + report
 | Time Machine exclusion (`tmutil addexclusion`) | **not done** — Windows can't cleanly exclude backups from CLI |
 | `tmutil listlocalsnapshots` (report) | `vssadmin list shadows` (report VSS shadow copies) |
 | cloud daemons (`pgrep` + folders) | `Get-Process` (OneDrive/Dropbox/GoogleDriveFS) + folder heuristic |
-| `hdiutil detach` on TTL | `Lock-BitLocker -ForceDismount` |
+| `hdiutil detach` on TTL (`-force` only with `--force`) | `Lock-BitLocker` on TTL (`-ForceDismount` only with `--force`) |
 | FileVault (`fdesetup`) | BitLocker (`Get-BitLockerVolume`) |
 | swap (not addressed) | pagefile (not addressed) |
 

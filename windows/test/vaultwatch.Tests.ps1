@@ -133,6 +133,48 @@ Describe '_ttl_fire — auto-exit' {
     }
 }
 
+Describe 'Invoke-VwDismount — force gate (не рвём открытые файлы без --force)' {
+    BeforeAll {
+        # Lock-BitLocker — системный cmdlet, на macOS-раннере его нет: определяем стаб,
+        # чтобы Mock мог перехватить вызов и проверить переданные параметры.
+        function Lock-BitLocker { param([string]$MountPoint, [switch]$ForceDismount) }
+    }
+
+    It 'does NOT pass -ForceDismount when Force is $false' {
+        Mock Lock-BitLocker { }
+        Invoke-VwDismount -Mount 'V:\' -Force $false | Out-Null
+        Should -Invoke Lock-BitLocker -Times 1 -Exactly -ParameterFilter { -not $ForceDismount }
+    }
+
+    It 'passes -ForceDismount only when Force is $true' {
+        Mock Lock-BitLocker { }
+        Invoke-VwDismount -Mount 'V:\' -Force $true | Out-Null
+        Should -Invoke Lock-BitLocker -Times 1 -Exactly -ParameterFilter { [bool]$ForceDismount }
+    }
+}
+
+Describe 'Test-VwMountBusy — best-effort busy detect (SMB opens)' {
+    BeforeAll {
+        # Get-SmbOpenFile — системный cmdlet (SMB-модуль), на macOS-раннере отсутствует: стаб под Mock.
+        function Get-SmbOpenFile { }
+    }
+
+    It 'reports busy when an SMB open file sits on the mount drive' {
+        Mock Get-SmbOpenFile { @([pscustomobject]@{ Path = 'V:\secret.kdbx' }) }
+        (Test-VwMountBusy -Mount 'V:\') | Should -BeTrue
+    }
+
+    It 'reports not busy when no open file matches the drive' {
+        Mock Get-SmbOpenFile { @([pscustomobject]@{ Path = 'C:\Users\x\doc.txt' }) }
+        (Test-VwMountBusy -Mount 'V:\') | Should -BeFalse
+    }
+
+    It 'falls back to not-busy when detection is unavailable (Invoke-VwDismount holds the hard gate)' {
+        Mock Get-SmbOpenFile { throw 'not available' }
+        (Test-VwMountBusy -Mount 'V:\') | Should -BeFalse
+    }
+}
+
 Describe 'status' {
     BeforeEach {
         $script:Work = Join-Path ([System.IO.Path]::GetTempPath()) ("vw_st_" + [Guid]::NewGuid().ToString('N'))
