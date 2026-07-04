@@ -5,3 +5,6 @@
 dist/
 # Временный каталог Windows-установщика (install.ps1)
 seedsplit-*/
+# Артефакты инструментов анализа (граф знаний / three-brain)
+graphify-out/
+tri-mozga-out/
