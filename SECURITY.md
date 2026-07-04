@@ -29,7 +29,7 @@ In scope:
   evaluation, and Lagrange interpolation in `split` / `combine`. A flaw that makes
   T-1 shares leak information about the secret, or makes T shares fail to
   reconstruct it exactly, is a real vulnerability.
-- The integrity wrapper / share format (`SSS1-...`): a corrupted set or shares
+- The integrity wrapper / share format (`SSS2-...`): a corrupted set or shares
   from different secrets must produce an **honest refusal**, never a wrong secret
   returned as if it were correct.
 - Entropy handling: anything that weakens the randomness used for share

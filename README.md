@@ -50,7 +50,7 @@ curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/insta
 > corruption, partial/cached tampering, and stops you running code off the moving `main`
 > branch. It does **not** by itself defeat an attacker who can rewrite *both* the binary
 > and its checksum at the source (or your connection), nor does it prove *who* published
-> them. Pin a specific version with `SEEDSPLIT_VERSION=0.3.1` instead of `latest` for
+> them. Pin a specific version with `SEEDSPLIT_VERSION=0.4.0` instead of `latest` for
 > reproducibility. Override the source with `SEEDSPLIT_BASE_URL` and the install path
 > with `SEEDSPLIT_DEST`.
 
@@ -126,8 +126,9 @@ seedsplit help           # or -h / --help
 
 | Command | What it does |
 |---|---|
-| `seedsplit split [-n N] [-t T] [--file F]` | Split a secret (from stdin or `--file`) into `N` shares; any `T` reconstruct it. Default `-n 3 -t 2`. |
-| `seedsplit combine [FILE...]` | Reconstruct the secret from ≥T shares (read from stdin, one per line, or from `FILE`s). |
+| `seedsplit split [-n N] [-t T] [-p] [--file F]` | Split a secret (from stdin or `--file`) into `N` shares; any `T` reconstruct it. Default `-n 3 -t 2`. |
+| `seedsplit split -p` / `--passphrase` | Encrypt the secret first (openssl AES-256-CBC + PBKDF2) so a reconstructed threshold still needs the passphrase. `combine` auto-detects and prompts. See *Scope & limitations*. |
+| `seedsplit combine [FILE...]` | Reconstruct the secret from ≥T shares (read from stdin, one per line, or from `FILE`s). Prompts for the passphrase if the shares were split with `-p`. |
 | `seedsplit verify [FILE...]` | Confirm ≥T shares reconstruct, **without printing the secret** (prints only the recovered length). |
 | `seedsplit version` | Print the version (also `-v` / `--version`). |
 | `seedsplit help` | Print help (also `-h` / `--help`). |
@@ -181,7 +182,7 @@ oversell. So here are the honest limits:
 ## Architecture
 
 - Single-file Bash, zero dependencies. Shamir over GF(256) is implemented in pure Bash;
-  the RNG is `/dev/urandom`. Tests: **bats** (37 tests — `split`/`combine`/`verify`,
+  the RNG is `/dev/urandom`. Tests: **bats** (44 tests — `split`/`combine`/`verify`,
   round-trip over every threshold subset, the full failure taxonomy, the 128-bit
   integrity tag, plus known-answer tests: FIPS-197 GF vectors and a frozen share-set).
 - The shared core (`lib/common.sh`) is **vendored** inline from securetrash, pinned to a

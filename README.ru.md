@@ -7,6 +7,7 @@
 [![CI](https://github.com/Di-kairos/seedsplit/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/seedsplit/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
+![windows](https://img.shields.io/badge/Windows-beta-orange)
 ![shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)
 
 Часть экосистемы [Paranoid Tools](https://github.com/Di-kairos/paranoid-tools).
@@ -49,7 +50,7 @@ curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/insta
 > повреждение, частичную/кэш-подмену и не даёт запустить код с подвижной ветки `main`.
 > Она сама по себе НЕ защищает от атакующего, способного переписать *и* бинарь, *и* его
 > сумму в источнике (или на твоём канале), и НЕ доказывает, *кто* их опубликовал. Для
-> воспроизводимости фиксируй версию: `SEEDSPLIT_VERSION=0.3.1` вместо `latest`. Источник
+> воспроизводимости фиксируй версию: `SEEDSPLIT_VERSION=0.4.0` вместо `latest`. Источник
 > можно переопределить через `SEEDSPLIT_BASE_URL`, путь установки — через `SEEDSPLIT_DEST`.
 
 ### Язык вывода
@@ -112,8 +113,9 @@ seedsplit help           # или -h / --help
 
 | Команда | Что делает |
 |---|---|
-| `seedsplit split [-n N] [-t T] [--file F]` | Разбить секрет (из stdin или `--file`) на `N` долей; любые `T` восстанавливают его. По умолчанию `-n 3 -t 2`. |
-| `seedsplit combine [FILE...]` | Восстановить секрет из ≥T долей (читает из stdin по строке на долю, либо из `FILE`). |
+| `seedsplit split [-n N] [-t T] [-p] [--file F]` | Разбить секрет (из stdin или `--file`) на `N` долей; любые `T` восстанавливают его. По умолчанию `-n 3 -t 2`. |
+| `seedsplit split -p` / `--passphrase` | Сначала зашифровать секрет (openssl AES-256-CBC + PBKDF2), чтобы собранный порог всё равно требовал passphrase. `combine` сам определит и спросит его. См. «Область применения и ограничения». |
+| `seedsplit combine [FILE...]` | Восстановить секрет из ≥T долей (читает из stdin по строке на долю, либо из `FILE`). Спросит passphrase, если доли сделаны с `-p`. |
 | `seedsplit verify [FILE...]` | Подтвердить, что ≥T долей восстанавливаются, **не печатая секрет** (печатает только длину восстановленного секрета). |
 | `seedsplit version` | Показать версию (также `-v` / `--version`). |
 | `seedsplit help` | Показать справку (также `-h` / `--help`). |
@@ -152,11 +154,20 @@ tag** из sha256), поэтому `combine` возвращает **либо т�
 - **умножение в GF(256) идёт через таблицы log/antilog и НЕ constant-time** — есть
   тайминговый side-channel. Он вне модели угроз этого инструмента (локальный CLI без
   удалённого или онлайн-оракула на `split`/`combine`), но мы его не скрываем.
+- **слой passphrase (`-p`) использует openssl**, а не zero-dep ядро — это опциональное
+  encrypt-before-split (AES-256-CBC + PBKDF2): собранный порог даёт лишь запечатанный
+  контейнер, секрет по-прежнему защищён passphrase. Ядро `split`/`combine` остаётся без
+  зависимостей; openssl вызывает только `-p` (есть по умолчанию на macOS/Linux). Windows-порт
+  восстанавливает запечатанный контейнер и подсказывает расшифровать его конвейером
+  `openssl enc -d`. **Крайний случай:** незашифрованный секрет, случайно начинающийся с
+  байтов `Salted__` (≈2⁻⁶⁴ для произвольных данных; для реальных seed-фраз не проблема),
+  `combine` ошибочно примет за зашифрованный — вместо секрета получишь ошибку «неверный
+  passphrase» (утечки нет); пересоздай с `-p` или расшифруй вручную.
 
 ## Архитектура
 
 - Single-file Bash, ноль зависимостей. Shamir над GF(256) реализован на чистом Bash;
-  ГСЧ — `/dev/urandom`. Тесты: **bats** (37 тестов — `split`/`combine`/`verify`,
+  ГСЧ — `/dev/urandom`. Тесты: **bats** (44 теста — `split`/`combine`/`verify`,
   round-trip по каждому пороговому подмножеству, полная таксономия отказов, 128-битный
   tag целостности, плюс known-answer тесты: GF-векторы FIPS-197 и замороженный набор
   долей).

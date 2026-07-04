@@ -50,6 +50,18 @@ Open a new terminal afterward so `PATH` refreshes.
 | `seedsplit verify  [FILE...]` | Confirm `≥T` shares reconstruct the secret **without printing it**. |
 | `seedsplit version` | Show the version. |
 
+> **Passphrase-protected shares (`-p`).** The macOS/Linux build can `split -p` to
+> encrypt the secret before splitting (openssl AES-256-CBC + PBKDF2). This PowerShell
+> port does **not** create `-p` shares, and on `combine` it does **not** silently return
+> the secret: it honestly flags the reconstructed bytes as a **sealed openssl container**
+> and hands them to you to decrypt yourself — no hard openssl dependency in the port:
+>
+> ```powershell
+> Get-Content shares.txt | seedsplit combine > sealed.bin
+> # then, wherever openssl is available:
+> openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in sealed.bin
+> ```
+
 ```powershell
 "correct horse battery staple" | seedsplit split -n 5 -t 3 > shares.txt
 Get-Content shares.txt | Select-Object -Index 0,2,4 | seedsplit combine

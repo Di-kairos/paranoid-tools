@@ -119,7 +119,10 @@
   порога, отказ при <T долях без утечки, детект порчи/чужого набора, бинарные секреты,
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
-[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Di-kairos/seedsplit/compare/v0.3.3...v0.4.0
+[0.3.3]: https://github.com/Di-kairos/seedsplit/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/Di-kairos/seedsplit/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Di-kairos/seedsplit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Di-kairos/seedsplit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Di-kairos/seedsplit/releases/tag/v0.2.0
