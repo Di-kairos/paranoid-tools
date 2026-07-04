@@ -175,6 +175,15 @@ Describe 'Test-VwMountBusy — best-effort busy detect (SMB opens)' {
     }
 }
 
+Describe 'Assert-VwPs7 — требует PowerShell 7+ (P2-8, fail-closed)' {
+    It 'throws on Windows PowerShell 5.1 (TTL/hooks would silently not fire)' {
+        { Assert-VwPs7 -Version ([version]'5.1.19041.1') } | Should -Throw
+    }
+    It 'passes on PowerShell 7+' {
+        { Assert-VwPs7 -Version ([version]'7.6.3') } | Should -Not -Throw
+    }
+}
+
 Describe 'status' {
     BeforeEach {
         $script:Work = Join-Path ([System.IO.Path]::GetTempPath()) ("vw_st_" + [Guid]::NewGuid().ToString('N'))

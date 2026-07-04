@@ -1,5 +1,6 @@
 # vaultwatch.ps1 — честный сторож открытого vault (Paranoid Tools), Windows-порт (BETA).
-# Зеркало macOS-версии (bash). Baseline: Windows PowerShell 5.1.
+# Зеркало macOS-версии (bash). Требует PowerShell 7+ (pwsh): TTL-таск и хуки зовут pwsh.exe,
+# под Windows PowerShell 5.1 не работают — старт fail-closed (см. Assert-VwPs7).
 #
 # Активен ТОЛЬКО пока vault примонтирован: сужает каналы утечки открытого plaintext и
 # восстанавливает всё при закрытии. Стартует/гаснет из хуков securetrash vault open/close.
@@ -72,6 +73,8 @@ function T {
     switch ("$($script:VW_LOCALE):$Key") {
         'en:unknown_cmd'   { return "Unknown command: $A" }
         'ru:unknown_cmd'   { return "Unknown command: $A" }
+        'en:need_ps7'      { return "vaultwatch requires PowerShell 7+ (pwsh); running under $A. TTL auto-dismount and hooks call pwsh.exe and will not fire on Windows PowerShell 5.1. Install PowerShell 7: https://aka.ms/powershell" }
+        'ru:need_ps7'      { return "vaultwatch требует PowerShell 7+ (pwsh); запущен под $A. TTL-авторазмонтирование и хуки зовут pwsh.exe и НЕ сработают на Windows PowerShell 5.1. Установи PowerShell 7: https://aka.ms/powershell" }
         'en:need_mount'    { return 'this command needs a mountpoint argument.' }
         'ru:need_mount'    { return 'команде нужен аргумент — точка монтирования.' }
         'en:mount_missing' { return "mountpoint not found: $A" }
@@ -530,9 +533,21 @@ function Invoke-VwStatus {
 
 function Invoke-VwVersion { Write-Output "vaultwatch $VERSION (Windows, beta)" }
 
+# Требуем PowerShell 7+: TTL-таск (Register-ScheduledTask -Execute pwsh.exe) и .cmd-хуки зовут
+# pwsh.exe. Под Windows PowerShell 5.1 они молча не стартуют → auto-dismount и Search-exclusion не
+# срабатывают без единой ошибки. Fail-closed с ясным сообщением (P2-8).
+function Assert-VwPs7 {
+    param([version]$Version = $PSVersionTable.PSVersion)
+    if ($Version.Major -lt 7) {
+        Write-VwErr (T 'need_ps7' ([string]$Version))
+        Stop-VwCommand 1
+    }
+}
+
 function Invoke-VwMain {
     param([string[]]$Argv)
     try {
+        Assert-VwPs7
         $self = $PSCommandPath
         $cmd = if ($Argv -and $Argv.Count -ge 1) { $Argv[0] } else { '' }
         if (-not $cmd) { Write-Output (Get-VwUsage); exit 1 }
