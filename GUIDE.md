@@ -46,7 +46,7 @@ paranoid
 
 ```
 1) Status        — full read-only check (what actually protects you on your hardware)
-2) 🔒 PANIC NOW  — hide & lock everything (with confirmation)
+2) 🔒 PANIC NOW  — hide & lock everything (instant, no confirmation)
 3) Vault ▸       — open / close / create, empty, destroy, watch
 4) Notepad ▸     — ghostdraft: note (write/edit/copy, vanishes) / show clipboard
 5) Secrets ▸     — seedsplit: split / combine

@@ -4,7 +4,9 @@ vaultwatch/
 panic/
 ghostdraft/
 seedsplit/
-# Артефакты графа и системные.
+# Секреты и артефакты графа/системные.
+.env*
+*.log
 graphify-out/
 .DS_Store
 .claude/
