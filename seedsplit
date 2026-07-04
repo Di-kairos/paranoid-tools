@@ -197,6 +197,8 @@ EOF
     ru:split_secret_big)    printf 'split: секрет слишком большой (>65535 байт)' ;;
     en:split_low_entropy)   printf 'split: not enough entropy from /dev/urandom' ;;
     ru:split_low_entropy)   printf 'split: мало энтропии из /dev/urandom' ;;
+    en:split_selfcheck_fail) printf 'split: internal self-check FAILED — the generated shares do not reconstruct the secret. Nothing was printed; do NOT rely on any partial output. Please re-run and report this.' ;;
+    ru:split_selfcheck_fail) printf 'split: внутренняя self-проверка НЕ ПРОШЛА — сгенерированные доли не собирают секрет. Ничего не напечатано; НЕ полагайся на частичный вывод. Перезапусти и сообщи об этом.' ;;
 
     # --- combine errors (taxonomy) ---
     en:combine_not_sss2)    printf 'combine: line does not look like an SSS2 share: %s' "$1" ;;
@@ -407,11 +409,25 @@ cmd_split() {
 
   # Доля: SSS2-<setid>-<T>-<x>-<hexY>-<chk4>. chk ловит опечатку в конкретной доле;
   # setid — смешивание долей из разных сплитов. Формат SSS2 НЕсовместим со старым SSS1.
+  local -a SHARES=(); local chk body
   for ((x=1; x<=n; x++)); do
-    local body="SSS2-${setid_hex}-${t}-${x}-${Y[x]}" chk
+    body="SSS2-${setid_hex}-${t}-${x}-${Y[x]}"
     chk="$(printf '%s' "$body" | _sha256_hex)"; chk="${chk:0:4}"
-    printf '%s-%s\n' "$body" "$chk"
+    SHARES+=("${body}-${chk}")
   done
+
+  # Round-trip self-check ДО печати: собрать секрет ровно тем же путём, что `combine`, из первых T
+  # долей и сверить с исходным. Ловит любую поломку генерации/GF-математики РАНЬШЕ, чем юзер раздаст
+  # доли и сотрёт оригинал сида (иначе потеря без гарантии сборки). Транзиентно материализует T
+  # долей (как и обычный combine) — сами доли всё равно идут в stdout, это не утечка секрета.
+  local sc_in sc_out
+  sc_in="$(printf '%s\n' "${SHARES[@]:0:t}")"
+  sc_out="$(_recover_secret_hex "$sc_in" 2>/dev/null)"
+  if [[ "$sc_out" != "$secret_hex" ]]; then
+    err "$(t split_selfcheck_fail)"; exit 1
+  fi
+
+  printf '%s\n' "${SHARES[@]}"
 }
 
 # Восстановление секрета из долей: парсинг + ВСЕ проверки + интерполяция Лагранжа в нуле.

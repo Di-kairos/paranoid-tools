@@ -54,6 +54,16 @@ _need_openssl() { command -v openssl >/dev/null 2>&1 || skip "openssl not on PAT
   [ "$(printf '%s\n' "$shares" | grep -c '^SSS2-')" -eq 3 ]
 }
 
+@test "split aborts with no output if the round-trip self-check fails (MED)" {
+  # Подменяем сборку на заведомо неверную → split обязан поймать mismatch и прерваться до печати.
+  # Без self-check cmd_split не звал бы _recover_secret_hex → доли напечатались бы (тест бы упал).
+  run bash -c "ST_NO_MAIN=1 source '$SCRIPT' 2>/dev/null
+    _recover_secret_hex() { printf 'deadbeef'; }
+    printf '%s' 'seedcafe' | cmd_split -n 3 -t 2"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"SSS2-"* ]]
+}
+
 @test "passphrase is never fed via a disk-backed here-string (no <<< spill, P1-5)" {
   # bash `<<<` материализует строку во ВРЕМЕННЫЙ ФАЙЛ на диске → passphrase может быть
   # вычитан из $TMPDIR/карвингом. Passphrase обязан идти через pipe (process substitution).
