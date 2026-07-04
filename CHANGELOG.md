@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-07-04
+
+### Added
+- **Unmount-guard (Windows): авто-восстановление Search-исключения при извлечении тома мимо `stop`.**
+  Опрашивающая задача Task Scheduler возвращает исключение Windows Search, когда том извлечён в
+  обход `stop`.
+- **Проверка Ed25519-подписи в Windows-инсталляторе (fail-closed).** Установка прерывается, если
+  подпись не проходит проверку.
+
+### Security / Fixed
+- **`--force` теперь настоящий safety-gate при TTL-размонтировании.** Занятый том никогда не
+  размонтируется принудительно без явного `--force` + подтверждения.
+- **Требуется PowerShell 7 (fail-closed).** На 5.1 — явный отказ вместо тихого no-op.
+- **`start` идемпотентен** и больше не перезаписывает сохранённое pre-session состояние.
+
+### Docs
+- Честный scope Windows-порта (только Search; VSS/облако — сообщается, pagefile не трогается);
+  устранён version-drift.
+
 ## [0.1.5] — 2026-06-27
 
 ### Added
@@ -105,7 +124,8 @@
 - Real-device smoke на macOS: start/stop/`--ttl` на живом sparsebundle, launchd
   bootstrap/bootout-цикл, plist валиден (`plutil -lint`).
 
-[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.2...v0.1.3

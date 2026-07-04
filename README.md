@@ -14,7 +14,7 @@ An honest watchdog for an open vault — part of the [Paranoid Tools](https://gi
 which open plaintext can leak (Spotlight, Time Machine) and **restores everything on close**.
 It runs automatically from the `securetrash vault open/close` hooks.
 
-> **Status: early (v0.1.5, work in progress).** Done: integration (hooks + vendoring),
+> **Status: early (v0.1.6, work in progress).** Done: integration (hooks + vendoring),
 > the **watchdog core `start`/`stop`** (Spotlight off, Time Machine exclude, cloud-detect,
 > session report), and **auto-exit `--ttl`** via a **launchd LaunchAgent** (a managed timer,
 > visible in `launchctl list`, cleanly removed via bootout).
@@ -47,11 +47,11 @@ the hash **before** installing. Environment variables: `VW_VERSION` (pin a speci
 > `SHA256SUMS` published in the **same release** — it catches corruption and partial/cached
 > tampering. It does **not** by itself defeat an attacker who can rewrite *both* the binary
 > and its checksum at the source, nor does it prove *who* published them. For authenticity
-> you need a signature or Homebrew. Pin a version with `VW_VERSION=0.1.5` instead of `latest`
+> you need a signature or Homebrew. Pin a version with `VW_VERSION=0.1.6` instead of `latest`
 > for reproducibility.
 
-> The current public release is **v0.1.5** (signed, with `install.sh` + `SHA256SUMS`).
-> Pin it for reproducibility with `VW_VERSION=0.1.5` instead of `latest`.
+> The current public release is **v0.1.6** (signed, with `install.sh` + `SHA256SUMS`).
+> Pin it for reproducibility with `VW_VERSION=0.1.6` instead of `latest`.
 
 ## Usage
 
