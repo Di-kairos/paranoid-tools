@@ -89,6 +89,9 @@ event-driven) — see `windows/README.md`.
 Hooks are placed in `${ST_HOOK_DIR:-~/.securetrash/hooks}` — the same directory `securetrash`
 reads. vaultwatch does not touch foreign (non-managed) hooks.
 
+`ST_LANG=ru` switches output to Russian (ecosystem-shared locale variable; defaults to English,
+otherwise inferred from `LC_ALL`/`LANG`). Honored on both macOS and the Windows port.
+
 ### Session report (example)
 
 ```
