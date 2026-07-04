@@ -83,6 +83,17 @@ Then drive them with the launcher: `pwsh -File windows/paranoid.ps1`. The Window
 **beta** — logic-tested in CI, but validate on your own machine before trusting them with real
 secrets.
 
+### Release signing — honest scope
+
+Releases are signed with a **single Ed25519 key** shared across all five tool repos. Be aware
+of the trade-off: compromise of that key (its GitHub Actions secret, or a malicious change to
+any repo's `release.yml`) would let an attacker sign a forged release for the **whole
+ecosystem**, and the public key is pinned in the installers so there is no in-band revocation
+today. The signature still defeats an attacker who only controls the download path (mirror,
+CDN, MITM) — which is the common case. Hardening this to **per-repo keys / OIDC-based signing
+with a documented rotation & revocation path** is tracked work, not yet shipped. If you need
+maximum assurance, pin an exact version and check its `SHA256SUMS` against an independent copy.
+
 ### Updating
 
 There is no `update` command — updating means **re-running the installer**. It pulls each
