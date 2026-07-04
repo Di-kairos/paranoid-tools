@@ -316,7 +316,9 @@ _pp_read_unlock() {
 # Зашифровать secret_hex passphrase'ом → ct_hex. Passphrase через fd:3 (НЕ argv → не виден в `ps`).
 _pp_encrypt_hex() {
   local sec_hex="$1" pp="$2" ct_hex
-  ct_hex="$(_from_hex "$sec_hex" | openssl enc -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -salt -pass fd:3 3<<<"$pp" 2>/dev/null | _to_hex)" || return 1
+  # Passphrase через fd:3 из process substitution (pipe, НЕ дисковый here-string `<<<`, который
+  # материализовал бы passphrase во временный файл $TMPDIR → карвинг/утечка). См. P1-5.
+  ct_hex="$(_from_hex "$sec_hex" | openssl enc -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -salt -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null | _to_hex)" || return 1
   [[ -n "$ct_hex" ]] || return 1
   printf '%s' "$ct_hex"
 }
@@ -508,7 +510,8 @@ cmd_combine() {
   if [[ "${sh:0:16}" == "53616c7465645f5f" ]]; then
     command -v openssl >/dev/null 2>&1 || { err "$(t pp_locked_noss)"; exit 1; }
     local pp; pp="$(_pp_read_unlock)"
-    _from_hex "$sh" | openssl enc -d -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -pass fd:3 3<<<"$pp" 2>/dev/null || { pp=""; err "$(t pp_dec_fail)"; exit 1; }
+    # fd:3 из process substitution (pipe, НЕ дисковый `<<<`) — passphrase не спиллит на диск (P1-5).
+    _from_hex "$sh" | openssl enc -d -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null || { pp=""; err "$(t pp_dec_fail)"; exit 1; }
     pp=""
   else
     _from_hex "$sh"

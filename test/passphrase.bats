@@ -53,3 +53,9 @@ _need_openssl() { command -v openssl >/dev/null 2>&1 || skip "openssl not on PAT
   shares="$(printf '%s' "x" | SEEDSPLIT_PASSPHRASE=pw bash "$SCRIPT" split -p -n 3 -t 2)"
   [ "$(printf '%s\n' "$shares" | grep -c '^SSS2-')" -eq 3 ]
 }
+
+@test "passphrase is never fed via a disk-backed here-string (no <<< spill, P1-5)" {
+  # bash `<<<` материализует строку во ВРЕМЕННЫЙ ФАЙЛ на диске → passphrase может быть
+  # вычитан из $TMPDIR/карвингом. Passphrase обязан идти через pipe (process substitution).
+  ! grep -qE '3<<<' "$SCRIPT"
+}
