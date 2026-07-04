@@ -45,7 +45,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // --- статус (только чтение, как dashboard лаунчера) ---
-    private func vaultOpen() -> Bool { FileManager.default.fileExists(atPath: vaultVolume) }
+    // Реально СМОНТИРОВАН, а не «путь существует» (остаток каталога /Volumes/… давал ложное OPEN, P2-10).
+    private func vaultOpen() -> Bool {
+        let target = URL(fileURLWithPath: vaultVolume).standardizedFileURL
+        guard let vols = FileManager.default.mountedVolumeURLs(
+                includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) else {
+            return FileManager.default.fileExists(atPath: vaultVolume)   // API недоступен → старое поведение
+        }
+        return vols.contains { $0.standardizedFileURL == target }
+    }
     private func vaultExists() -> Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return FileManager.default.fileExists(atPath: home + "/SecureVault.sparsebundle")
@@ -91,7 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refresh() {
         let open = vaultOpen()
         let sessions = vaultwatchSessions()
-        let ttl = sessions.compactMap { $0.remaining }.min()   // ближайший авто-выход (если есть)
+        // TTL показываем ТОЛЬКО при реально открытом сейфе: осиротевший session-файл иначе рисовал бы
+        // «auto-exit in …» при закрытом vault (P2-10). Закрыт → никакого отсчёта.
+        let ttl = open ? sessions.compactMap { $0.remaining }.min() : nil   // ближайший авто-выход
         // Текст справа от глифа: отсчёт TTL / «истёк» (⚠) / ⚠ при открытом сейфе / пусто.
         let suffix: String
         if let t = ttl { suffix = t == 0 ? " ⚠" : " " + fmtDuration(t) } else { suffix = open ? " ⚠" : "" }
@@ -135,11 +145,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item("🔒  PANIC NOW — hide & lock", #selector(doPanic)))
         menu.addItem(.separator())
 
-        // Подменю «Сейф» — зеркало группировки bash-лаунчера.
+        // Подменю «Сейф» — зеркало группировки bash-лаунчера. autoenablesItems=false, иначе AppKit
+        // сам включит пункты по наличию target (наш disable не удержится).
         let vault = NSMenu()
-        vault.addItem(item(open ? "Close the vault" : (vaultExists() ? "Open the vault" : "Create a vault"), #selector(doVaultToggle)))
-        vault.addItem(item("Empty — wipe contents, keep the vault", #selector(doVaultEmpty)))
-        vault.addItem(item("Destroy the vault (irreversible)", #selector(doVaultDestroy)))
+        vault.autoenablesItems = false
+        let hasVault = vaultExists()
+        vault.addItem(item(open ? "Close the vault" : (hasVault ? "Open the vault" : "Create a vault"), #selector(doVaultToggle)))
+        // Empty/Destroy имеют смысл только при существующем контейнере — иначе grey-out, чтобы
+        // деструктив не был активен «в пустоту» (P2-7).
+        let emptyItem = item("Empty — wipe contents, keep the vault", #selector(doVaultEmpty))
+        emptyItem.isEnabled = hasVault
+        vault.addItem(emptyItem)
+        let destroyItem = item("Destroy the vault (irreversible)", #selector(doVaultDestroy))
+        destroyItem.isEnabled = hasVault
+        vault.addItem(destroyItem)
         let vaultItem = NSMenuItem(title: "Vault ▸", action: nil, keyEquivalent: "")
         vaultItem.submenu = vault
         menu.addItem(vaultItem)

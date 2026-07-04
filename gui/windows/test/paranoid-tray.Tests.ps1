@@ -38,6 +38,16 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $empty = (Get-PtMenuSpec -VaultState 'open') | Where-Object { $_.Label -match 'Empty' }
         $empty.Command | Should -Be 'securetrash vault reset'
     }
+    It 'Empty/Destroy enabled когда сейф есть (open|closed), disabled при none (P2-7)' {
+        foreach ($st in 'open', 'closed') {
+            $spec = Get-PtMenuSpec -VaultState $st
+            ($spec | Where-Object { $_.Label -match 'Empty'   }).Enabled | Should -BeTrue
+            ($spec | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeTrue
+        }
+        $none = Get-PtMenuSpec -VaultState 'none'
+        ($none | Where-Object { $_.Label -match 'Empty'   }).Enabled | Should -BeFalse
+        ($none | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeFalse
+    }
     It 'содержит пункт автостарта (Start at login / __autostart__)' {
         $auto = (Get-PtMenuSpec -VaultState 'closed') | Where-Object { $_.Label -match 'Start at login' }
         $auto.Command | Should -Be '__autostart__'

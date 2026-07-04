@@ -31,20 +31,23 @@ function Get-PtMenuSpec {
     param([string]$VaultState = (Get-PtVaultState))
     $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } default { 'securetrash vault create' } }
     $vaultLabel  = switch ($VaultState) { 'open' { 'Close the vault' } 'closed' { 'Open the vault' } default { 'Create a vault' } }
+    # Empty/Destroy имеют смысл только при существующем контейнере (open|closed) — при 'none'
+    # грей-аутим, чтобы деструктив не был активен «в пустоту» (P2-7).
+    $hasVault = $VaultState -in @('open', 'closed')
     return @(
-        [pscustomobject]@{ Label = 'Status - full read-only check'; Command = 'securetrash check' }
-        [pscustomobject]@{ Label = 'PANIC NOW - hide & lock';       Command = 'panic now' }
-        [pscustomobject]@{ Label = '-';                              Command = '' }
-        [pscustomobject]@{ Label = $vaultLabel;                      Command = $vaultToggle }
-        [pscustomobject]@{ Label = 'Empty the vault (crypto-shred)'; Command = 'securetrash vault reset' }
-        [pscustomobject]@{ Label = 'Destroy the vault (irreversible)'; Command = 'securetrash vault destroy' }
-        [pscustomobject]@{ Label = '-';                              Command = '' }
-        [pscustomobject]@{ Label = 'Open the full launcher (paranoid)'; Command = 'paranoid' }
-        [pscustomobject]@{ Label = '-';                              Command = '' }
-        [pscustomobject]@{ Label = 'Start at login';                 Command = '__autostart__' }
-        [pscustomobject]@{ Label = 'Settings...';                    Command = '__settings__' }
-        [pscustomobject]@{ Label = '-';                              Command = '' }
-        [pscustomobject]@{ Label = 'Quit Paranoid Tray';            Command = '__quit__' }
+        [pscustomobject]@{ Label = 'Status - full read-only check'; Command = 'securetrash check'; Enabled = $true }
+        [pscustomobject]@{ Label = 'PANIC NOW - hide & lock';       Command = 'panic now';         Enabled = $true }
+        [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
+        [pscustomobject]@{ Label = $vaultLabel;                      Command = $vaultToggle;        Enabled = $true }
+        [pscustomobject]@{ Label = 'Empty the vault (crypto-shred)'; Command = 'securetrash vault reset';   Enabled = $hasVault }
+        [pscustomobject]@{ Label = 'Destroy the vault (irreversible)'; Command = 'securetrash vault destroy'; Enabled = $hasVault }
+        [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
+        [pscustomobject]@{ Label = 'Open the full launcher (paranoid)'; Command = 'paranoid';       Enabled = $true }
+        [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
+        [pscustomobject]@{ Label = 'Start at login';                 Command = '__autostart__';     Enabled = $true }
+        [pscustomobject]@{ Label = 'Settings...';                    Command = '__settings__';      Enabled = $true }
+        [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
+        [pscustomobject]@{ Label = 'Quit Paranoid Tray';            Command = '__quit__';          Enabled = $true }
     )
 }
 
@@ -224,11 +227,14 @@ function Start-PtTray {
         $menu.Items.Clear()
         $state = Get-PtVaultState
         $sessions = Get-PtVaultwatchSessions
-        $ttl = ($sessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
+        # TTL в главном статусе — ТОЛЬКО при реально открытом сейфе: осиротевший session-файл иначе
+        # рисовал бы «auto-exit in …» при закрытом vault (P2-10).
+        $ttl = if ($state -eq 'open') {
+            ($sessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
+        } else { $null }
         $notify.Text =
             if ($state -eq 'open' -and $null -ne $ttl) { "Paranoid Tools - vault OPEN, auto-exit in $(Format-PtDuration $ttl)" }
             elseif ($state -eq 'open')                 { 'Paranoid Tools - vault OPEN (at risk)' }
-            elseif ($null -ne $ttl)                    { "Paranoid Tools - vaultwatch auto-exit in $(Format-PtDuration $ttl)" }
             else                                       { 'Paranoid Tools' }
         # vaultwatch-сессии — отключённые заголовки сверху меню (точка монтирования + TTL-отсчёт).
         foreach ($s in $sessions) {
@@ -243,6 +249,7 @@ function Start-PtTray {
             if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
             $cmd = $entry.Command
             $it = New-Object System.Windows.Forms.ToolStripMenuItem($entry.Label)
+            if ($null -ne $entry.Enabled) { $it.Enabled = [bool]$entry.Enabled }   # грей-аут по спеку (P2-7)
             if ($cmd -eq '__quit__') {
                 $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
             } elseif ($cmd -eq '__autostart__') {
