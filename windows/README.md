@@ -55,6 +55,7 @@ vaultwatch stop V:\               # restore + report
 |--------------|---------------------|
 | Spotlight off (`mdutil -i off`) | exclude folder from Windows Search (`NotContentIndexed` attribute) |
 | `--ttl` auto-detach (launchd LaunchAgent) | one-shot **Task Scheduler** task → `vaultwatch _ttl_fire` |
+| unmount-guard (launchd **WatchPaths**, event-driven) | unmount-guard (**Task Scheduler polling**, ~1 min) → `vaultwatch _guard_fire` |
 | Time Machine exclusion (`tmutil addexclusion`) | **not done** — Windows can't cleanly exclude backups from CLI |
 | `tmutil listlocalsnapshots` (report) | `vssadmin list shadows` (report VSS shadow copies) |
 | cloud daemons (`pgrep` + folders) | `Get-Process` (OneDrive/Dropbox/GoogleDriveFS) + folder heuristic |
@@ -72,6 +73,11 @@ vaultwatch stop V:\               # restore + report
   it stops *future* content indexing, not anything already indexed.
 - **TTL auto-dismount** needs an elevated session (BitLocker lock + Scheduler). A busy
   mount is not dismounted unless `--force` is given (with a confirmation).
+- **Unmount-guard is polling, not event-driven.** If the vault is ejected past
+  `vaultwatch stop` (e.g. Explorer eject of the VHDX), a Task Scheduler task checks
+  every ~1 minute and auto-restores the Search exclusion once the volume is gone. macOS
+  restores instantly (launchd WatchPaths); Windows has up to ~1 min latency. Running
+  `vaultwatch stop` yourself is still immediate.
 - Cloud-sync detection is a heuristic (process + folder location), not telepathy.
 
 ## Tests

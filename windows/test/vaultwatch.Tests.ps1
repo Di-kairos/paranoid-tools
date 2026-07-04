@@ -39,6 +39,7 @@ Describe 'start — guards a vault and records session state' {
         Mock Disable-VwSearchIndex { }
         Mock Get-VwCloudLines   { @() }
         Mock Register-VwTtlTask { 'vaultwatch-ttl-test' }
+        Mock Register-VwGuardTask { 'vaultwatch-guard-test' }
     }
     AfterEach {
         Remove-Item Env:\VW_NO_SPAWN -ErrorAction SilentlyContinue
@@ -66,6 +67,21 @@ Describe 'start — guards a vault and records session state' {
         { Invoke-VwStart -ArgList @('--ttl', 'nope', $script:Mount) -Self 'x' } | Should -Throw
     }
 
+    It 'registers an unmount-guard and records guard_label (VW_NO_SPAWN off, P2-4)' {
+        Remove-Item Env:\VW_NO_SPAWN -ErrorAction SilentlyContinue
+        Invoke-VwStart -ArgList @($script:Mount) -Self 'self.ps1' | Out-Null
+        Should -Invoke Register-VwGuardTask -Times 1 -Exactly
+        $f = @(Get-ChildItem -LiteralPath $script:VW_STATE_DIR -File)[0]
+        ($f | Get-Content -Raw) | Should -Match 'guard_label=vaultwatch-guard-'
+    }
+
+    It 'registers no guard in unit-test mode (VW_NO_SPAWN=1, P2-4)' {
+        Invoke-VwStart -ArgList @($script:Mount) -Self 'self.ps1' | Out-Null   # BeforeEach: VW_NO_SPAWN=1
+        Should -Invoke Register-VwGuardTask -Times 0 -Exactly
+        $f = @(Get-ChildItem -LiteralPath $script:VW_STATE_DIR -File)[0]
+        ($f | Get-Content -Raw) | Should -Not -Match 'guard_label='
+    }
+
     It 'does not overwrite pre-session state on a repeat start (P2-6)' {
         # Первый start: Search был ВКЛ → session должна восстановить его на stop.
         Invoke-VwStart -ArgList @($script:Mount) -Self 'self.ps1' | Out-Null
@@ -89,6 +105,7 @@ Describe 'stop — restores and reports' {
         Mock Get-VwShadowCount    { 0 }
         Mock Get-VwCloudLines     { @() }
         Mock Unregister-VwTtlTask { }
+        Mock Unregister-VwGuardTask { }
     }
     AfterEach {
         Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue
@@ -106,6 +123,14 @@ Describe 'stop — restores and reports' {
     It 'warns and returns when there is no session' {
         { Invoke-VwStop -ArgList @($script:Mount) } | Should -Not -Throw
     }
+
+    It 'removes the unmount-guard task even if guard_label is missing from state (race-safe, P2-4)' {
+        $sf = Get-VwStateFile -Mount (Resolve-Path $script:Mount).Path
+        # намеренно БЕЗ guard_label в state — снятие должно опираться на mount, не на state
+        Set-Content -LiteralPath $sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Invoke-VwStop -ArgList @($script:Mount) | Out-Null
+        Should -Invoke Unregister-VwGuardTask -Times 1 -Exactly
+    }
 }
 
 Describe '_ttl_fire — auto-exit' {
@@ -120,6 +145,7 @@ Describe '_ttl_fire — auto-exit' {
         Mock Get-VwShadowCount    { 0 }
         Mock Get-VwCloudLines     { @() }
         Mock Unregister-VwTtlTask { }
+        Mock Unregister-VwGuardTask { }
         Mock Invoke-VwDismount    { $true }
     }
     AfterEach {
@@ -192,6 +218,44 @@ Describe 'Assert-VwPs7 — требует PowerShell 7+ (P2-8, fail-closed)' {
     }
     It 'passes on PowerShell 7+' {
         { Assert-VwPs7 -Version ([version]'7.6.3') } | Should -Not -Throw
+    }
+}
+
+Describe 'unmount-guard _guard_fire — restore только если том исчез (P2-4)' {
+    BeforeEach {
+        $script:Work  = Join-Path ([System.IO.Path]::GetTempPath()) ("vw_g_" + [Guid]::NewGuid().ToString('N'))
+        $script:Mount = Join-Path $script:Work 'mount'
+        New-Item -ItemType Directory -Path $script:Mount -Force | Out-Null
+        $script:VW_STATE_DIR = Join-Path $script:Work 'state'
+        New-Item -ItemType Directory -Path $script:VW_STATE_DIR -Force | Out-Null
+        $script:Sf = Get-VwStateFile -Mount (Resolve-VwMount -Raw $script:Mount -MustExist $false)
+        Mock Enable-VwSearchIndex   { $true }
+        Mock Get-VwShadowCount      { 0 }
+        Mock Get-VwCloudLines       { @() }
+        Mock Unregister-VwTtlTask   { }
+        Mock Unregister-VwGuardTask { }
+    }
+    AfterEach { Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'is a no-op while the mount still exists (fired on a write, not an eject)' {
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Mock Test-VwMounted { $true }
+        Invoke-VwGuardFire -ArgList @($script:Mount) | Out-Null
+        Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly   # ничего не восстанавливаем
+        (Test-Path -LiteralPath $script:Sf) | Should -BeTrue    # сессия на месте
+    }
+
+    It 'restores and clears the session when the mount is gone (eject past stop)' {
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Mock Test-VwMounted { $false }
+        Invoke-VwGuardFire -ArgList @($script:Mount) | Out-Null
+        Should -Invoke Enable-VwSearchIndex -Times 1 -Exactly   # restore прошёл
+        (Test-Path -LiteralPath $script:Sf) | Should -BeFalse   # сессия снята
+    }
+
+    It 'with no session is a quiet success' {
+        Mock Test-VwMounted { $false }
+        { Invoke-VwGuardFire -ArgList @($script:Mount) } | Should -Not -Throw
     }
 }
 

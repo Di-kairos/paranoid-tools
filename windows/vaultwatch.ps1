@@ -95,6 +95,8 @@ function T {
         'ru:ttl_scheduled' { return "авто-выход запланирован через $A." }
         'en:ttl_sched_fail'{ return 'TTL: scheduled task registration failed — auto-exit will NOT fire.' }
         'ru:ttl_sched_fail'{ return 'TTL: не удалось зарегистрировать задачу — авто-выход НЕ сработает.' }
+        'en:guard_sched_fail'{ return 'unmount-guard: scheduled task registration failed — eject past stop will NOT auto-restore.' }
+        'ru:guard_sched_fail'{ return 'unmount-guard: не удалось зарегистрировать задачу — eject мимо stop НЕ восстановит исключение.' }
         'en:ttl_busy'      { return "TTL expired but $A has open files — NOT dismounted (use --force to override)." }
         'ru:ttl_busy'      { return "TTL истёк, но в $A открыты файлы — НЕ размонтирую (--force чтобы форсировать)." }
         'en:ttl_force_confirm' { return "force-dismount $A with open files? data corruption risk" }
@@ -257,6 +259,44 @@ function Unregister-VwTtlTask {
     param([string]$Label)
     if (-not $Label) { return }
     try { Unregister-ScheduledTask -TaskName $Label -Confirm:$false -ErrorAction Stop } catch { }
+}
+
+# --- unmount-guard: авто-restore Search-exclusion, если том исчезает мимо `vaultwatch stop` ---
+# Зачем: eject VHDX через Explorer (или detach в обход securetrash post-close hook) оставляет
+# NotContentIndexed висеть бессрочно. macOS ловит это событийно (launchd WatchPaths). На Windows
+# надёжного и проверяемого события removal для VHDX нет, поэтому guard — ПОЛЛИНГ: повторяющаяся
+# задача Task Scheduler раз в минуту зовёт `vaultwatch _guard_fire <mount>`. Тот восстанавливает
+# ТОЛЬКО если том реально исчез (иначе no-op). Отличие от macOS: латентность до ~1 минуты (честно
+# задокументировано в README). Требует PS7 (как и весь тул, см. Assert-VwPs7).
+function Get-VwGuardLabel {
+    param([string]$Mount)
+    return 'vaultwatch-guard-' + (($Mount -replace '[^a-zA-Z0-9]', '_'))
+}
+
+# Зарегистрировать поллинг-guard. Возвращает label (или '' при провале). Системный адаптер
+# (New-ScheduledTask*/Register-ScheduledTask) — как Register-VwTtlTask, логика покрыта на _guard_fire.
+function Register-VwGuardTask {
+    param([string]$Mount, [string]$Self)
+    $label = Get-VwGuardLabel -Mount $Mount
+    try {
+        $arg = "-NoProfile -File `"$Self`" _guard_fire `"$Mount`""
+        $action  = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $arg
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+                     -RepetitionInterval (New-TimeSpan -Minutes 1)
+        Register-ScheduledTask -TaskName $label -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
+        return $label
+    } catch {
+        Write-VwWarn (T 'guard_sched_fail')
+        return ''
+    }
+}
+
+# Снять guard-задачу по mount (идемпотентно, race-safe: label выводится из mount, не из state).
+function Unregister-VwGuardTask {
+    param([string]$Mount)
+    if (-not $Mount) { return }
+    $label = Get-VwGuardLabel -Mount $Mount
+    try { Unregister-ScheduledTask -TaskName $label -Confirm:$false -ErrorAction Stop } catch { }
 }
 
 # Том занят открытыми файлами? Best-effort: Get-SmbOpenFile ловит только СЕТЕВЫЕ (SMB) открытия
@@ -440,6 +480,13 @@ function Invoke-VwStart {
         $label = Register-VwTtlTask -Mount $mount -Seconds $ttlSecs -Self $Self
         $lines += "ttl_label=$label"
     }
+
+    # unmount-guard: всегда (не только при TTL) — чтобы eject мимо stop авто-восстановил
+    # Search-exclusion. VW_NO_SPAWN=1 подавляет реальную регистрацию (юнит-тесты). Паритет с bash.
+    if ($env:VW_NO_SPAWN -ne '1') {
+        $glabel = Register-VwGuardTask -Mount $mount -Self $Self
+        if ($glabel) { $lines += "guard_label=$glabel" }
+    }
     Set-Content -LiteralPath $sf -Value $lines
 
     Write-VwInfo (T 'watching' $mount)
@@ -466,6 +513,8 @@ function Invoke-VwStop {
 
     # Снять таймер авто-выхода (закрыт вручную раньше TTL, либо вызов из _ttl_fire).
     if ($ttlLabel) { Unregister-VwTtlTask -Label $ttlLabel }
+    # Снять unmount-guard безусловно по mount (race-safe: даже если guard_label не успел лечь в state).
+    Unregister-VwGuardTask -Mount $mount
 
     # Восстановить РОВНО изменённое.
     $restoreOk = $true
@@ -516,6 +565,16 @@ function Invoke-VwTtlFire {
         Write-VwWarn (T 'ttl_detach_fail' $mount); Stop-VwCommand 1
     }
     Invoke-VwStop -ArgList @($mount)
+}
+
+# Внутренняя команда: срабатывает по поллинг-задаче guard'а. Восстанавливает исключение ТОЛЬКО
+# если том реально исчез (eject мимо stop); пока том на месте — no-op (зеркало bash cmd_guard_fire).
+function Invoke-VwGuardFire {
+    param([string[]]$ArgList)
+    $raw = [string]$ArgList[0]; if (-not $raw) { return }
+    $mount = Resolve-VwMount -Raw $raw -MustExist $false
+    if (Test-VwMounted -Mount $mount) { return }   # том на месте → поллинг дёрнулся зря, no-op
+    Invoke-VwStop -ArgList @($mount)                # том исчез → restore + чистка сессии (+ снятие guard)
 }
 
 function Invoke-VwStatus {
@@ -570,6 +629,7 @@ function Invoke-VwMain {
             'start'           { Invoke-VwStart -ArgList $rest -Self $self }
             'stop'            { Invoke-VwStop -ArgList $rest }
             '_ttl_fire'       { Invoke-VwTtlFire -ArgList $rest }
+            '_guard_fire'     { Invoke-VwGuardFire -ArgList $rest }
             default { Write-VwErr (T 'unknown_cmd' $cmd); [Console]::Error.WriteLine((Get-VwUsage)); exit 1 }
         }
     } catch [VwExit] {
