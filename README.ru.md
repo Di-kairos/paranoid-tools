@@ -34,7 +34,7 @@
 |---|------------|-------------------|-----------|--------|
 | 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить в зашифрованном vault, очистить или уничтожить | macOS · Windows (beta) | `v0.4.10` |
 | 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый vault | macOS · Windows (beta) | `v0.1.5` |
-| 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | macOS · Windows (beta) | `v0.1.5` |
+| 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | macOS · Windows (beta) | `v0.1.6` |
 | 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть без следов на диске | macOS · Windows (beta) | `v0.1.6` |
 | 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | разбить секрет на доли (Шамир) + passphrase | macOS · Windows (beta) | `v0.4.0` |
 
@@ -63,10 +63,24 @@ bash install.sh --uninstall
 verify-then-run: установщик проверяет подпись Ed25519 над `SHA256SUMS`, затем контрольную
 сумму install.sh самого инструмента и только потом запускает его — а тот, в свою очередь,
 проверяет бинарь до установки. Ничего не выполняется, пока не проверено. Закрепить версию —
-`PT_PANIC_VERSION=0.1.5`; сменить каталог — `PT_DEST=/usr/local/bin`.
+`PT_PANIC_VERSION=0.1.6`; сменить каталог — `PT_DEST=/usr/local/bin`.
 
 Нужен только один инструмент или хочется пройти каждый шаг руками? В README каждого
 инструмента есть отдельный verify-then-run сниппет и однострочная быстрая форма. См. [состав](#состав).
+
+### Windows
+
+Umbrella `install.sh` — только для macOS/Linux. На Windows (PowerShell 7+) ставь каждый
+инструмент из его подписанного релиза — у каждого есть `windows/install.ps1`, который до
+установки проверяет подпись Ed25519 над `SHA256SUMS` и контрольную сумму (fail-closed). В
+клоне каждого инструмента:
+
+```powershell
+pwsh -File windows/install.ps1     # проверяет подпись + контрольную сумму, затем ставит
+```
+
+Дальше — лаунчер: `pwsh -File windows/paranoid.ps1`. Windows-порты **бета** — покрыты логикой
+в CI, но проверь на своей машине, прежде чем доверять им реальные секреты.
 
 ### Обновление
 

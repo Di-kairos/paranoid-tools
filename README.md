@@ -63,10 +63,25 @@ On a fresh clone each tool is pulled from its own **signed release** with verify
 the installer checks the Ed25519 signature over `SHA256SUMS`, then the checksum of the
 tool's own `install.sh`, and only then runs it — which in turn verifies the binary before
 installing. Nothing executes until it has been verified. Pin a version with, e.g.,
-`PT_PANIC_VERSION=0.1.5`; change the target dir with `PT_DEST=/usr/local/bin`.
+`PT_PANIC_VERSION=0.1.6`; change the target dir with `PT_DEST=/usr/local/bin`.
 
 Prefer to install just one tool, or inspect each step by hand? Every tool's README carries a
 standalone verify-then-run snippet plus a one-line quick form. See [the tools](#the-tools).
+
+### Windows
+
+The umbrella `install.sh` is macOS/Linux only. On Windows (PowerShell 7+), install each tool
+from its own signed release — every tool ships a `windows/install.ps1` that verifies the
+Ed25519 signature over `SHA256SUMS` and the checksum before installing (fail-closed). In each
+tool's clone:
+
+```powershell
+pwsh -File windows/install.ps1     # verifies signature + checksum, then installs
+```
+
+Then drive them with the launcher: `pwsh -File windows/paranoid.ps1`. The Windows ports are
+**beta** — logic-tested in CI, but validate on your own machine before trusting them with real
+secrets.
 
 ### Updating
 
