@@ -114,7 +114,13 @@ install_from_release() {
       return 1
     fi
   else
-    echo "  ! ssh-keygen недоступен — подпись ${t} НЕ проверена (только целостность по SHA256)." >&2
+    # Нет verifier'а. На macOS ssh-keygen идёт в комплекте → его отсутствие аномально;
+    # молчаливая деградация до hash-only маскировала бы подмену. Fail-closed (P1-4).
+    if [[ "${ALLOW_UNSIGNED_LEGACY:-0}" != "1" ]]; then
+      echo "  ✗ ${t}: ssh-keygen недоступен — подпись проверить нечем; пропускаю (обход: ALLOW_UNSIGNED_LEGACY=1)." >&2
+      return 1
+    fi
+    echo "  ! ssh-keygen недоступен — подпись ${t} НЕ проверена (ALLOW_UNSIGNED_LEGACY=1, только SHA256)." >&2
   fi
 
   # Целостность: хеш самого install.sh из (уже проверенного подписью) SHA256SUMS.
@@ -127,8 +133,12 @@ install_from_release() {
   # Он сам до-проверяет бинарь (SHA256 + та же подпись Ed25519) перед установкой.
   local dvar; dvar="$(dest_var_for "$t")"
   local vvar; vvar="$(version_var_for "$t")"
-  if ! env "${dvar}=${DEST}/${t}" ${pin:+"${vvar}=${pin}"} bash "${tmp}/install.sh" >/dev/null 2>&1; then
-    echo "  ✗ ${t}: установщик тула завершился с ошибкой." >&2
+  # stderr вложенного установщика НЕ глушим (иначе провал подписи/подмена неотличимы от
+  # сетевой ошибки) — ловим в лог и проксируем при провале (P1-4).
+  local errlog="${tmp}/${t}.install.err"
+  if ! env "${dvar}=${DEST}/${t}" ${pin:+"${vvar}=${pin}"} bash "${tmp}/install.sh" >/dev/null 2>"$errlog"; then
+    echo "  ✗ ${t}: установщик тула завершился с ошибкой:" >&2
+    sed 's/^/      /' "$errlog" >&2
     return 1
   fi
   return 0
@@ -159,8 +169,10 @@ echo "  ✓ paranoid → ${DEST}/paranoid"
 
 echo
 echo "Установлено инструментов: ${installed}/${#TOOLS[@]} (+ лаунчер paranoid)."
+partial=0
 if [[ "$installed" -lt "${#TOOLS[@]}" ]]; then
   echo "Часть тулов не встала — см. сообщения выше (сеть / подпись / каталог)." >&2
+  partial=1
 fi
 
 # Проверка PATH: без этого тулы стоят, но не вызываются по имени.
@@ -176,3 +188,10 @@ echo
 echo "Проверь: securetrash version  |  panic version  |  ghostdraft version"
 echo "Запусти лаунчер: paranoid"
 echo "Гайд по-русски: ИНСТРУКЦИЯ.md"
+
+# Частичная установка — не тихий успех: выходим с ошибкой (обход: PT_ALLOW_PARTIAL=1). P2-3.
+if [[ "$partial" == "1" && "${PT_ALLOW_PARTIAL:-0}" != "1" ]]; then
+  echo >&2
+  echo "Установка неполная (${installed}/${#TOOLS[@]}) — выхожу с ошибкой. Обход: PT_ALLOW_PARTIAL=1." >&2
+  exit 1
+fi
