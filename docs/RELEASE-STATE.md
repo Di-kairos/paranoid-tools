@@ -15,6 +15,14 @@
 Обновлено: 2026-06-27 (securetrash v0.4.10 — `vault reset` = crypto-shred + recreate; ghostdraft
 v0.1.6 — простой выход из vim F2/F3; лаунчер: подменю-навигация + Empty + выбор размера; verify 5/5).
 
+> ⚠ **Сессия 20 (2026-07-04): main КАЖДОГО тула ушёл ВПЕРЁД релизных тегов ниже.** На main —
+> существенные НЕзарелиженные фиксы аудита `AUDIT_2026-07-03.md`: P1-2 (Ed25519 sig-verify во всех
+> 5 Windows-инсталляторах), P1-1/P2-4/P2-6/P2-8 (vaultwatch), P1-5 + round-trip self-check
+> (seedsplit), P1-4/P2-3 (umbrella install.sh), honesty/version-drift/EN-RU parity по всем тулам,
+> GUI P2-7/P2-10. Таблица Tag/Version = что ОПУБЛИКОВАНО; чтобы фиксы дошли до пользователей —
+> нужен **релиз-кат** (version bump + tag + подписанный release CI) по каждому тулу. HEAD-колонка
+> устарела намеренно (обновляется при следующем релиз-кате).
+
 | Tool | Repo | Tag (release) | HEAD commit | Version | Статус |
 |------|------|---------------|-------------|---------|--------|
 | securetrash | `Di-kairos/securetrash` | `v0.4.10` | `472a346` | **0.4.10** | CI ✅ · Release подписан ✅ · Windows (beta) · `vault reset` |

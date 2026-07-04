@@ -20,7 +20,7 @@ cd "/Volumes/X10 Pro/projects/paranoid-tools" && bash install.sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
 
-Проверь: `securetrash version` → `securetrash 0.4.4`.
+Проверь: `securetrash version` → `securetrash 0.4.10`.
 Удалить всё потом: `bash install.sh --uninstall`.
 
 ---
