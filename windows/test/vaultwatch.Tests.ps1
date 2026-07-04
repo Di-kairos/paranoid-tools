@@ -124,6 +124,12 @@ Describe 'stop — restores and reports' {
         { Invoke-VwStop -ArgList @($script:Mount) } | Should -Not -Throw
     }
 
+    It 'removes an orphaned guard task even when there is no session file (LOW-2)' {
+        # session-файла нет, но guard-задача могла осиротеть (провал Unregister) → stop всё равно чистит
+        Invoke-VwStop -ArgList @($script:Mount) | Out-Null
+        Should -Invoke Unregister-VwGuardTask -Times 1 -Exactly
+    }
+
     It 'removes the unmount-guard task even if guard_label is missing from state (race-safe, P2-4)' {
         $sf = Get-VwStateFile -Mount (Resolve-Path $script:Mount).Path
         # намеренно БЕЗ guard_label в state — снятие должно опираться на mount, не на state

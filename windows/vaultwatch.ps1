@@ -281,8 +281,12 @@ function Register-VwGuardTask {
     try {
         $arg = "-NoProfile -File `"$Self`" _guard_fire `"$Mount`""
         $action  = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $arg
+        # -RepetitionDuration ОБЯЗАТЕЛЕН: без него -RepetitionInterval регистрируется как one-shot
+        # (срабатывает один раз сразу, пока том ещё смонтирован → no-op — и больше не повторяется,
+        # guard молча мёртв). 10 лет = практически бессрочный поллинг; stop/_guard_fire снимут раньше.
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-                     -RepetitionInterval (New-TimeSpan -Minutes 1)
+                     -RepetitionInterval (New-TimeSpan -Minutes 1) `
+                     -RepetitionDuration (New-TimeSpan -Days 3650)
         Register-ScheduledTask -TaskName $label -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
         return $label
     } catch {
@@ -503,7 +507,10 @@ function Invoke-VwStop {
     # На close vault уже размонтирован — каталога может не быть; не требуем существования.
     $mount = Resolve-VwMount -Raw $raw -MustExist $false
     $sf = Get-VwStateFile -Mount $mount
-    if (-not (Test-Path -LiteralPath $sf)) { Write-VwWarn (T 'no_session' $mount); return }
+    if (-not (Test-Path -LiteralPath $sf)) {
+        Unregister-VwGuardTask -Mount $mount   # снять возможный осиротевший guard даже без сессии (LOW-2)
+        Write-VwWarn (T 'no_session' $mount); return
+    }
 
     $st = Read-VwState -Path $sf
     $started = [int]($st['started']); if (-not $started) { $started = Get-VwNow }
