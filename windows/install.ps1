@@ -3,8 +3,10 @@
 # Тянет seedsplit.ps1 и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и сверяет SHA256
 # ДО установки. Закрывает supply-chain риск «irm|iex из main без проверки»: содержимое
 # релизного тега неизменно (в отличие от подвижной main), хеш ловит повреждение, частичную/
-# кэш-подмену и рассинхрон с публикацией. ЧЕСТНО: сумма и скрипт приходят по одному каналу —
-# от подмены САМОГО релиза это не защищает; для подлинности нужна подпись (SHA256SUMS.sig).
+# кэш-подмену и рассинхрон с публикацией. Поверх целостности проверяется ПОДПИСЬ релиза
+# (SHA256SUMS.sig, ed25519 через ssh-keygen -Y verify) — зеркало install.sh. FAIL-CLOSED:
+# неверная/отсутствующая подпись или отсутствие ssh-keygen прерывают установку, если явно
+# не выставлен PT_ALLOW_HASH_ONLY=1 (тогда — только целостность по SHA256, с предупреждением).
 #
 # Использование (рекомендуется verify-then-run, см. windows/README.md):
 #   irm https://github.com/Di-kairos/seedsplit/releases/latest/download/install.ps1 -OutFile install.ps1
@@ -17,6 +19,9 @@
 #   SEEDSPLIT_BASE_URL    — источник целиком: http(s) URL ИЛИ локальный каталог (тесты/форки).
 #   SEEDSPLIT_INSTALL_DIR — каталог установки. По умолчанию %LOCALAPPDATA%\Programs\seedsplit.
 #   SEEDSPLIT_SKIP_PATH   — '1' пропускает правку PATH (для тестов).
+#   PT_ALLOW_HASH_ONLY    — '1' разрешает установку без проверки подписи (только целостность):
+#                           для старых/неподписанных релизов или без ssh-keygen. Неверная подпись
+#                           всё равно прерывает установку — этот флаг её НЕ обходит.
 #
 # ВНИМАНИЕ: BETA-порт. Логика (включая KAT-кросс-совместимость долей с macOS) проверена
 # через Pester; поведение на широком парке Windows-консолей/локалей не обкатано.
@@ -85,6 +90,59 @@ try {
         exit 1
     }
     Write-Host 'Checksum OK.'
+
+    # --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
+    # Зеркалит install.sh: релизы подписаны выделенным ed25519-ключом экосистемы
+    # (`ssh-keygen -Y verify` над SHA256SUMS). Вшитый pubkey совпадает с install.sh и SECURITY.md.
+    # FAIL-CLOSED: неверная подпись ВСЕГДА прерывает установку (явный признак подмены — обхода нет).
+    # Отсутствие подписи ИЛИ отсутствие ssh-keygen прерывает установку, если явно не выставлен
+    # PT_ALLOW_HASH_ONLY=1 — тогда остаётся только целостность по SHA256 (с громким предупреждением).
+    $ReleaseSigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
+    $SignPrincipal = 'releases@paranoid-tools'
+    $AllowHashOnly = ($env:PT_ALLOW_HASH_ONLY -eq '1')
+
+    $sshKeygen = Get-Command 'ssh-keygen' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $sshKeygen) {
+        if ($AllowHashOnly) {
+            Write-Warning 'ssh-keygen не найден — подпись релиза НЕ проверена, только целостность по SHA256 (PT_ALLOW_HASH_ONLY=1).'
+        } else {
+            Write-Error 'ssh-keygen не найден — подпись релиза проверить нечем, установка прервана. Установи OpenSSH или запусти с PT_ALLOW_HASH_ONLY=1 (только целостность).'
+            exit 1
+        }
+    } else {
+        $tmpSig  = Join-Path $Tmp 'SHA256SUMS.sig'
+        $haveSig = $false
+        try { Get-ReleaseFile -Name 'SHA256SUMS.sig' -OutFile $tmpSig; $haveSig = Test-Path -LiteralPath $tmpSig } catch { $haveSig = $false }
+        if (-not $haveSig) {
+            if ($AllowHashOnly) {
+                Write-Warning 'Подпись релиза (SHA256SUMS.sig) недоступна — продолжаю только по целостности (PT_ALLOW_HASH_ONLY=1).'
+            } else {
+                Write-Error 'Подпись релиза (SHA256SUMS.sig) отсутствует — установка прервана. Неподписанный/старый релиз: запусти с PT_ALLOW_HASH_ONLY=1.'
+                exit 1
+            }
+        } else {
+            # Тот же принцип, что в install.sh: пишем вшитый pubkey в allowed_signers, namespace 'file'.
+            $allowedSigners = Join-Path $Tmp 'allowed_signers'
+            Set-Content -LiteralPath $allowedSigners -Value ('{0} namespaces="file" {1}' -f $SignPrincipal, $ReleaseSigningPubkey) -Encoding ascii -NoNewline
+            Write-Host 'Verifying release signature...'
+            # ssh-keygen -Y verify читает подписанные данные (SHA256SUMS) из stdin; ASCII → UTF-8 без BOM
+            # байт-идентично, LF сохраняется (Get-Content -Raw не конвертит).
+            $prevEnc = $OutputEncoding
+            try {
+                $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+                Get-Content -Raw -LiteralPath $tmpSums | & $sshKeygen.Source -Y verify -f $allowedSigners -I $SignPrincipal -n file -s $tmpSig *> $null
+                $verifyExit = $LASTEXITCODE
+            } finally {
+                $OutputEncoding = $prevEnc
+            }
+            if ($verifyExit -eq 0) {
+                Write-Host 'Signature OK (authenticity verified).'
+            } else {
+                Write-Error 'Подпись релиза НЕ прошла проверку — установка прервана (возможна подмена). Обхода нет.'
+                exit 1
+            }
+        }
+    }
 
     # Хеш верный → устанавливаем.
     if (-not (Test-Path $InstallDir)) {
