@@ -50,7 +50,7 @@ curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/insta
 > corruption, partial/cached tampering, and stops you running code off the moving `main`
 > branch. It does **not** by itself defeat an attacker who can rewrite *both* the binary
 > and its checksum at the source (or your connection), nor does it prove *who* published
-> them. Pin a specific version with `SEEDSPLIT_VERSION=0.4.0` instead of `latest` for
+> them. Pin a specific version with `SEEDSPLIT_VERSION=0.4.1` instead of `latest` for
 > reproducibility. Override the source with `SEEDSPLIT_BASE_URL` and the install path
 > with `SEEDSPLIT_DEST`.
 

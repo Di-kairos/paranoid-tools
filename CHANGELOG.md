@@ -5,6 +5,28 @@
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-07-04
+
+### Security
+- **Master passphrase no longer transiently spills to a temp file.** The `-p/--passphrase`
+  layer now feeds `openssl -pass fd:3` via a process substitution instead of a `<<<`
+  here-string (bash here-strings materialise a temp file), so the passphrase never touches
+  disk.
+
+### Fixed
+- **`split` now round-trip self-checks the generated shares** — it reconstructs the secret
+  from the first T shares via the real `combine` path and aborts before printing anything if
+  they don't reconstruct. A data-loss guard against silently emitting unrecoverable shares.
+
+### Added
+- **Windows installer verifies the Ed25519 release signature** (fail-closed). Opt-out only
+  for a missing verifier/signature via `PT_ALLOW_HASH_ONLY=1`.
+
+### Docs
+- RU README now documents the `-p/--passphrase` layer (EN/RU parity); `-p` added to the
+  command tables; `SECURITY.md` wire-format note corrected to `SSS2`; test-count/version
+  drift fixed. Shares remain **byte-compatible with v0.4.0**.
+
 ## [0.4.0] — 2026-06-28
 
 ### Added
@@ -119,7 +141,8 @@
   порога, отказ при <T долях без утечки, детект порчи/чужого набора, бинарные секреты,
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
-[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Di-kairos/seedsplit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Di-kairos/seedsplit/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/Di-kairos/seedsplit/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/Di-kairos/seedsplit/compare/v0.3.1...v0.3.2
