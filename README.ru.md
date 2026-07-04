@@ -13,7 +13,7 @@
 открытый plaintext может утечь (Spotlight, Time Machine), и **восстанавливает всё при
 закрытии**. Запускается автоматически из хуков `securetrash vault open/close`.
 
-> **Статус: ранний (v0.1.3, work in progress).** Готовы интеграция (хуки + вендоринг),
+> **Статус: ранний (v0.1.5, work in progress).** Готовы интеграция (хуки + вендоринг),
 > **сторожевое ядро `start`/`stop`** (Spotlight off, Time Machine exclude, cloud-detect,
 > session report) и **авто-выход `--ttl`** через **launchd LaunchAgent** (managed-таймер,
 > виден в `launchctl list`, чисто снимается через bootout).
@@ -45,10 +45,10 @@ curl -fsSL https://github.com/Di-kairos/vaultwatch/releases/latest/download/inst
 > с `SHA256SUMS` из **того же релиза** — это ловит повреждение и частичную/кэш-подмену. Она
 > сама по себе НЕ защищает от атакующего, способного переписать *и* бинарь, *и* его сумму в
 > источнике, и НЕ доказывает, *кто* их опубликовал. Для подлинности нужна подпись или
-> Homebrew. Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.3` вместо `latest`.
+> Homebrew. Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.5` вместо `latest`.
 
-> Текущий публичный релиз — **v0.1.3** (подписан, с `install.sh` + `SHA256SUMS`).
-> Для воспроизводимости фиксируй его: `VW_VERSION=0.1.3` вместо `latest`.
+> Текущий публичный релиз — **v0.1.5** (подписан, с `install.sh` + `SHA256SUMS`).
+> Для воспроизводимости фиксируй его: `VW_VERSION=0.1.5` вместо `latest`.
 
 ## Использование
 
@@ -116,8 +116,11 @@ vaultwatch — session report
 ## Windows (beta)
 
 PowerShell-порт уже существует — в [`windows/README.md`](windows/README.md). Он повторяет
-логику macOS, сужая те же каналы утечки — VSS (shadow copies), индексатор Windows Search и
-контроль pagefile/OneDrive — и восстанавливает их при закрытии.
+логику macOS там, где позволяет платформа: **контролирует индексатор Windows Search** (исключает
+mount, восстанавливает при закрытии), а unmount-guard пере-восстанавливает исключение, если том
+извлекли мимо `stop`. VSS shadow copies и облачные демоны (OneDrive/Dropbox/Google Drive) —
+**репортятся, не контролируются**; pagefile не адресуется. Честный разбор по каналам — в
+`windows/README.md`.
 
 > **Beta:** Windows-порт протестирован по логике (Pester на CI), но ещё не проверен на
 > реальном Windows-железе. См. [`windows/README.md`](windows/README.md).

@@ -14,7 +14,7 @@ An honest watchdog for an open vault — part of the [Paranoid Tools](https://gi
 which open plaintext can leak (Spotlight, Time Machine) and **restores everything on close**.
 It runs automatically from the `securetrash vault open/close` hooks.
 
-> **Status: early (v0.1.3, work in progress).** Done: integration (hooks + vendoring),
+> **Status: early (v0.1.5, work in progress).** Done: integration (hooks + vendoring),
 > the **watchdog core `start`/`stop`** (Spotlight off, Time Machine exclude, cloud-detect,
 > session report), and **auto-exit `--ttl`** via a **launchd LaunchAgent** (a managed timer,
 > visible in `launchctl list`, cleanly removed via bootout).
@@ -47,11 +47,11 @@ the hash **before** installing. Environment variables: `VW_VERSION` (pin a speci
 > `SHA256SUMS` published in the **same release** — it catches corruption and partial/cached
 > tampering. It does **not** by itself defeat an attacker who can rewrite *both* the binary
 > and its checksum at the source, nor does it prove *who* published them. For authenticity
-> you need a signature or Homebrew. Pin a version with `VW_VERSION=0.1.3` instead of `latest`
+> you need a signature or Homebrew. Pin a version with `VW_VERSION=0.1.5` instead of `latest`
 > for reproducibility.
 
-> The current public release is **v0.1.3** (signed, with `install.sh` + `SHA256SUMS`).
-> Pin it for reproducibility with `VW_VERSION=0.1.3` instead of `latest`.
+> The current public release is **v0.1.5** (signed, with `install.sh` + `SHA256SUMS`).
+> Pin it for reproducibility with `VW_VERSION=0.1.5` instead of `latest`.
 
 ## Usage
 
@@ -83,7 +83,8 @@ hanging until the next explicit `stop`. `start` also registers a launchd LaunchA
 `WatchPaths` on the mountpoint (`com.vaultwatch.guard.*.plist`); when the volume disappears it
 fires `vaultwatch _guard_fire`, which restores everything **only if the mount is truly gone**
 (a `WatchPaths` hit from a write inside the still-mounted vault is a no-op). `stop` removes the
-guard. On Windows this is not automated — use an explicit `stop` / `securetrash vault close`.
+guard. Windows has an equivalent guard via a **polling Task Scheduler task** (~1 min latency, not
+event-driven) — see `windows/README.md`.
 
 Hooks are placed in `${ST_HOOK_DIR:-~/.securetrash/hooks}` — the same directory `securetrash`
 reads. vaultwatch does not touch foreign (non-managed) hooks.
@@ -131,8 +132,11 @@ The core principle of the ecosystem: be honest about the limits. vaultwatch make
 ## Windows (beta)
 
 A PowerShell port now exists in [`windows/README.md`](windows/README.md). It mirrors the
-macOS logic, narrowing the same leak channels — VSS (shadow copies), the Windows Search
-indexer, and pagefile/OneDrive control — and restoring them on close.
+macOS logic where the platform allows: it **controls the Windows Search indexer** (excludes the
+mount, restores on close) and an unmount-guard re-restores it if the volume is ejected past
+`stop`. VSS shadow copies and cloud-sync daemons (OneDrive/Dropbox/Google Drive) are **reported,
+not controlled**; the pagefile is not addressed. See `windows/README.md` for the honest per-channel
+breakdown.
 
 > **Beta:** the Windows port is logic-tested (Pester on CI) but not yet validated on real
 > Windows hardware. See [`windows/README.md`](windows/README.md).
