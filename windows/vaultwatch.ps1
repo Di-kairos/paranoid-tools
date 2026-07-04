@@ -81,6 +81,8 @@ function T {
         'ru:mount_missing' { return "точка монтирования не найдена: $A" }
         'en:watching'      { return "watching $A (Windows Search excluded; backup snapshots reported, not removed)." }
         'ru:watching'      { return "слежу за $A (исключён из Windows Search; backup-снапшоты репортятся, не удаляются)." }
+        'en:already_watching' { return "already watching $A — run vaultwatch stop first (a repeat start would lose the saved pre-session state)." }
+        'ru:already_watching' { return "уже слежу за $A — сначала vaultwatch stop (повторный start потерял бы сохранённое до-сессионное состояние)." }
         'en:cloud_outside' { return "$A active — vault is OUTSIDE its sync folder" }
         'ru:cloud_outside' { return "$A активен — vault ВНЕ его синк-папки" }
         'en:cloud_inside'  { return "$A active — vault is INSIDE its sync folder (!)" }
@@ -408,6 +410,13 @@ function Invoke-VwStart {
         }
     }
     $mount = Resolve-VwMount -Raw $raw -MustExist $true
+
+    # Уже есть сессия для этого mount? Повторный start перезаписал бы сохранённое до-сессионное
+    # состояние текущим (Search уже excluded) → stop не восстановит исходное (Search OFF навсегда).
+    # Идемпотентно отказываемся (P2-6, паритет с bash).
+    if (Test-Path -LiteralPath (Get-VwStateFile -Mount $mount)) {
+        Write-VwWarn (T 'already_watching' $mount); return
+    }
 
     # Windows Search: запомнить состояние, затем исключить каталог.
     $searchWas = Get-VwSearchState -Path $mount

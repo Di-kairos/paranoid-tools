@@ -84,6 +84,18 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   [ -n "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]
 }
 
+# --- start: не затирать до-сессионное состояние при повторе (P2-6) ---
+
+@test "re-start on an existing session preserves original pre-session state" {
+  # Первый start: Spotlight был ВКЛ, TM НЕ исключён → сессия чинит и это надо восстановить на stop.
+  STUB_SPOTLIGHT=enabled STUB_TM_EXCLUDED=0 bash "$SCRIPT" start "$MOUNT" >/dev/null
+  # Повторный start (теперь Spotlight ВЫКЛ нами, TM исключён) НЕ должен переписать исходное состояние.
+  STUB_SPOTLIGHT=disabled STUB_TM_EXCLUDED=1 run_vw start "$MOUNT"
+  run cat "$VW_STATE_DIR"/*
+  [[ "$output" == *"spotlight_was=enabled"* ]]
+  [[ "$output" == *"tm_added=1"* ]]
+}
+
 # --- stop: валидация / идемпотентность ---
 
 @test "stop without mountpoint errors and exits non-zero" {

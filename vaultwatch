@@ -179,6 +179,8 @@ EOF
     ru:mount_missing)    printf 'точка монтирования не найдена: %s' "$1" ;;
     en:watching)         printf 'watching %s (Spotlight off, Time Machine excluded).' "$1" ;;
     ru:watching)         printf 'слежу за %s (Spotlight off, исключён из Time Machine).' "$1" ;;
+    en:already_watching) printf 'already watching %s — run vaultwatch stop first (a repeat start would lose the saved pre-session state).' "$1" ;;
+    ru:already_watching) printf 'уже слежу за %s — сначала vaultwatch stop (повторный start потерял бы сохранённое до-сессионное состояние).' "$1" ;;
     en:cloud_outside)    printf '%s active — vault is OUTSIDE its sync folder' "$1" ;;
     ru:cloud_outside)    printf '%s активен — vault ВНЕ его синк-папки' "$1" ;;
     en:cloud_inside)     printf '%s active — vault is INSIDE its sync folder (!)' "$1" ;;
@@ -518,6 +520,14 @@ cmd_start() {
     esac
   done
   local mount; mount="$(_require_mount "$raw")"
+
+  # Уже есть сессия для этого mount? Повторный start перезаписал бы сохранённое до-сессионное
+  # состояние текущим (Spotlight уже off, TM уже excluded) → stop не восстановит исходное
+  # (Spotlight OFF навсегда, том вне Time Machine). Идемпотентно отказываемся (P2-6).
+  if [[ -f "$(_state_file "$mount")" ]]; then
+    warn "$(t already_watching "$mount")"
+    return 0
+  fi
 
   # Spotlight: запоминаем предыдущее состояние, затем выключаем индексацию.
   local spot_was=unknown

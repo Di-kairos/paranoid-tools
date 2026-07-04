@@ -65,6 +65,17 @@ Describe 'start — guards a vault and records session state' {
     It 'rejects a bad --ttl duration' {
         { Invoke-VwStart -ArgList @('--ttl', 'nope', $script:Mount) -Self 'x' } | Should -Throw
     }
+
+    It 'does not overwrite pre-session state on a repeat start (P2-6)' {
+        # Первый start: Search был ВКЛ → session должна восстановить его на stop.
+        Invoke-VwStart -ArgList @($script:Mount) -Self 'self.ps1' | Out-Null
+        # Повторный start: Search уже ВЫКЛ нами → НЕ должен переписать сохранённое исходное состояние.
+        Mock Get-VwSearchState { 'disabled' }
+        Invoke-VwStart -ArgList @($script:Mount) -Self 'self.ps1' | Out-Null
+        $sf = Get-VwStateFile -Mount (Resolve-VwMount -Raw $script:Mount -MustExist $false)
+        (Get-Content -LiteralPath $sf -Raw) | Should -Match 'search_was=enabled'
+        (Get-Content -LiteralPath $sf -Raw) | Should -Match 'search_set=1'
+    }
 }
 
 Describe 'stop — restores and reports' {
