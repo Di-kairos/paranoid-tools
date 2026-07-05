@@ -70,17 +70,55 @@ verify-then-run: установщик проверяет подпись Ed25519 
 
 ### Windows
 
-Umbrella `install.sh` — только для macOS/Linux. На Windows (PowerShell 7+) ставь каждый
-инструмент из его подписанного релиза — у каждого есть `windows/install.ps1`, который до
-установки проверяет подпись Ed25519 над `SHA256SUMS` и контрольную сумму (fail-closed). В
-клоне каждого инструмента:
+Однострочный `install.sh` выше — только для macOS/Linux. На Windows это несколько коротких
+шагов, вот всё с нуля. Шаги **1–2 делаются один раз**; шаг 3 повторяешь для каждого инструмента.
+
+**1. Поставь PowerShell 7.** Windows-порты требуют его — встроенный в Windows PowerShell это 5.1,
+он их не запустит. В любом терминале (нажми `Win`, набери «PowerShell», Enter):
 
 ```powershell
-pwsh -File windows/install.ps1     # проверяет подпись + контрольную сумму, затем ставит
+winget install --id Microsoft.PowerShell -e
 ```
 
-Дальше — лаунчер: `pwsh -File windows/paranoid.ps1`. Windows-порты **бета** — покрыты логикой
-в CI, но проверь на своей машине, прежде чем доверять им реальные секреты.
+Закрой это окно, затем открой **«PowerShell 7»** из меню «Пуск». Проверь версию:
+
+```powershell
+pwsh --version      # должно напечатать «PowerShell 7.x»
+```
+
+**2. Поставь Git** (чтобы скачать инструмент), затем открой новое окно PowerShell 7:
+
+```powershell
+winget install --id Git.Git -e
+```
+
+**3. Поставь инструмент.** Каждый инструмент — отдельный репозиторий, ставь те, что нужны.
+Пример для `securetrash` (замени имя на `vaultwatch`, `panic`, `ghostdraft` или `seedsplit`):
+
+```powershell
+git clone https://github.com/Di-kairos/securetrash
+cd securetrash
+pwsh -File windows/install.ps1
+```
+
+`install.ps1` скачивает подписанный релиз, **проверяет подпись Ed25519 и контрольную сумму до
+установки** (и отказывается ставить, если что-то не сошлось), копирует инструмент в
+`%LOCALAPPDATA%\Programs\securetrash` и сам добавляет его в PATH.
+
+**4. Пользуйся.** Открой **новое** окно PowerShell (чтобы PATH обновился) и вызывай инструмент
+по имени:
+
+```powershell
+securetrash version
+securetrash --help
+```
+
+Повтори шаг 3 для каждого нужного инструмента. У меню-лаунчера `paranoid` тоже есть Windows-версия:
+склонируй этот репозиторий (`git clone https://github.com/Di-kairos/paranoid-tools`) и запусти
+`pwsh -File windows/paranoid.ps1`.
+
+> **Бета.** Windows-порты покрыты логикой в CI, но ещё широко не обкатаны на реальном железе —
+> сперва попробуй на некритичных данных, прежде чем доверять им настоящие секреты.
 
 ### Подпись релизов — честный охват
 

@@ -70,18 +70,55 @@ standalone verify-then-run snippet plus a one-line quick form. See [the tools](#
 
 ### Windows
 
-The umbrella `install.sh` is macOS/Linux only. On Windows (PowerShell 7+), install each tool
-from its own signed release — every tool ships a `windows/install.ps1` that verifies the
-Ed25519 signature over `SHA256SUMS` and the checksum before installing (fail-closed). In each
-tool's clone:
+The one-line `install.sh` above is macOS/Linux only. On Windows it's a few short steps — here's
+the whole thing from scratch. Steps **1–2 you do once**; step 3 you repeat per tool.
+
+**1. Install PowerShell 7.** The Windows ports need it — the PowerShell that ships with Windows
+is 5.1 and won't run them. In any terminal (press `Win`, type "PowerShell", Enter):
 
 ```powershell
-pwsh -File windows/install.ps1     # verifies signature + checksum, then installs
+winget install --id Microsoft.PowerShell -e
 ```
 
-Then drive them with the launcher: `pwsh -File windows/paranoid.ps1`. The Windows ports are
-**beta** — logic-tested in CI, but validate on your own machine before trusting them with real
-secrets.
+Close that window, then open **"PowerShell 7"** from the Start menu. Confirm the version:
+
+```powershell
+pwsh --version      # should print "PowerShell 7.x"
+```
+
+**2. Install Git** (used to download a tool), then open a fresh PowerShell 7 window:
+
+```powershell
+winget install --id Git.Git -e
+```
+
+**3. Install a tool.** Each tool is its own repo — install the ones you want. Example for
+`securetrash` (swap the name for `vaultwatch`, `panic`, `ghostdraft`, or `seedsplit`):
+
+```powershell
+git clone https://github.com/Di-kairos/securetrash
+cd securetrash
+pwsh -File windows/install.ps1
+```
+
+`install.ps1` downloads the signed release, **verifies its Ed25519 signature and checksum before
+installing anything** (and refuses to install if either fails), copies the tool into
+`%LOCALAPPDATA%\Programs\securetrash`, and adds it to your PATH automatically.
+
+**4. Use it.** Open a **new** PowerShell window (so the PATH change takes effect), then call the
+tool by name:
+
+```powershell
+securetrash version
+securetrash --help
+```
+
+Repeat step 3 for each tool. The `paranoid` menu-launcher also has a Windows version: clone this
+repo (`git clone https://github.com/Di-kairos/paranoid-tools`) and run
+`pwsh -File windows/paranoid.ps1`.
+
+> **Beta.** The Windows ports are logic-tested in CI but not yet broadly validated on real
+> hardware — try them on non-critical data first before trusting them with real secrets.
 
 ### Release signing — honest scope
 
