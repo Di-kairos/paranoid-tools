@@ -1,18 +1,24 @@
 # TESTING — как самому проверить Paranoid Tools
 
 Этот гайд — чтобы ты сам прогнал все 5 инструментов на своём Mac и убедился, что готово.
-Команды копируются целиком. macOS.
+Все команды запускаются **из корня склонированного репозитория** (`git clone … && cd
+paranoid-tools`). macOS.
 
 ---
 
-## 0. Поставить все 5 локально (из этого репозитория)
+## 0. Поставить все 5
 
-Ставит securetrash, vaultwatch, panic, ghostdraft, seedsplit в `~/.local/bin`
-(локально, из рабочей копии — НЕ из GitHub, ничего не публикует):
+Ставит securetrash, vaultwatch, panic, ghostdraft, seedsplit в `~/.local/bin`:
 
 ```bash
-cd "/Volumes/X10 Pro/projects/paranoid-tools" && bash install.sh
+bash install.sh
 ```
+
+> **Два сценария — разные пути установки.** На свежем публичном клоне (только `paranoid-tools`,
+> без вложенных tool-репозиториев) установщик тянет каждый инструмент из его **подписанного
+> релиза**. Если рядом лежат рабочие копии `securetrash/`, `vaultwatch/` и т.д. (maintainer
+> checkout), он ставит **локальные** версии, а не релизные. Чтобы проверить именно публичный
+> путь, распакуй tracked-файлы без вложенных репозиториев: `git archive HEAD | tar -x -C <dir>`.
 
 Если `~/.local/bin` не в `PATH`, добавь (zsh):
 
@@ -20,7 +26,7 @@ cd "/Volumes/X10 Pro/projects/paranoid-tools" && bash install.sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
 
-Проверь: `securetrash version` → `securetrash 0.4.10`.
+Проверь: `securetrash version` печатает версию (текущий релиз — `securetrash 0.4.11`).
 Удалить всё потом: `bash install.sh --uninstall`.
 
 ---
@@ -30,11 +36,18 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 Прогоняет happy-path всех тулов в песочнице (временный HOME, temp-файлы), печатает ✓/✗:
 
 ```bash
-cd "/Volumes/X10 Pro/projects/paranoid-tools" && bash smoke-test.sh
+bash smoke-test.sh
 ```
 
-Ожидаемо: `Все автоматические проверки прошли.` (17 ✓). Это покрывает версии, seedsplit
-split/combine/verify, ghostdraft pipe+draft, securetrash shred и полный vault-цикл.
+Ожидаемо: `Все автоматические проверки прошли.` (**16 ✓ / 0 ✗ / 2 пропущено**). Это покрывает
+версии, seedsplit split/combine/verify, ghostdraft pipe+draft, securetrash shred и полный
+vault-цикл; пропускаются `ghostdraft new` (нужен интерактивный редактор) и disruptive-части
+`vaultwatch`/`panic`.
+
+> **Sandbox / headless.** Vault-цикл требует macOS DiskManagement (`hdiutil`/`diskutil apfs`).
+> В ограниченной среде (Codex sandbox, headless-CI) он может упасть с `unable to use the
+> DiskManagement framework` — это не баг продукта, а среда. Запусти с обычными правами на
+> реальном Mac — vault-цикл пройдёт.
 
 ---
 
@@ -91,7 +104,7 @@ panic status                           # что будет затронуто (r
 тянутся обычным `curl`, без `gh` и без токена («don't trust, verify» доступно любому). Одна команда:
 
 ```bash
-cd "/Volumes/X10 Pro/projects/paranoid-tools" && bash verify-releases.sh
+bash verify-releases.sh
 ```
 
 Ожидаемо: `Итог: 5 ✓  0 ✗` → `Все релизы подписаны корректно.`
