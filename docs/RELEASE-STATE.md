@@ -22,7 +22,7 @@ GUI P2-7/P2-10; honesty/version/EN-RU по всем тулам).
 | securetrash | `Di-kairos/securetrash` | `v0.4.11` | **0.4.11** | CI ✅ · Release подписан ✅ · Windows sig-verify · P0-1/P2-2/P2-5 |
 | vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.6` | **0.1.6** | CI ✅ · Release подписан ✅ · `--force` safety-gate · Win unmount-guard · sig-verify |
 | panic       | `Di-kairos/panic`       | `v0.1.7` | **0.1.7** | CI ✅ · Release подписан ✅ · Windows sig-verify · honesty doc-pass |
-| ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.8` | **0.1.8** | CI ✅ · Release подписан ✅ · Windows sig-verify · non-TTY guard |
+| ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.9` | **0.1.9** | CI ✅ · Release подписан ✅ · Windows sig-verify · non-TTY guard · Warp hint |
 | seedsplit   | `Di-kairos/seedsplit`   | `v0.4.1` | **0.4.1** | CI ✅ · Release подписан ✅ · passphrase no-spill · split self-check · sig-verify |
 
 > Формулы Homebrew обновлены на новые теги + sha256 (source-тарбол). `verify-releases.sh` пиннут
