@@ -56,7 +56,6 @@ One command installs all five tools plus the launcher into `~/.local/bin`:
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools
 bash install.sh            # installs all 5 + the paranoid launcher
-bash install.sh --uninstall
 ```
 
 On a fresh clone each tool is pulled from its own **signed release** with verify-then-run:
@@ -69,6 +68,12 @@ with `PT_DEST=/usr/local/bin`.
 
 Prefer to install just one tool, or inspect each step by hand? Every tool's README carries a
 standalone verify-then-run snippet plus a one-line quick form. See [the tools](#the-tools).
+
+### Uninstall
+
+```bash
+bash install.sh --uninstall   # remove all tools and the launcher
+```
 
 ### Windows
 
