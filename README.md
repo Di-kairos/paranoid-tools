@@ -32,11 +32,11 @@ runtime dependencies** — and is honest about the limits of what it can guarant
 
 | # | Tool | Step in a secret's life | Platform | Latest |
 |---|------|-------------------------|----------|--------|
-| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | `v0.4.11` |
-| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS · Windows (beta) | `v0.1.6` |
-| 3 | [`panic`](https://github.com/Di-kairos/panic)             | hide & lock everything, instantly | macOS · Windows (beta) | `v0.1.7` |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text leaving no disk trace | macOS · Windows (beta) | `v0.1.9` |
-| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares (+ passphrase) | macOS · Windows (beta) | `v0.4.1` |
+| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/securetrash?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/securetrash/releases/latest) |
+| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
+| 3 | [`panic`](https://github.com/Di-kairos/panic)             | hide & lock everything, instantly | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text leaving no disk trace | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares (+ passphrase) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
 
 > **Windows.** All five tools ship PowerShell ports (beta, Pester-tested in CI; seedsplit
 > shares are byte-compatible with the macOS build). The macOS primitives — Spotlight, Time
@@ -147,6 +147,15 @@ runtime behavior changed in the update (e.g. `securetrash vault` now mounts the 
 visibly in Finder), an already-open session keeps the old code — reopen it: `securetrash
 vault close` then `securetrash vault open`.
 
+**Staying notified.** There's no telemetry and nothing phones home, so a new version won't
+find you — you check for it. Cheapest and privacy-clean: on GitHub press **Watch ▸ Custom ▸
+Releases** on [paranoid-tools](https://github.com/Di-kairos/paranoid-tools) (and on any
+single-tool repo you rely on) — GitHub emails you on every release. The **Latest** badges in
+the tools table always show the current release; compare them with your local `<tool>
+version`. Installed a tool via Homebrew? `brew upgrade` picks up the new formula. The
+`paranoid` launcher also shows an opt-in "update available" line on its dashboard — see
+[The launcher](#the-launcher).
+
 Usage guides: **[English](GUIDE.md)** · [Русский](ИНСТРУКЦИЯ.md).
 
 ## The launcher
@@ -176,6 +185,13 @@ README). An open vault is always flagged "at risk".
 A Windows PowerShell mirror now ships at `windows/paranoid.ps1` (beta) — run it with
 `pwsh -File windows/paranoid.ps1` (or drop it on PATH as `paranoid`); it drives the
 same five PowerShell ports.
+
+**Opt-in update check.** Off by default — nothing on the dashboard touches the network unless
+you ask. Set `PARANOID_UPDATE_CHECK=1` and the dashboard adds an *"update available"* line when
+an installed tool has a newer signed release. It's the only network call the launcher makes: a
+single redirect lookup per tool against GitHub's `releases/latest` (no API key, no telemetry),
+cached for 24h. Enable it for a session with `PARANOID_UPDATE_CHECK=1 paranoid`, or export it in
+your shell rc to keep it on.
 
 ## How it fits together
 

@@ -55,6 +55,9 @@ t() {
     en:vw)           echo 'vaultwatch:' ;;   ru:vw)           echo 'vaultwatch:' ;;
     en:vw_active)    echo 'active' ;;        ru:vw_active)    echo 'активен' ;;
     en:vw_idle)      echo 'idle' ;;          ru:vw_idle)      echo 'нет сессий' ;;
+    en:update_avail) echo 'update available:' ;; ru:update_avail) echo 'доступно обновление:' ;;
+    en:update_how)   echo 'to update: re-run the installer (git pull && bash install.sh) or brew upgrade' ;;
+    ru:update_how)   echo 'обновить: перезапусти установщик (git pull && bash install.sh) или brew upgrade' ;;
     en:m_status)     echo 'Status — full read-only check' ;;
     ru:m_status)     echo 'Статус — полная проверка (только чтение)' ;;
     en:m_panic)      echo 'PANIC NOW — hide & lock everything (instant, no confirm)' ;;
@@ -200,6 +203,76 @@ _status_vaultwatch() {
   if grep -qiE 'session:|сессия:' <<<"$out"; then echo active; else echo idle; fi
 }
 
+# --- opt-in проверка обновлений (по умолчанию ВЫКЛ; сеть только с явного согласия) ---
+# Privacy-контракт: НИКАКОЙ телеметрии и фонового «стука домой». Проверка идёт ТОЛЬКО если
+# PARANOID_UPDATE_CHECK=1, делает лишь HEAD-редирект к GitHub releases/latest (без API-ключей,
+# без rate-limit), троттлится кэшем на 24ч и при любой ошибке сети тихо пропускает тул.
+
+# mtime файла в секундах epoch: BSD (macOS) `stat -f %m`, GNU (Linux/CI) `stat -c %Y`.
+_file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+
+# Установленная версия тула как x.y.z (пусто, если тула нет / версию не распарсить).
+_tool_version() {
+  local tool="$1" out
+  _tool_installed "$tool" || return 0
+  out="$("$tool" version 2>/dev/null || "$tool" --version 2>/dev/null)" || true
+  grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$out" | head -1
+}
+
+# Последний релизный тег тула. В тестах подменяется файлом PARANOID_UPDATE_FEED
+# (строки `tool=vX.Y.Z`), иначе — HEAD-редирект releases/latest → .../tag/vX.Y.Z.
+_fetch_latest_tag() {
+  local tool="$1" url
+  if [[ -n "${PARANOID_UPDATE_FEED:-}" ]]; then
+    awk -F= -v t="$tool" '$1==t{print $2; exit}' "$PARANOID_UPDATE_FEED" 2>/dev/null
+    return 0
+  fi
+  command -v curl >/dev/null 2>&1 || return 0
+  # -I = HEAD (только заголовки редиректа, тело страницы не тянем — минимизация). Короткий
+  # таймаут: проверка синхронна в рендере, а сумма ждёт по всем тулам; кэш на 24ч делает этот
+  # медленный путь редким (раз в сутки), но одиночный рендер не должен висеть на мёртвой сети.
+  url="$(curl -fsSLI --connect-timeout 2 --max-time 3 -o /dev/null -w '%{url_effective}' \
+        "https://github.com/Di-kairos/$tool/releases/latest" 2>/dev/null)" || return 0
+  case "$url" in */tag/*) echo "${url##*/tag/}" ;; esac
+}
+
+# true, если $1 (x.y.z) строго новее $2. Числовая сортировка по полям — без sort -V
+# (её нет на старом BSD). Равные версии → не новее.
+_ver_gt() {
+  [[ "$1" == "$2" ]] && return 1
+  local hi
+  hi="$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+  [[ "$hi" == "$1" ]]
+}
+
+# Сводка «тул inst→latest, …» по установленным тулам, у которых релиз новее. Пусто, если
+# проверка выключена, всё свежее или сеть недоступна. Результат кэшируется на 24ч.
+_update_summary() {
+  [[ "${PARANOID_UPDATE_CHECK:-0}" == "1" ]] || return 0
+  local cache_dir cache
+  cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/paranoid-tools"
+  cache="$cache_dir/update-check"
+  # Свежий кэш (<24ч) отдаём как есть; feed-режим (тесты) кэш не трогает — всегда пересчёт.
+  if [[ -z "${PARANOID_UPDATE_FEED:-}" && -f "$cache" ]]; then
+    local now mt; now="$(date +%s 2>/dev/null)"; mt="$(_file_mtime "$cache")"
+    if [[ -n "$now" && -n "$mt" ]] && (( now - mt < 86400 )); then cat "$cache"; return 0; fi
+  fi
+  local out="" tool inst latest
+  for tool in securetrash vaultwatch panic seedsplit ghostdraft; do
+    _tool_installed "$tool" || continue
+    inst="$(_tool_version "$tool")"; [[ -n "$inst" ]] || continue
+    latest="$(_fetch_latest_tag "$tool")"; latest="${latest#v}"
+    # Сравниваем только чистый x.y.z (наши теги всегда такие); мусор/x.y — пропускаем,
+    # чтобы неполная версия не дала ложное «новее» (паритет с ps1-валидацией).
+    [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    _ver_gt "$latest" "$inst" && out+="${out:+, }$tool $inst→$latest"
+  done
+  if [[ -z "${PARANOID_UPDATE_FEED:-}" ]]; then
+    mkdir -p "$cache_dir" 2>/dev/null && printf '%s' "$out" >"$cache" 2>/dev/null || true
+  fi
+  printf '%s' "$out"
+}
+
 # Цветная точка по состоянию: ok=green, warn=yellow, dim=grey.
 _dot() {
   case "$1" in
@@ -248,6 +321,12 @@ _render() {
     idle)   printf '  %s %s %s\n' "$(t vw)" "$(_dot dim)" "$(t vw_idle)" ;;
     *)      : ;;  # absent → строку vaultwatch не показываем
   esac
+  # Опциональная строка обновлений (только если PARANOID_UPDATE_CHECK=1 и есть свежее).
+  local _upd; _upd="$(_update_summary)"
+  if [[ -n "$_upd" ]]; then
+    printf '  %s⬆ %s%s %s\n' "$C_YEL" "$(t update_avail)" "$C_RST" "$_upd"
+    printf '    %s%s%s\n' "$C_DIM" "$(t update_how)" "$C_RST"
+  fi
   echo
   _menu_item 1 "$(t m_status)"
   if _tool_installed panic; then

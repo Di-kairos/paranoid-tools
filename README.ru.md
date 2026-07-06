@@ -32,11 +32,11 @@
 
 | # | Инструмент | Шаг жизни секрета | Платформа | Версия |
 |---|------------|-------------------|-----------|--------|
-| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить в зашифрованном vault, очистить или уничтожить | macOS · Windows (beta) | `v0.4.11` |
-| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый vault | macOS · Windows (beta) | `v0.1.6` |
-| 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | macOS · Windows (beta) | `v0.1.7` |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть без следов на диске | macOS · Windows (beta) | `v0.1.9` |
-| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | разбить секрет на доли (Шамир) + passphrase | macOS · Windows (beta) | `v0.4.1` |
+| 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить в зашифрованном vault, очистить или уничтожить | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/securetrash?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/securetrash/releases/latest) |
+| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый vault | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
+| 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно спрятать по тревоге | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть без следов на диске | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | разбить секрет на доли (Шамир) + passphrase | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
 
 > **Windows.** У всех пяти инструментов есть PowerShell-порты (beta, покрыты Pester на CI;
 > доли seedsplit байт-совместимы с macOS-сборкой). macOS-примитивы — Spotlight, Time Machine,
@@ -147,6 +147,15 @@ bash install.sh     # переустановить все инструменты
 видимо в Finder), уже открытая сессия держит старый код — переоткрой её: `securetrash vault
 close`, затем `securetrash vault open`.
 
+**Как узнать о новой версии.** Телеметрии нет, никто «домой не стучит» — значит новая версия
+сама тебя не найдёт, ты проверяешь её сам. Самое дешёвое и privacy-чистое: на GitHub нажми
+**Watch ▸ Custom ▸ Releases** на [paranoid-tools](https://github.com/Di-kairos/paranoid-tools)
+(и на репо любого инструмента, которым пользуешься) — GitHub пришлёт письмо на каждый релиз.
+Бейджи **Версия** в таблице всегда показывают актуальный релиз; сравни с локальным `<tool>
+version`. Ставил через Homebrew? `brew upgrade` подтянет новую формулу. Лаунчер `paranoid`
+тоже показывает opt-in строку «доступно обновление» на дашборде — см.
+[Лаунчер](#лаунчер).
+
 Практические гайды: **[English](GUIDE.md)** · [Русский](ИНСТРУКЦИЯ.md).
 
 ## Лаунчер
@@ -176,6 +185,13 @@ panic). Открытый vault всегда помечается «at risk».
 Зеркало на Windows PowerShell теперь тоже есть — `windows/paranoid.ps1` (beta): запуск
 `pwsh -File windows/paranoid.ps1` (или положи в PATH под именем `paranoid`); оно управляет
 теми же пятью PowerShell-портами.
+
+**Opt-in проверка обновлений.** По умолчанию ВЫКЛ — дашборд не трогает сеть, пока ты сам не
+попросишь. Задай `PARANOID_UPDATE_CHECK=1`, и дашборд добавит строку *«доступно обновление»*,
+когда у установленного инструмента есть более свежий подписанный релиз. Это единственный
+сетевой вызов лаунчера: один redirect-запрос на тул к GitHub `releases/latest` (без API-ключа,
+без телеметрии), кэш на 24ч. Включить на сессию — `PARANOID_UPDATE_CHECK=1 paranoid`, или
+экспортируй переменную в rc-файле оболочки, чтобы держать постоянно.
 
 ## Как это устроено
 

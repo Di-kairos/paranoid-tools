@@ -38,6 +38,7 @@ _make_stub() {
   cat >"$STUBS/$name" <<EOF
 #!/usr/bin/env bash
 printf '$name %s\n' "\$*" >>"$LOG"
+case "\${1:-}" in version|--version|-v) echo "$name \${STUB_VER:-0.0.1}"; exit 0 ;; esac
 case "$name:\${1:-}" in
   fdesetup:status) echo "FileVault is On." ;;
   vaultwatch:status) : ;;  # пусто → _status_vaultwatch = idle
@@ -415,4 +416,36 @@ EOF
   run_paranoid $'3\n4\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
   [ "$status" -eq 0 ]
   grep -qx "vaultwatch stop $TMP/vault" "$LOG"
+}
+
+# --- opt-in проверка обновлений (PARANOID_UPDATE_CHECK) ---
+
+@test "update check stays silent when PARANOID_UPDATE_CHECK is unset (privacy default)" {
+  printf 'ghostdraft=v9.9.9\n' >"$TMP/feed"   # свежак есть, но проверка выключена
+  run_paranoid $'0\n' PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.0
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"update available"* ]]
+  [[ "$output" != *"→"* ]]
+}
+
+@test "update check shows a newer release when enabled and one is available" {
+  printf 'ghostdraft=v0.1.9\n' >"$TMP/feed"
+  run_paranoid $'0\n' PARANOID_UPDATE_CHECK=1 PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.7
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"update available"* ]]
+  [[ "$output" == *"ghostdraft 0.1.7→0.1.9"* ]]
+}
+
+@test "update check is silent when the installed version is already latest" {
+  printf 'ghostdraft=v0.1.9\n' >"$TMP/feed"
+  run_paranoid $'0\n' PARANOID_UPDATE_CHECK=1 PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.9
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"update available"* ]]
+}
+
+@test "update check does not flag when installed is newer than the feed (no false positive)" {
+  printf 'ghostdraft=v0.1.9\n' >"$TMP/feed"
+  run_paranoid $'0\n' PARANOID_UPDATE_CHECK=1 PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"update available"* ]]
 }

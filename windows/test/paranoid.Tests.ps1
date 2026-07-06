@@ -71,6 +71,70 @@ Describe 'Get-PnDashboard — read-only status text' {
     }
 }
 
+Describe 'Get-PnUpdateSummary — opt-in update check' {
+    BeforeEach {
+        Mock Test-PnTool { $true }
+        Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
+        Remove-Item Env:\PARANOID_UPDATE_FEED  -ErrorAction SilentlyContinue
+    }
+    AfterEach {
+        Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
+        Remove-Item Env:\PARANOID_UPDATE_FEED  -ErrorAction SilentlyContinue
+    }
+    It 'stays silent when PARANOID_UPDATE_CHECK is unset (privacy default)' {
+        Mock Get-PnToolVersion { '0.1.0' }
+        Mock Get-PnLatestTag   { 'v9.9.9' }
+        Get-PnUpdateSummary | Should -BeNullOrEmpty
+    }
+    It 'reports a newer release when enabled and available' {
+        $feed = New-TemporaryFile
+        Set-Content -LiteralPath $feed -Value 'ghostdraft=v0.1.9'
+        $env:PARANOID_UPDATE_CHECK = '1'
+        $env:PARANOID_UPDATE_FEED  = $feed.FullName
+        Mock Get-PnToolVersion { '0.1.7' }
+        $s = Get-PnUpdateSummary
+        $s | Should -Match 'ghostdraft 0.1.7'
+        $s | Should -Match '0\.1\.9'
+        Remove-Item -LiteralPath $feed -ErrorAction SilentlyContinue
+    }
+    It 'is silent when the installed version is already latest' {
+        $feed = New-TemporaryFile
+        Set-Content -LiteralPath $feed -Value 'ghostdraft=v0.1.9'
+        $env:PARANOID_UPDATE_CHECK = '1'
+        $env:PARANOID_UPDATE_FEED  = $feed.FullName
+        Mock Get-PnToolVersion { '0.1.9' }
+        Get-PnUpdateSummary | Should -BeNullOrEmpty
+        Remove-Item -LiteralPath $feed -ErrorAction SilentlyContinue
+    }
+    It 'does not flag when installed is newer than the feed (no false positive)' {
+        $feed = New-TemporaryFile
+        Set-Content -LiteralPath $feed -Value 'ghostdraft=v0.1.9'
+        $env:PARANOID_UPDATE_CHECK = '1'
+        $env:PARANOID_UPDATE_FEED  = $feed.FullName
+        Mock Get-PnToolVersion { '0.2.0' }
+        Get-PnUpdateSummary | Should -BeNullOrEmpty
+        Remove-Item -LiteralPath $feed -ErrorAction SilentlyContinue
+    }
+}
+
+Describe 'Get-PnDashboard — opt-in update line' {
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        Mock Get-PnBitLockerState  { 'unknown' }
+        Mock Get-PnVaultwatchState { 'idle' }
+        Mock Get-PnVaultState { 'closed' }
+        Mock Test-PnTool { $true }
+    }
+    It 'shows the update line when a summary is present' {
+        Mock Get-PnUpdateSummary { 'ghostdraft 0.1.7' + [char]0x2192 + '0.1.9' }
+        ((Get-PnDashboard) -join "`n") | Should -Match 'update available'
+    }
+    It 'omits the update line when the summary is empty' {
+        Mock Get-PnUpdateSummary { '' }
+        ((Get-PnDashboard) -join "`n") | Should -Not -Match 'update available'
+    }
+}
+
 Describe 'Get-PnVaultMenu — dynamic item 1 + empty/destroy gating + watch toggle' {
     BeforeEach {
         $script:PN_LOCALE = 'en'

@@ -60,6 +60,9 @@ function T {
         'en:vw'           { return 'vaultwatch:' }  'ru:vw'           { return 'vaultwatch:' }
         'en:vw_active'    { return 'active' }       'ru:vw_active'    { return 'активен' }
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
+        'en:update_avail' { return 'update available:' } 'ru:update_avail' { return 'доступно обновление:' }
+        'en:update_how'   { return 'to update: re-run install.ps1 or brew upgrade' }
+        'ru:update_how'   { return 'обновить: перезапусти install.ps1 или brew upgrade' }
         'en:m_status'     { return 'Status — full read-only check' }
         'ru:m_status'     { return 'Статус — полная проверка (только чтение)' }
         'en:m_panic'      { return 'PANIC NOW — hide & lock everything (instant, no confirm)' }
@@ -209,6 +212,87 @@ function Get-PnVaultwatchTtl {
     return ''
 }
 
+# --- opt-in проверка обновлений (по умолчанию ВЫКЛ; сеть только с явного согласия) ---
+# Privacy-контракт: никакой телеметрии/фонового «стука домой». Идёт ТОЛЬКО если
+# $env:PARANOID_UPDATE_CHECK='1', делает лишь HEAD-редирект к GitHub releases/latest,
+# троттлится кэшем на 24ч и при любой ошибке сети тихо пропускает тул.
+
+# Установленная версия тула как x.y.z (пусто, если тула нет / версию не распарсить).
+function Get-PnToolVersion {
+    param([string]$Tool)
+    if (-not (Test-PnTool $Tool)) { return '' }
+    try {
+        $out = (& $Tool version 2>$null) -join ' '
+        if (-not $out) { $out = (& $Tool --version 2>$null) -join ' ' }
+        $m = [regex]::Match($out, '\d+\.\d+\.\d+')
+        if ($m.Success) { return $m.Value }
+    } catch { }
+    return ''
+}
+
+# Последний релизный тег тула. В тестах подменяется файлом $env:PARANOID_UPDATE_FEED
+# (строки `tool=vX.Y.Z`), иначе — редирект releases/latest → .../tag/vX.Y.Z.
+function Get-PnLatestTag {
+    param([string]$Tool)
+    if ($env:PARANOID_UPDATE_FEED) {
+        if (Test-Path -LiteralPath $env:PARANOID_UPDATE_FEED) {
+            foreach ($line in Get-Content -LiteralPath $env:PARANOID_UPDATE_FEED) {
+                $kv = $line -split '=', 2
+                if ($kv.Count -eq 2 -and $kv[0] -eq $Tool) { return $kv[1].Trim() }
+            }
+        }
+        return ''
+    }
+    try {
+        # -Method Head: тянем только заголовки редиректа, не тело GitHub-страницы (минимизация,
+        # паритет с bash `curl -I`). -UseBasicParsing — для PS 5.1. Короткий таймаут: рендер ждёт
+        # по всем тулам, кэш на 24ч делает медленный путь редким.
+        $u = "https://github.com/Di-kairos/$Tool/releases/latest"
+        $r = Invoke-WebRequest -Uri $u -Method Head -MaximumRedirection 5 -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        $final = ''
+        if ($r.BaseResponse.ResponseUri) { $final = $r.BaseResponse.ResponseUri.AbsoluteUri }        # PS5.1
+        elseif ($r.BaseResponse.RequestMessage) { $final = $r.BaseResponse.RequestMessage.RequestUri.AbsoluteUri }  # PS7
+        if ($final -match '/tag/(.+)$') { return $Matches[1] }
+    } catch { }
+    return ''
+}
+
+# true, если $Latest (x.y.z) строго новее $Installed. Через [version] — равные не новее.
+function Test-PnVerGt {
+    param([string]$Latest, [string]$Installed)
+    try { return ([version]$Latest) -gt ([version]$Installed) } catch { return $false }
+}
+
+# Сводка «тул inst→latest, …» по установленным тулам со свежим релизом. Пусто, если проверка
+# выключена, всё свежее или сеть недоступна. Результат кэшируется на 24ч.
+function Get-PnUpdateSummary {
+    if ($env:PARANOID_UPDATE_CHECK -ne '1') { return '' }
+    $cacheDir = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'paranoid-tools' }
+                elseif ($env:HOME) { Join-Path $env:HOME '.cache/paranoid-tools' } else { $null }
+    $cache = if ($cacheDir) { Join-Path $cacheDir 'update-check' } else { $null }
+    # Свежий кэш (<24ч) отдаём как есть; feed-режим (тесты) кэш не трогает — всегда пересчёт.
+    if (-not $env:PARANOID_UPDATE_FEED -and $cache -and (Test-Path -LiteralPath $cache)) {
+        $age = (Get-Date) - (Get-Item -LiteralPath $cache).LastWriteTime
+        if ($age.TotalSeconds -lt 86400) { return (Get-Content -LiteralPath $cache -Raw -ErrorAction SilentlyContinue) }
+    }
+    $parts = @()
+    foreach ($tool in @('securetrash', 'vaultwatch', 'panic', 'seedsplit', 'ghostdraft')) {
+        if (-not (Test-PnTool $tool)) { continue }
+        $inst = Get-PnToolVersion $tool
+        if (-not $inst) { continue }
+        $latest = (Get-PnLatestTag $tool) -replace '^v', ''
+        # Только чистый x.y.z: иначе [version] считает 1.2.0 новее 1.2 (ложное «новее»). Паритет с bash.
+        if ($latest -notmatch '^\d+\.\d+\.\d+$') { continue }
+        if (Test-PnVerGt $latest $inst) { $parts += "$tool $inst$([char]0x2192)$latest" }
+    }
+    $summary = $parts -join ', '
+    if (-not $env:PARANOID_UPDATE_FEED -and $cacheDir) {
+        try { New-Item -ItemType Directory -Force -Path $cacheDir -ErrorAction Stop | Out-Null
+              Set-Content -LiteralPath $cache -Value $summary -NoNewline -ErrorAction Stop } catch { }
+    }
+    return $summary
+}
+
 # --- текст dashboard отдельной функцией (Pester проверяет строки без запуска цикла) ---
 function Get-PnDashboard {
     # Перечитываем активный том перется каждым рендером — буква могла появиться/исчезнуть
@@ -242,6 +326,12 @@ function Get-PnDashboard {
         }
         'idle' { $lines += "  $(T 'vw') $(T 'vw_idle')" }
         default { }  # absent → строку не показываем
+    }
+    # Опциональная строка обновлений (только если PARANOID_UPDATE_CHECK=1 и есть свежее).
+    $upd = Get-PnUpdateSummary
+    if ($upd) {
+        $lines += "  $([char]0x2B06) $(T 'update_avail') $upd"
+        $lines += "    $(T 'update_how')"
     }
     $lines += ''
     $lines += (Format-PnMenuItem 1 (T 'm_status'))
