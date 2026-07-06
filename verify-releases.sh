@@ -31,9 +31,17 @@ for spec in securetrash:v0.4.11 vaultwatch:v0.1.6 panic:v0.1.7 ghostdraft:v0.1.9
   rel="$BASE/$t/releases/download/$tag"
   printf '%-12s %-8s ' "$t" "$tag"
 
-  if ! curl -fsSL "$rel/SHA256SUMS" -o "$d/SHA256SUMS" 2>/dev/null \
-     || ! curl -fsSL "$rel/SHA256SUMS.sig" -o "$d/SHA256SUMS.sig" 2>/dev/null; then
-    printf '\033[31m✗ ассеты не скачались (сеть?)\033[0m\n'; FAIL=$((FAIL+1)); continue
+  # Манифест сумм и подпись тянем по отдельности — чтобы при сбое честно сказать, ЧТО именно
+  # не скачалось и почему (curl exit code + последняя строка stderr), а не глухое «сеть?».
+  # `-S` показывает ошибку curl (иначе -s её глушит); `--retry` страхует от транзиентных
+  # DNS/timeout/429/5xx. Разделяем провал SHA256SUMS и SHA256SUMS.sig.
+  fetch_fail=""
+  for asset in SHA256SUMS SHA256SUMS.sig; do
+    cerr="$(curl -fsSLS --retry 2 --retry-delay 1 "$rel/$asset" -o "$d/$asset" 2>&1)" && continue
+    fetch_fail="$asset — curl $?: ${cerr##*$'\n'}"; break
+  done
+  if [[ -n "$fetch_fail" ]]; then
+    printf '\033[31m✗ не скачалось: %s\033[0m\n' "$fetch_fail"; FAIL=$((FAIL+1)); continue
   fi
 
   # (1) аутентичность: подпись манифеста сумм.
@@ -42,9 +50,11 @@ for spec in securetrash:v0.4.11 vaultwatch:v0.1.6 panic:v0.1.7 ghostdraft:v0.1.9
     printf '\033[31m✗ подпись НЕ прошла\033[0m\n'; FAIL=$((FAIL+1)); continue
   fi
 
-  # (2) целостность: бинарь соответствует подписанному манифесту.
-  if ! curl -fsSL "$rel/$t" -o "$d/$t" 2>/dev/null; then
-    printf '\033[33m✓ подпись верна, но бинарь не скачался\033[0m\n'; PASS=$((PASS+1)); continue
+  # (2) целостность: бинарь соответствует подписанному манифесту. if/else без `!`, чтобы
+  # `$?` в else был реальным кодом curl (после `if ! cmd` он был бы 0 из-за негации).
+  if berr="$(curl -fsSLS --retry 2 --retry-delay 1 "$rel/$t" -o "$d/$t" 2>&1)"; then :; else
+    brc=$?
+    printf '\033[33m✓ подпись верна, но бинарь не скачался (curl %s: %s)\033[0m\n' "$brc" "${berr##*$'\n'}"; PASS=$((PASS+1)); continue
   fi
   want="$(grep -E "  $t\$" "$d/SHA256SUMS" | awk '{print $1}')"
   got="$(cd "$d" && SHA "$t" | awk '{print $1}')"
