@@ -80,12 +80,12 @@ vaultwatch version                              # показать версию
 
 ```
 vaultwatch — session report
-  duration:        24m 18s
-  Spotlight:       indexing re-enabled for /Volumes/SecretVault
-  Time Machine:    exclusion removed (added by this session)
-  cloud daemons:   Dropbox active — vault was OUTSIDE its sync folder
-  local snapshots: none observed (tmutil listlocalsnapshots /)
-  swap:            NOT addressed (see limitations)
+  длительность:    24m 18s
+  Spotlight:       индексация снова включена для /Volumes/SecretVault
+  Time Machine:    исключение снято (добавляла эта сессия)
+  cloud daemons:   Dropbox активен — vault ВНЕ его синк-папки
+  local snapshots: не обнаружено (tmutil listlocalsnapshots /)
+  swap:            не затрагивается (см. limitations)
 ```
 
 ## Архитектура
