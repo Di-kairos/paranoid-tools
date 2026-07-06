@@ -25,7 +25,7 @@
 
 An umbrella of small command-line tools around the **lifecycle of a secret**
 (seed phrase / password / key). Each tool is its own git repo — a single-file
-script (pure Bash on macOS/Linux, a PowerShell port on Windows) with **zero
+script (pure Bash on macOS, a PowerShell port on Windows) with **zero
 runtime dependencies** — and is honest about the limits of what it can guarantee.
 
 ## The tools
@@ -35,7 +35,7 @@ runtime dependencies** — and is honest about the limits of what it can guarant
 | 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/securetrash?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/securetrash/releases/latest) |
 | 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
 | 3 | [`panic`](https://github.com/Di-kairos/panic)             | hide & lock everything, instantly | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text leaving no disk trace | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text without leaving copies in the usual places | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
 | 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares (+ passphrase) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
 
 > **Windows.** All five tools ship PowerShell ports (beta, Pester-tested in CI; seedsplit
@@ -62,19 +62,22 @@ bash install.sh --uninstall
 On a fresh clone each tool is pulled from its own **signed release** with verify-then-run:
 the installer checks the Ed25519 signature over `SHA256SUMS`, then the checksum of the
 tool's own `install.sh`, and only then runs it — which in turn verifies the binary before
-installing. Nothing executes until it has been verified. Pin a version with, e.g.,
-`PT_PANIC_VERSION=0.1.7`; change the target dir with `PT_DEST=/usr/local/bin`.
+installing. So every artifact pulled from the network — a tool's own `install.sh` and its
+binary — is verified before it runs (you launch the top-level `bash install.sh` yourself,
+after reading it). Pin a version with, e.g., `PT_PANIC_VERSION=0.1.7`; change the target dir
+with `PT_DEST=/usr/local/bin`.
 
 Prefer to install just one tool, or inspect each step by hand? Every tool's README carries a
 standalone verify-then-run snippet plus a one-line quick form. See [the tools](#the-tools).
 
 ### Windows
 
-The one-line `install.sh` above is macOS/Linux only. On Windows it's a few short steps — here's
+The one-line `install.sh` above is macOS only. On Windows it's a few short steps — here's
 the whole thing from scratch. Steps **1–2 you do once**; step 3 you repeat per tool.
 
-**1. Install PowerShell 7.** The Windows ports need it — the PowerShell that ships with Windows
-is 5.1 and won't run them. In any terminal (press `Win`, type "PowerShell", Enter):
+**1. Install PowerShell 7.** The supported path for install and run is PowerShell 7 (`pwsh`);
+the built-in Windows PowerShell 5.1 is not officially supported. In any terminal (press `Win`,
+type "PowerShell", Enter):
 
 ```powershell
 winget install --id Microsoft.PowerShell -e
