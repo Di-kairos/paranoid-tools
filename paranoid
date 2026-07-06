@@ -267,8 +267,8 @@ _update_summary() {
     [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
     _ver_gt "$latest" "$inst" && out+="${out:+, }$tool $inst→$latest"
   done
-  if [[ -z "${PARANOID_UPDATE_FEED:-}" ]]; then
-    mkdir -p "$cache_dir" 2>/dev/null && printf '%s' "$out" >"$cache" 2>/dev/null || true
+  if [[ -z "${PARANOID_UPDATE_FEED:-}" ]] && mkdir -p "$cache_dir" 2>/dev/null; then
+    printf '%s' "$out" >"$cache" 2>/dev/null || true
   fi
   printf '%s' "$out"
 }
