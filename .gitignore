@@ -11,6 +11,7 @@ graphify-out/
 .DS_Store
 .claude/
 .gstack/
+.superpowers/
 docs/sessions/
 tri-mozga-out/
 
