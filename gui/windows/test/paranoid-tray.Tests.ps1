@@ -130,16 +130,17 @@ Describe 'Get-PtVaultwatchSessions — чтение session-файлов vaultwa
     }
     It 'файл, исчезнувший между листингом и чтением, пропускается (race-safe)' {
         Set-Content -LiteralPath (Join-Path $vwDir 'a_good') -Value @('mount=/Volumes/Good', 'started=1000', 'ttl_secs=0')
-        # Get-Content бросает на одном файле (имитация удаления vaultwatch stop) → не валит rebuild.
-        # Mock без ParameterFilter: Pester 6 (runner image) перестал звать оригинал на не совпавших
-        # фильтром вызовах (на 5.x было зелено) → ветвим внутри мока, оригинал — module-qualified.
-        Mock Get-Content {
-            if ($LiteralPath -like '*z_gone*') { throw [System.IO.FileNotFoundException]::new('gone') }
-            Microsoft.PowerShell.Management\Get-Content -LiteralPath $LiteralPath -ErrorAction Stop
-        }
-        Set-Content -LiteralPath (Join-Path $vwDir 'z_gone') -Value @('mount=/Volumes/Gone', 'started=1', 'ttl_secs=0')
-        { Get-PtVaultwatchSessions -Now 1900 } | Should -Not -Throw
-        (@(Get-PtVaultwatchSessions -Now 1900) | Where-Object { $_.Mount -eq '/Volumes/Good' }).Count | Should -Be 1
+        # Реальный I/O-фейл вместо мока Get-Content: Pester 6 сломал прежнюю семантику
+        # ParameterFilter-мока (немоканые вызовы больше не идут в оригинал). Эксклюзивный лок
+        # имитирует файл, ставший недоступным между листингом и чтением, — тот же прод-путь.
+        $gonePath = Join-Path $vwDir 'z_gone'
+        Set-Content -LiteralPath $gonePath -Value @('mount=/Volumes/Gone', 'started=1', 'ttl_secs=0')
+        $lock = [System.IO.File]::Open($gonePath, [System.IO.FileMode]::Open,
+                                       [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+        try {
+            { Get-PtVaultwatchSessions -Now 1900 } | Should -Not -Throw
+            (@(Get-PtVaultwatchSessions -Now 1900) | Where-Object { $_.Mount -eq '/Volumes/Good' }).Count | Should -Be 1
+        } finally { $lock.Dispose() }
     }
 }
 
