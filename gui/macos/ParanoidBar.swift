@@ -18,10 +18,18 @@ private var vaultVolume: String {
     if let v = UserDefaults.standard.string(forKey: "vaultVolume"), !v.isEmpty { return v }
     return ProcessInfo.processInfo.environment["ST_VAULT_VOLUME"] ?? "/Volumes/SecretVault"
 }
-// Интервал опроса статуса (сек) из настроек; нижняя граница 5 с (батарея/CPU), дефолт 15.
+// Зажать интервал опроса в разумные границы: снизу 5с (батарея/CPU), сверху 3600с (иначе статус
+// «зависает» на час+ и TTL-уведомления опаздывают до бесполезности). Зеркало Windows-tray clamp.
+func clampPoll(_ v: Int) -> Int { min(max(v, 5), 3600) }
+// Интервал опроса статуса (сек) из настроек; <5 (включая ещё не заданное 0) → дефолт 15, иначе clamp сверху.
 private func pollSeconds() -> Double {
     let v = UserDefaults.standard.double(forKey: "pollSeconds")
-    return v >= 5 ? v : 15
+    return v >= 5 ? Double(clampPoll(Int(v))) : 15
+}
+// Тот же смонтированный том? Нормализация через standardizedFileURL съедает trailing slash и
+// относительные компоненты, чтобы "/Volumes/Foo" и "/Volumes/Foo/" совпадали как один том.
+func sameMount(_ a: String, _ b: String) -> Bool {
+    URL(fileURLWithPath: a).standardizedFileURL.path == URL(fileURLWithPath: b).standardizedFileURL.path
 }
 
 // --- локализация: словарь в коде (без .lproj — single-file принцип). Ключи зеркалятся
@@ -133,7 +141,9 @@ func decideNotifications(open: Bool, ttl: Int?, hasSessions: Bool, now: Date,
 // и лочит, данные не трогает; ASSUMPTION из спеки). Одиночное — взвод + уведомление. ---
 func panicShouldFire(now: Date, armedAt: Date?, window: TimeInterval = 2.0) -> Bool {
     guard let a = armedAt else { return false }
-    return now.timeIntervalSince(a) <= window
+    // d < 0 → перевод часов назад между взводом и вторым нажатием; не считать это «вторым в окне».
+    let d = now.timeIntervalSince(a)
+    return d >= 0 && d <= window
 }
 // Пресет → виртуальная клавиша (модификаторы у всех пресетов одни: ⌃⌥⇧). nil → не регистрировать.
 func hotkeyVK(preset: String) -> UInt32? {
@@ -172,14 +182,20 @@ func registerPanicHotkey(preset: String) -> Bool {
     if status != noErr { panicHotKeyRef = nil; return false }
     return true
 }
-// Пресет из настроек (дефолт — включён: хоткей и есть смысл Фазы B).
-func hotkeyPreset() -> String {
-    UserDefaults.standard.string(forKey: "panicHotkey") ?? "ctrl-opt-shift-p"
-}
 // Значения попапов Settings: индекс пункта попапа ↔ значение в UserDefaults (единый источник
 // для построения, ресинка кэшированного окна и сохранения — рассинхрон индексов исключён).
 private let langValues = ["system", "en", "ru"]
 private let hotkeyValues = ["ctrl-opt-shift-p", "ctrl-opt-shift-l", "off"]
+// Санация мусорного значения из UserDefaults (напр. чужой `defaults write` с опечаткой): вне
+// известных пресетов молча падаем на дефолт, а не тихо выключаем хоткей (Settings иначе показывал
+// бы ⌃⌥⇧P, а хоткей на деле не регистрировался бы). Зеркалит санацию Windows-tray.
+func sanitizeHotkeyPreset(_ raw: String) -> String {
+    hotkeyValues.contains(raw) ? raw : "ctrl-opt-shift-p"
+}
+// Пресет из настроек (дефолт — включён: хоткей и есть смысл Фазы B).
+func hotkeyPreset() -> String {
+    sanitizeHotkeyPreset(UserDefaults.standard.string(forKey: "panicHotkey") ?? "ctrl-opt-shift-p")
+}
 
 // Строка чеклиста Welcome-окна — чистая для selftest.
 func checklistLine(ok: Bool, okKey: String, missKey: String, lang: String? = nil) -> String {
@@ -305,9 +321,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refresh() {
         let open = vaultOpen()
         let sessions = vaultwatchSessions()
+        // Скоуп к текущему тому (P1): stale session-файл ЧУЖОГО тома (напр. отмонтированный
+        // /Volumes/OldVault) иначе навсегда глушил бы long_open (hasSessions всегда true) и мог бы
+        // рулить TTL-предупреждениями текущего сейфа. Список в меню ниже остаётся полным/честным —
+        // скоуп только для решений уведомлений и tooltip/glyph текущего тома.
+        let vaultSessions = sessions.filter { sameMount($0.mount, vaultVolume) }
         // TTL показываем ТОЛЬКО при реально открытом сейфе: осиротевший session-файл иначе рисовал бы
         // «auto-exit in …» при закрытом vault (P2-10). Закрыт → никакого отсчёта.
-        let ttl = open ? sessions.compactMap { $0.remaining }.min() : nil   // ближайший авто-выход
+        let ttl = open ? vaultSessions.compactMap { $0.remaining }.min() : nil   // ближайший авто-выход
         // Текст справа от глифа: отсчёт TTL / «истёк» (⚠) / ⚠ при открытом сейфе / пусто.
         let suffix: String
         if let t = ttl { suffix = t == 0 ? " ⚠" : " " + fmtDuration(t) } else { suffix = open ? " ⚠" : "" }
@@ -332,7 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu(open: open, sessions: sessions)
 
         let (events, newState) = decideNotifications(
-            open: open, ttl: ttl, hasSessions: !sessions.isEmpty, now: Date(), state: notifyState)
+            open: open, ttl: ttl, hasSessions: !vaultSessions.isEmpty, now: Date(), state: notifyState)
         notifyState = newState
         for e in events {
             switch e {
@@ -618,7 +639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func saveSettings() {
         if let vf = volField { UserDefaults.standard.set(vf.stringValue.trimmingCharacters(in: .whitespaces), forKey: "vaultVolume") }
         if let pf = pollField, let n = Int(pf.stringValue), n >= 5 {
-            UserDefaults.standard.set(Double(n), forKey: "pollSeconds")
+            UserDefaults.standard.set(Double(clampPoll(n)), forKey: "pollSeconds")
         }
         if let lp = langPopup {
             UserDefaults.standard.set(langValues[max(0, lp.indexOfSelectedItem)], forKey: "language")
@@ -700,6 +721,19 @@ private func runSelfTests() -> Never {
     expect(panicShouldFire(now: base.addingTimeInterval(1.5), armedAt: base) == true, "fire in window")
     expect(panicShouldFire(now: base.addingTimeInterval(2.0), armedAt: base) == true, "window boundary inclusive")
     expect(panicShouldFire(now: base.addingTimeInterval(2.5), armedAt: base) == false, "window passed")
+    expect(panicShouldFire(now: base.addingTimeInterval(-5), armedAt: base) == false, "negative delta no fire")
+    // санация пресета хоткея: мусор/пустая строка → дефолт P, валидные значения — как есть
+    expect(sanitizeHotkeyPreset("garbage") == "ctrl-opt-shift-p", "sanitize garbage -> default")
+    expect(sanitizeHotkeyPreset("off") == "off", "sanitize off unchanged")
+    expect(sanitizeHotkeyPreset("ctrl-opt-shift-l") == "ctrl-opt-shift-l", "sanitize valid L unchanged")
+    // clamp интервала опроса: снизу 5, сверху 3600, в диапазоне — без изменений
+    expect(clampPoll(4) == 5, "clampPoll below floor")
+    expect(clampPoll(999999) == 3600, "clampPoll above ceiling")
+    expect(clampPoll(15) == 15, "clampPoll in range unchanged")
+    // sameMount: нормализация пути (trailing slash) совпадает, разные тома — нет
+    expect(sameMount("/Volumes/SecretVault", "/Volumes/SecretVault") == true, "sameMount identical")
+    expect(sameMount("/Volumes/SecretVault/", "/Volumes/SecretVault") == true, "sameMount trailing slash")
+    expect(sameMount("/Volumes/SecretVault", "/Volumes/OldVault") == false, "sameMount different volumes")
     // пресеты: маппинг в виртуальные клавиши; off → nil (не регистрировать)
     expect(hotkeyVK(preset: "ctrl-opt-shift-p") == UInt32(kVK_ANSI_P), "preset P")
     expect(hotkeyVK(preset: "ctrl-opt-shift-l") == UInt32(kVK_ANSI_L), "preset L")
