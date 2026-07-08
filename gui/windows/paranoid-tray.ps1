@@ -25,29 +25,97 @@ function Get-PtVaultState {
     return 'none'
 }
 
+# --- локализация: словарь в коде, зеркало macOS `strings` (ключи 1:1, паритет — Pester).
+# Честные формулировки («at risk») переводим без смягчения. ---
+$script:PtStrings = @{
+    en = @{
+        vault_label='Vault:'; vault_open_risk='OPEN — at risk'; vault_closed='closed'; vault_not_setup='not set up'
+        fv_label='BitLocker:'; fv_on='ON'; fv_off='off / unknown'
+        status_item='Status — full read-only check'; panic_item='PANIC NOW — hide & lock'
+        vault_menu='Vault'; vault_close='Close the vault'; vault_open='Open the vault'; vault_create='Create a vault'
+        vault_empty='Empty — wipe contents, keep the vault'; vault_destroy='Destroy the vault (irreversible)'
+        launcher_item='Open the full launcher (paranoid)'; settings_item='Settings…'; login_item='Start at login'
+        setup_item='Setup guide…'; quit_item='Quit Paranoid Bar'
+        ttl_expired='TTL expired'; auto_exit_in='auto-exit in'; watching_no_ttl='watching (no TTL)'
+        tip_open='Vault is OPEN — at risk while open'; tip_closed='Vault closed'
+        notif_ttl_warn='Vault auto-closes in {0}'; notif_ttl_expired='vaultwatch TTL expired — vault is still OPEN'
+        notif_long_open='Vault open for 30+ minutes (no vaultwatch)'; notif_panic_arm='Press again to PANIC'
+        notif_hotkey_fail='Panic hotkey unavailable (taken by another app)'
+        set_vol='Vault volume:'; set_poll='Poll interval (s):'; set_lang='Language:'; set_hotkey='Panic hotkey:'
+        set_save='Save'; set_setup_btn='Show setup guide'; hk_off='Off'
+        ob_title='Paranoid Bar — Welcome'
+        ob_sub='A status bar over the same signed CLIs. Secrets never pass through the GUI.'
+        ob_cli_ok='CLIs installed (securetrash, panic, vaultwatch)'; ob_cli_missing='CLIs not found — install first'
+        ob_vault_ok='Vault created'; ob_vault_missing='No vault yet'; ob_create_btn='Create vault…'
+        ob_hotkey_line='Panic hotkey'; ob_login_line='Start at login'; ob_enable_btn='Enable'
+        ob_risk='An open vault is always "at risk" — the GUI never hides that.'; ob_done='Done'
+    }
+    ru = @{
+        vault_label='Сейф:'; vault_open_risk='ОТКРЫТ — под риском'; vault_closed='закрыт'; vault_not_setup='не создан'
+        fv_label='BitLocker:'; fv_on='включён'; fv_off='выкл / неизвестно'
+        status_item='Статус — полная read-only проверка'; panic_item='ПАНИКА — спрятать и заблокировать'
+        vault_menu='Сейф'; vault_close='Закрыть сейф'; vault_open='Открыть сейф'; vault_create='Создать сейф'
+        vault_empty='Очистить — стереть содержимое, сейф оставить'; vault_destroy='Уничтожить сейф (необратимо)'
+        launcher_item='Открыть полный лаунчер (paranoid)'; settings_item='Настройки…'; login_item='Запускать при входе'
+        setup_item='Гид по настройке…'; quit_item='Выйти из Paranoid Bar'
+        ttl_expired='TTL истёк'; auto_exit_in='авто-выход через'; watching_no_ttl='наблюдение (без TTL)'
+        tip_open='Сейф ОТКРЫТ — под риском, пока открыт'; tip_closed='Сейф закрыт'
+        notif_ttl_warn='Сейф авто-закроется через {0}'; notif_ttl_expired='TTL vaultwatch истёк — сейф всё ещё ОТКРЫТ'
+        notif_long_open='Сейф открыт дольше 30 минут (без vaultwatch)'; notif_panic_arm='Нажмите ещё раз для ПАНИКИ'
+        notif_hotkey_fail='Хоткей паники недоступен (занят другим приложением)'
+        set_vol='Том сейфа:'; set_poll='Интервал опроса (с):'; set_lang='Язык:'; set_hotkey='Хоткей паники:'
+        set_save='Сохранить'; set_setup_btn='Показать гид'; hk_off='Выкл'
+        ob_title='Paranoid Bar — Добро пожаловать'
+        ob_sub='Панель статуса поверх тех же подписанных CLI. Секреты через GUI не проходят.'
+        ob_cli_ok='CLI установлены (securetrash, panic, vaultwatch)'; ob_cli_missing='CLI не найдены — сначала установите'
+        ob_vault_ok='Сейф создан'; ob_vault_missing='Сейф ещё не создан'; ob_create_btn='Создать сейф…'
+        ob_hotkey_line='Хоткей паники'; ob_login_line='Запускать при входе'; ob_enable_btn='Включить'
+        ob_risk='Открытый сейф всегда «под риском» — GUI этого не прячет.'; ob_done='Готово'
+    }
+}
+# Примечание: fv_label на Windows = BitLocker (честность платформы), на macOS = FileVault.
+# Ключ один и тот же — паритет ключей сохранён, значения платформенные.
+# notif_hotkey_fail — зеркало macOS-ключа (добавлен ревью T3): честный статус хоткея.
+
+function Resolve-PtLang {
+    param([string]$Override = 'system', [string]$SystemLang = (Get-Culture).TwoLetterISOLanguageName)
+    if ($Override -in @('en', 'ru')) { return $Override }
+    if ($SystemLang -like 'ru*') { return 'ru' } else { return 'en' }
+}
+function Get-PtL {
+    param([Parameter(Mandatory)][string]$Key, [string]$Lang)
+    # ASSUMPTION: поле Language появится в Task 10; до этого $null -> '' -> system-ветка (StrictMode в репо не используется)
+    if (-not $Lang) { $Lang = Resolve-PtLang -Override ((Get-PtSettings).Language) }
+    $t = $script:PtStrings[$Lang]
+    if ($t -and $t.ContainsKey($Key)) { return $t[$Key] } else { return $Key }
+}
+
 # Спецификация меню (label + команда CLI). Отдельной функцией → Pester проверяет структуру
 # БЕЗ WinForms. '' в Command = разделитель; $null = подменю-заголовок (раскрытие ниже).
 function Get-PtMenuSpec {
-    param([string]$VaultState = (Get-PtVaultState))
+    # -Lang: один резолв языка на вызов (не 12 чтений settings внутри Get-PtL) + детерминизм
+    # в тестах независимо от культуры CI-хоста.
+    param([string]$VaultState = (Get-PtVaultState),
+          [string]$Lang = (Resolve-PtLang -Override ((Get-PtSettings).Language)))
     $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } default { 'securetrash vault create' } }
-    $vaultLabel  = switch ($VaultState) { 'open' { 'Close the vault' } 'closed' { 'Open the vault' } default { 'Create a vault' } }
+    $vaultLabel  = switch ($VaultState) { 'open' { Get-PtL 'vault_close' -Lang $Lang } 'closed' { Get-PtL 'vault_open' -Lang $Lang } default { Get-PtL 'vault_create' -Lang $Lang } }
     # Empty/Destroy имеют смысл только при существующем контейнере (open|closed) — при 'none'
     # грей-аутим, чтобы деструктив не был активен «в пустоту» (P2-7).
     $hasVault = $VaultState -in @('open', 'closed')
     return @(
-        [pscustomobject]@{ Label = 'Status - full read-only check'; Command = 'securetrash check'; Enabled = $true }
-        [pscustomobject]@{ Label = 'PANIC NOW - hide & lock';       Command = 'panic now';         Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'status_item' -Lang $Lang);   Command = 'securetrash check'; Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'panic_item' -Lang $Lang);    Command = 'panic now';         Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = $vaultLabel;                      Command = $vaultToggle;        Enabled = $true }
-        [pscustomobject]@{ Label = 'Empty the vault (crypto-shred)'; Command = 'securetrash vault reset';   Enabled = $hasVault }
-        [pscustomobject]@{ Label = 'Destroy the vault (irreversible)'; Command = 'securetrash vault destroy'; Enabled = $hasVault }
+        [pscustomobject]@{ Label = (Get-PtL 'vault_empty' -Lang $Lang);   Command = 'securetrash vault reset';   Enabled = $hasVault }
+        [pscustomobject]@{ Label = (Get-PtL 'vault_destroy' -Lang $Lang); Command = 'securetrash vault destroy'; Enabled = $hasVault }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
-        [pscustomobject]@{ Label = 'Open the full launcher (paranoid)'; Command = 'paranoid';       Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'launcher_item' -Lang $Lang); Command = 'paranoid';       Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
-        [pscustomobject]@{ Label = 'Start at login';                 Command = '__autostart__';     Enabled = $true }
-        [pscustomobject]@{ Label = 'Settings...';                    Command = '__settings__';      Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'login_item' -Lang $Lang);    Command = '__autostart__';     Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'settings_item' -Lang $Lang); Command = '__settings__';      Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
-        [pscustomobject]@{ Label = 'Quit Paranoid Tray';            Command = '__quit__';          Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'quit_item' -Lang $Lang);     Command = '__quit__';          Enabled = $true }
     )
 }
 
@@ -225,6 +293,8 @@ function Start-PtTray {
 
     $rebuild = {
         $menu.Items.Clear()
+        # Один резолв языка на весь rebuild (одно чтение settings), дальше -Lang $lang везде.
+        $lang = Resolve-PtLang -Override ((Get-PtSettings).Language)
         $state = Get-PtVaultState
         $sessions = Get-PtVaultwatchSessions
         # TTL в главном статусе — ТОЛЬКО при реально открытом сейфе: осиротевший session-файл иначе
@@ -233,19 +303,20 @@ function Start-PtTray {
             ($sessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
         } else { $null }
         $notify.Text =
-            if ($state -eq 'open' -and $null -ne $ttl) { "Paranoid Tools - vault OPEN, auto-exit in $(Format-PtDuration $ttl)" }
-            elseif ($state -eq 'open')                 { 'Paranoid Tools - vault OPEN (at risk)' }
-            else                                       { 'Paranoid Tools' }
+            if ($state -eq 'open' -and $null -ne $ttl -and $ttl -eq 0) { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'ttl_expired' -Lang $lang)" }
+            elseif ($state -eq 'open' -and $null -ne $ttl)              { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $ttl)" }
+            elseif ($state -eq 'open')                                  { (Get-PtL 'tip_open' -Lang $lang) }
+            else                                                        { (Get-PtL 'tip_closed' -Lang $lang) }
         # vaultwatch-сессии — отключённые заголовки сверху меню (точка монтирования + TTL-отсчёт).
         foreach ($s in $sessions) {
             $name = Split-Path -Leaf $s.Mount
-            $detail = if ($null -ne $s.Remaining) { "auto-exit in $(Format-PtDuration $s.Remaining)" } else { 'watching (no TTL)' }
+            $detail = if ($null -ne $s.Remaining) { "$(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $s.Remaining)" } else { (Get-PtL 'watching_no_ttl' -Lang $lang) }
             $h = New-Object System.Windows.Forms.ToolStripMenuItem("vaultwatch: $name - $detail")
             $h.Enabled = $false
             $menu.Items.Add($h) | Out-Null
         }
         if ($sessions.Count -gt 0) { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null }
-        foreach ($entry in (Get-PtMenuSpec -VaultState $state)) {
+        foreach ($entry in (Get-PtMenuSpec -VaultState $state -Lang $lang)) {
             if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
             $cmd = $entry.Command
             $it = New-Object System.Windows.Forms.ToolStripMenuItem($entry.Label)

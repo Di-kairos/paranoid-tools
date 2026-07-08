@@ -11,7 +11,7 @@ AfterAll { Remove-Item Env:\ST_NO_MAIN -ErrorAction SilentlyContinue }
 
 Describe 'Get-PtMenuSpec — структура меню' {
     It 'содержит ключевые действия (status / panic / empty / destroy / launcher / quit)' {
-        $labels = (Get-PtMenuSpec -VaultState 'closed').Label -join '|'
+        $labels = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en').Label -join '|'
         $labels | Should -Match 'Status'
         $labels | Should -Match 'PANIC'
         $labels | Should -Match 'Empty'
@@ -20,44 +20,44 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $labels | Should -Match 'Quit'
     }
     It 'пункт сейфа: closed → Open the vault / securetrash vault open' {
-        $vault = (Get-PtMenuSpec -VaultState 'closed')[3]
-        $vault.Label   | Should -Be 'Open the vault'
+        $vault = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en')[3]
+        $vault.Label   | Should -Be (Get-PtL -Key 'vault_open' -Lang 'en')
         $vault.Command | Should -Be 'securetrash vault open'
     }
     It 'пункт сейфа: open → Close the vault / securetrash vault close' {
-        $vault = (Get-PtMenuSpec -VaultState 'open')[3]
-        $vault.Label   | Should -Be 'Close the vault'
+        $vault = (Get-PtMenuSpec -VaultState 'open' -Lang 'en')[3]
+        $vault.Label   | Should -Be (Get-PtL -Key 'vault_close' -Lang 'en')
         $vault.Command | Should -Be 'securetrash vault close'
     }
     It 'пункт сейфа: none → Create a vault / securetrash vault create' {
-        $vault = (Get-PtMenuSpec -VaultState 'none')[3]
-        $vault.Label   | Should -Be 'Create a vault'
+        $vault = (Get-PtMenuSpec -VaultState 'none' -Lang 'en')[3]
+        $vault.Label   | Should -Be (Get-PtL -Key 'vault_create' -Lang 'en')
         $vault.Command | Should -Be 'securetrash vault create'
     }
     It 'empty = securetrash vault reset (crypto-shred)' {
-        $empty = (Get-PtMenuSpec -VaultState 'open') | Where-Object { $_.Label -match 'Empty' }
+        $empty = (Get-PtMenuSpec -VaultState 'open' -Lang 'en') | Where-Object { $_.Label -match 'Empty' }
         $empty.Command | Should -Be 'securetrash vault reset'
     }
     It 'Empty/Destroy enabled когда сейф есть (open|closed), disabled при none (P2-7)' {
         foreach ($st in 'open', 'closed') {
-            $spec = Get-PtMenuSpec -VaultState $st
+            $spec = Get-PtMenuSpec -VaultState $st -Lang 'en'
             ($spec | Where-Object { $_.Label -match 'Empty'   }).Enabled | Should -BeTrue
             ($spec | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeTrue
         }
-        $none = Get-PtMenuSpec -VaultState 'none'
+        $none = Get-PtMenuSpec -VaultState 'none' -Lang 'en'
         ($none | Where-Object { $_.Label -match 'Empty'   }).Enabled | Should -BeFalse
         ($none | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeFalse
     }
     It 'содержит пункт автостарта (Start at login / __autostart__)' {
-        $auto = (Get-PtMenuSpec -VaultState 'closed') | Where-Object { $_.Label -match 'Start at login' }
+        $auto = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Label -match 'Start at login' }
         $auto.Command | Should -Be '__autostart__'
     }
     It 'содержит пункт настроек (Settings / __settings__)' {
-        $set = (Get-PtMenuSpec -VaultState 'closed') | Where-Object { $_.Label -match 'Settings' }
+        $set = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Label -match 'Settings' }
         $set.Command | Should -Be '__settings__'
     }
     It 'пункт сейфа остаётся на индексе 3 после добавления автостарта/настроек' {
-        (Get-PtMenuSpec -VaultState 'closed')[3].Command | Should -Be 'securetrash vault open'
+        (Get-PtMenuSpec -VaultState 'closed' -Lang 'en')[3].Command | Should -Be 'securetrash vault open'
     }
 }
 
@@ -198,5 +198,21 @@ Describe 'Get-PtSettings / Set-PtSettings — хранилище настрое�
         Set-Content -LiteralPath $env:PT_SETTINGS_FILE -Value '{ not valid json'
         $s = Get-PtSettings
         $s.PollSeconds | Should -Be 15
+    }
+}
+
+Describe 'Localization' {
+    It 'returns en/ru strings and falls back to key' {
+        Get-PtL -Key 'vault_closed' -Lang 'en' | Should -Be 'closed'
+        Get-PtL -Key 'vault_closed' -Lang 'ru' | Should -Be 'закрыт'
+        Get-PtL -Key 'no_such_key' -Lang 'en' | Should -Be 'no_such_key'
+    }
+    It 'resolves language: override beats system, system falls back to en' {
+        Resolve-PtLang -Override 'ru' -SystemLang 'en' | Should -Be 'ru'
+        Resolve-PtLang -Override 'system' -SystemLang 'ru' | Should -Be 'ru'
+        Resolve-PtLang -Override 'system' -SystemLang 'fr' | Should -Be 'en'
+    }
+    It 'has identical key sets for en and ru' {
+        ($PtStrings.en.Keys | Sort-Object) -join ',' | Should -Be (($PtStrings.ru.Keys | Sort-Object) -join ',')
     }
 }
