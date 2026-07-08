@@ -29,6 +29,10 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
   honesty contract holds; no confirm dialog, `panic now` is reversible). Single press arms +
   notifies. Presets (P / L / Off) in Settings; a failed registration is reported honestly, never
   silently swallowed.
+  Note: the GUI runs plain `panic now` (hide & lock). The launcher's "PANIC NOW" menu entry runs
+  `panic now --hard` (additionally kills cloud daemons and clears recents). Deliberate for now —
+  the hotkey favors the fast reversible action; if you want `--hard` on the hotkey, run panic
+  from the launcher.
 - **Native notifications** — TTL warning (<120s to auto-close), TTL expired while still open,
   and a long-open reminder (30+ min without a vaultwatch session). Pure decision engine, fires
   once per episode, re-arms if the session is extended. Delivery via `osascript` on macOS,
