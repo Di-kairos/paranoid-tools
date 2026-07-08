@@ -188,6 +188,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var volField: NSTextField?
     private var pollField: NSTextField?
+    private var langPopup: NSPopUpButton?
+    private var hotkeyPopup: NSPopUpButton?
     private var welcomeWindow: NSWindow?
     private var notifyState = NotifyState()
     // Carbon hot-key события приходят на main thread через event loop NSApplication —
@@ -547,21 +549,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let w = settingsWindow {
             w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
         }
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 150),
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 230),
                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
         w.title = "Paranoid Bar — Settings"
         w.isReleasedWhenClosed = false
         let v = w.contentView!
 
-        v.addSubview(settingsLabel(L("set_vol"), y: 110))
-        let vol = NSTextField(frame: NSRect(x: 130, y: 106, width: 234, height: 24))
+        v.addSubview(settingsLabel(L("set_vol"), y: 190))
+        let vol = NSTextField(frame: NSRect(x: 130, y: 186, width: 234, height: 24))
         vol.stringValue = vaultVolume
         v.addSubview(vol); volField = vol
 
-        v.addSubview(settingsLabel(L("set_poll"), y: 70))
-        let poll = NSTextField(frame: NSRect(x: 130, y: 66, width: 70, height: 24))
+        v.addSubview(settingsLabel(L("set_poll"), y: 150))
+        let poll = NSTextField(frame: NSRect(x: 130, y: 146, width: 70, height: 24))
         poll.stringValue = String(Int(pollSeconds()))
         v.addSubview(poll); pollField = poll
+
+        v.addSubview(settingsLabel(L("set_lang"), y: 110))
+        let lang = NSPopUpButton(frame: NSRect(x: 130, y: 104, width: 150, height: 26))
+        lang.addItems(withTitles: ["System", "English", "Русский"])
+        switch UserDefaults.standard.string(forKey: "language") ?? "system" {
+        case "en": lang.selectItem(at: 1)
+        case "ru": lang.selectItem(at: 2)
+        default:   lang.selectItem(at: 0)
+        }
+        v.addSubview(lang); langPopup = lang
+
+        v.addSubview(settingsLabel(L("set_hotkey"), y: 70))
+        let hk = NSPopUpButton(frame: NSRect(x: 130, y: 64, width: 150, height: 26))
+        hk.addItems(withTitles: ["⌃⌥⇧P", "⌃⌥⇧L", L("hk_off")])
+        switch hotkeyPreset() {
+        case "ctrl-opt-shift-l": hk.selectItem(at: 1)
+        case "off":              hk.selectItem(at: 2)
+        default:                 hk.selectItem(at: 0)
+        }
+        v.addSubview(hk); hotkeyPopup = hk
+
+        let setup = NSButton(title: L("set_setup_btn"), target: self, action: #selector(doWelcome))
+        setup.bezelStyle = .rounded
+        setup.frame = NSRect(x: 16, y: 16, width: 160, height: 30)
+        v.addSubview(setup)
 
         let save = NSButton(frame: NSRect(x: 274, y: 16, width: 90, height: 30))
         save.title = L("set_save"); save.bezelStyle = .rounded; save.keyEquivalent = "\r"
@@ -583,9 +610,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let pf = pollField, let n = Int(pf.stringValue), n >= 5 {
             UserDefaults.standard.set(Double(n), forKey: "pollSeconds")
         }
-        settingsWindow?.close()
+        if let lp = langPopup {
+            let langValue = ["system", "en", "ru"][max(0, lp.indexOfSelectedItem)]
+            UserDefaults.standard.set(langValue, forKey: "language")
+        }
+        if let hp = hotkeyPopup {
+            let hkValue = ["ctrl-opt-shift-p", "ctrl-opt-shift-l", "off"][max(0, hp.indexOfSelectedItem)]
+            UserDefaults.standard.set(hkValue, forKey: "panicHotkey")
+            hotkeyRegistered = registerPanicHotkey(preset: hkValue)
+            if !hotkeyRegistered && hkValue != "off" { notify(L("notif_hotkey_fail")) }
+        }
+        settingsWindow?.close(); settingsWindow = nil; langPopup = nil; hotkeyPopup = nil
         rescheduleTimer()   // подхватить новый интервал
-        refresh()           // подхватить новую точку монтирования
+        refresh()           // подхватить новую точку монтирования (и язык — меню перестроится)
     }
 
     // Обернуть значение в одинарные кавычки для shell (экранируя внутренние `'`). Нужно,
