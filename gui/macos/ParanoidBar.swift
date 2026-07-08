@@ -177,16 +177,25 @@ func hotkeyPreset() -> String {
     UserDefaults.standard.string(forKey: "panicHotkey") ?? "ctrl-opt-shift-p"
 }
 
+// Строка чеклиста Welcome-окна — чистая для selftest.
+func checklistLine(ok: Bool, okKey: String, missKey: String, lang: String? = nil) -> String {
+    (ok ? "✅ " + L(okKey, lang: lang) : "❌ " + L(missKey, lang: lang))
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
     private var settingsWindow: NSWindow?
     private var volField: NSTextField?
     private var pollField: NSTextField?
+    private var welcomeWindow: NSWindow?
     private var notifyState = NotifyState()
     // Carbon hot-key события приходят на main thread через event loop NSApplication —
     // синхронизация panicArmedAt не нужна.
     private var panicArmedAt: Date?
+    // Факт успешной регистрации хоткея — для честного статуса в Welcome-чеклисте
+    // (пресет «включён» в настройках ≠ хоткей реально работает: комбинация может быть занята).
+    private var hotkeyRegistered = false
 
     // Обработка глобального хоткея: первое нажатие — взвод + уведомление, второе в окне 2с — паника.
     private func hotkeyPressed() {
@@ -217,7 +226,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rescheduleTimer()   // периодический опрос статуса (интервал из настроек)
         panicHotkeyAction = { [weak self] in self?.hotkeyPressed() }
         // Фейл регистрации (комбинация занята другим приложением) не глотаем — пользователь должен знать.
-        if !registerPanicHotkey(preset: hotkeyPreset()) { notify(L("notif_hotkey_fail")) }
+        hotkeyRegistered = registerPanicHotkey(preset: hotkeyPreset())
+        if !hotkeyRegistered { notify(L("notif_hotkey_fail")) }
+        // first-run: Welcome один раз; дальше — из меню «Setup guide…»
+        if !UserDefaults.standard.bool(forKey: "didOnboard") {
+            UserDefaults.standard.set(true, forKey: "didOnboard")
+            doWelcome()
+        }
     }
 
     // Перезапустить таймер опроса с текущим интервалом (вызывается при старте и сохранении настроек).
@@ -363,6 +378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
 
         menu.addItem(item(L("settings_item"), #selector(doSettings)))
+        menu.addItem(item(L("setup_item"), #selector(doWelcome)))
         // Автостарт при логине — галочка отражает текущее состояние LaunchAgent.
         let loginItem = item(L("login_item"), #selector(doToggleLogin))
         loginItem.state = loginEnabled() ? .on : .off
@@ -423,6 +439,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc private func doToggleLogin() { setLogin(!loginEnabled()); refresh() }
+
+    // --- Welcome-онбординг (спека §3): живой чеклист готовности + кнопки-действия.
+    // Показывается один раз при first-run (didOnboard в UserDefaults); всегда доступен из меню
+    // «Setup guide…». Никаких секретов — только запуск тех же CLI/переключателей, что и остальной GUI. ---
+
+    // Все 3 CLI установлены? (по одному не проверяем — install.sh ставит комплектом.)
+    // Без шеллаута: `sh -lc` не читает ~/.zshrc, куда install.sh велит прописать ~/.local/bin →
+    // был бы ложный ❌. Проверяем исполняемые файлы напрямую: PATH процесса + типовые install-каталоги.
+    private func clisInstalled() -> Bool {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":").map(String.init)
+        dirs += [home + "/.local/bin", "/usr/local/bin", "/opt/homebrew/bin"]
+        for tool in ["securetrash", "panic", "vaultwatch"] {
+            guard dirs.contains(where: { fm.isExecutableFile(atPath: $0 + "/" + tool) }) else { return false }
+        }
+        return true
+    }
+
+    @objc private func doWelcome() {
+        if let w = welcomeWindow {
+            rebuildWelcome(in: w)   // чеклист живой и при повторном открытии, не stale-снимок
+            w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
+        }
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 250),
+                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        rebuildWelcome(in: w)
+        welcomeWindow = w
+        w.center(); w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // Пересборка контента (после каждого действия — чеклист живой).
+    private func rebuildWelcome(in w: NSWindow) {
+        w.title = L("ob_title")   // здесь, а не в doWelcome: смена языка обновит и заголовок
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 250))
+        var y: CGFloat = 214
+        func label(_ s: String, size: CGFloat = 13, color: NSColor = .labelColor, wrap: Bool = false) {
+            let l = NSTextField(labelWithString: s)
+            l.font = .systemFont(ofSize: size)
+            l.textColor = color
+            if wrap {
+                // длинная подпись (EN ob_sub ~77 симв. не влезает в 420px одной строкой) →
+                // перенос по словам, 2 строки, увеличенный шаг
+                l.usesSingleLineMode = false
+                l.lineBreakMode = .byWordWrapping
+                l.maximumNumberOfLines = 2
+                l.frame = NSRect(x: 20, y: y - 12, width: 420, height: 30)
+                v.addSubview(l); y -= 36
+            } else {
+                l.frame = NSRect(x: 20, y: y, width: 420, height: 18)
+                v.addSubview(l); y -= 26
+            }
+        }
+        func actionButton(_ title: String, _ sel: Selector) {
+            let b = NSButton(title: title, target: self, action: sel)
+            b.bezelStyle = .rounded
+            // y+22: возврат на предыдущую строку (шаг 26) минус центрирование 24px-кнопки в 18px-строке
+            b.frame = NSRect(x: 320, y: y + 22, width: 120, height: 24)
+            v.addSubview(b)
+        }
+        label("🔒 Paranoid Bar", size: 15)
+        label(L("ob_sub"), size: 11, color: .secondaryLabelColor, wrap: true)
+        let cli = clisInstalled()
+        label(checklistLine(ok: cli, okKey: "ob_cli_ok", missKey: "ob_cli_missing"))
+        let hasVault = vaultExists()
+        label(checklistLine(ok: hasVault, okKey: "ob_vault_ok", missKey: "ob_vault_missing"))
+        if !hasVault { actionButton(L("ob_create_btn"), #selector(obCreateVault)) }
+        let preset = hotkeyPreset()
+        // Честный статус: валидный пресет И реально вставшая регистрация (комбинация может быть
+        // занята другим приложением — тогда ⬜ + Enable, а не ложный ✅).
+        let hk = hotkeyVK(preset: preset) != nil && hotkeyRegistered
+        // Подпись клавиши следует за реальным пресетом (P/L), а не жёстко P, как в спеке-упрощении.
+        let hkKey = preset == "ctrl-opt-shift-l" ? "⌃⌥⇧L" : "⌃⌥⇧P"
+        label((hk ? "✅ " : "⬜ ") + L("ob_hotkey_line") + ": \(hkKey) (×2)")
+        if !hk { actionButton(L("ob_enable_btn"), #selector(obEnableHotkey)) }
+        let login = loginEnabled()
+        label((login ? "✅ " : "⬜ ") + L("ob_login_line"))
+        if !login { actionButton(L("ob_enable_btn"), #selector(obEnableLogin)) }
+        label("⚠ " + L("ob_risk"), size: 11, color: .systemOrange)
+        let done = NSButton(title: L("ob_done"), target: self, action: #selector(obDone))
+        done.bezelStyle = .rounded; done.keyEquivalent = "\r"
+        done.frame = NSRect(x: 360, y: 14, width: 80, height: 28)
+        v.addSubview(done)
+        w.contentView = v
+    }
+
+    @objc private func obCreateVault() { runInTerminal("securetrash vault create") }
+    @objc private func obEnableHotkey() {
+        // ASSUMPTION: Enable всегда включает дефолт P; восстановление прежнего пресета — территория Settings (T5)
+        UserDefaults.standard.set("ctrl-opt-shift-p", forKey: "panicHotkey")
+        hotkeyRegistered = registerPanicHotkey(preset: hotkeyPreset())
+        if !hotkeyRegistered { notify(L("notif_hotkey_fail")) }
+        if let w = welcomeWindow { rebuildWelcome(in: w) }
+    }
+    @objc private func obEnableLogin() {
+        setLogin(true)
+        if let w = welcomeWindow { rebuildWelcome(in: w) }
+    }
+    @objc private func obDone() { welcomeWindow?.close() }
 
     // --- settings-панель (override точки монтирования vault + интервал опроса) ---
     // Секретов не касается: только пути/интервал, хранятся в UserDefaults, применяются без рестарта.
@@ -518,6 +635,11 @@ private func runSelfTests() -> Never {
     expect(L("vault_closed", lang: "en") == "closed", "L vault_closed en")
     expect(L("vault_closed", lang: "ru") == "закрыт", "L vault_closed ru")
     expect(L("no_such_key", lang: "en") == "no_such_key", "L unknown key fallback")
+    // онбординг: строка чеклиста из статуса (галка/крест + локализованный текст)
+    expect(checklistLine(ok: true, okKey: "ob_cli_ok", missKey: "ob_cli_missing", lang: "en")
+           == "✅ CLIs installed (securetrash, panic, vaultwatch)", "checklist ok en")
+    expect(checklistLine(ok: false, okKey: "ob_vault_ok", missKey: "ob_vault_missing", lang: "ru")
+           == "❌ Сейф ещё не создан", "checklist miss ru")
     // выбор языка: явный override бьёт систему; "system" падает на префикс локали
     expect(resolveLang(override: "ru", systemLang: "en") == "ru", "resolveLang override ru")
     expect(resolveLang(override: "system", systemLang: "ru") == "ru", "resolveLang system ru")
