@@ -10,6 +10,7 @@
 // подписи/нотаризации/упаковки нужен Apple Developer аккаунт (это шаг дистрибуции, см. gui/README.md).
 
 import AppKit
+import Carbon.HIToolbox
 
 // Точка монтирования vault — та же, что у securetrash. Приоритет: настройки (settings-панель) →
 // окружение ST_VAULT_VOLUME → дефолт. Computed, чтобы подхватывать изменение настроек без рестарта.
@@ -56,6 +57,7 @@ private let strings: [String: (en: String, ru: String)] = [
     "notif_ttl_expired": ("vaultwatch TTL expired — vault is still OPEN", "TTL vaultwatch истёк — сейф всё ещё ОТКРЫТ"),
     "notif_long_open":  ("Vault open for 30+ minutes (no vaultwatch)", "Сейф открыт дольше 30 минут (без vaultwatch)"),
     "notif_panic_arm":  ("Press again to PANIC", "Нажмите ещё раз для ПАНИКИ"),
+    "notif_hotkey_fail": ("Panic hotkey unavailable (taken by another app)", "Хоткей паники недоступен (занят другим приложением)"),
     "set_vol":          ("Vault volume:", "Том сейфа:"),
     "set_poll":         ("Poll interval (s):", "Интервал опроса (с):"),
     "set_lang":         ("Language:", "Язык:"),
@@ -126,6 +128,55 @@ func decideNotifications(open: Bool, ttl: Int?, hasSessions: Bool, now: Date,
     return (events, s)
 }
 
+// --- глобальный хоткей паники (Carbon RegisterEventHotKey; работает без Accessibility-разрешений,
+// в отличие от CGEventTap). Двойное нажатие в 2с → panic now БЕЗ confirm (panic обратим: прячет
+// и лочит, данные не трогает; ASSUMPTION из спеки). Одиночное — взвод + уведомление. ---
+func panicShouldFire(now: Date, armedAt: Date?, window: TimeInterval = 2.0) -> Bool {
+    guard let a = armedAt else { return false }
+    return now.timeIntervalSince(a) <= window
+}
+// Пресет → виртуальная клавиша (модификаторы у всех пресетов одни: ⌃⌥⇧). nil → не регистрировать.
+func hotkeyVK(preset: String) -> UInt32? {
+    switch preset {
+    case "ctrl-opt-shift-p": return UInt32(kVK_ANSI_P)
+    case "ctrl-opt-shift-l": return UInt32(kVK_ANSI_L)
+    default: return nil
+    }
+}
+// Carbon C-callback не captures Swift-контекст → глобальный хук на действие.
+private var panicHotkeyAction: (() -> Void)?
+private var panicHotKeyRef: EventHotKeyRef?
+private var hotkeyHandlerInstalled = false
+// false → хендлер РЕАЛЬНО не встал (Carbon вернул ошибку); повторные вызовы после успеха — true.
+func installHotkeyHandlerOnce() -> Bool {
+    guard !hotkeyHandlerInstalled else { return true }
+    var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                             eventKind: UInt32(kEventHotKeyPressed))
+    let status = InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+        panicHotkeyAction?()
+        return noErr
+    }, 1, &spec, nil, nil)
+    guard status == noErr else { return false }
+    hotkeyHandlerInstalled = true
+    return true
+}
+// true = хоткей в запрошенном состоянии (зарегистрирован ИЛИ осознанно снят через off);
+// false = РЕАЛЬНЫЙ фейл регистрации (например, комбинация занята другим приложением).
+func registerPanicHotkey(preset: String) -> Bool {
+    if let ref = panicHotKeyRef { UnregisterEventHotKey(ref); panicHotKeyRef = nil }
+    guard let vk = hotkeyVK(preset: preset) else { return true }   // off/мусор → снято осознанно
+    guard installHotkeyHandlerOnce() else { return false }
+    let id = EventHotKeyID(signature: OSType(0x50424152), id: 1)   // 'PBAR'
+    let status = RegisterEventHotKey(vk, UInt32(controlKey | optionKey | shiftKey), id,
+                                     GetApplicationEventTarget(), 0, &panicHotKeyRef)
+    if status != noErr { panicHotKeyRef = nil; return false }
+    return true
+}
+// Пресет из настроек (дефолт — включён: хоткей и есть смысл Фазы B).
+func hotkeyPreset() -> String {
+    UserDefaults.standard.string(forKey: "panicHotkey") ?? "ctrl-opt-shift-p"
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
@@ -133,6 +184,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var volField: NSTextField?
     private var pollField: NSTextField?
     private var notifyState = NotifyState()
+    // Carbon hot-key события приходят на main thread через event loop NSApplication —
+    // синхронизация panicArmedAt не нужна.
+    private var panicArmedAt: Date?
+
+    // Обработка глобального хоткея: первое нажатие — взвод + уведомление, второе в окне 2с — паника.
+    private func hotkeyPressed() {
+        let now = Date()
+        if panicShouldFire(now: now, armedAt: panicArmedAt) {
+            panicArmedAt = nil
+            runInTerminal("panic now")
+        } else {
+            panicArmedAt = now
+            notify(L("notif_panic_arm"))
+        }
+    }
 
     // Доставка нативного уведомления. Секретов в тексте нет — только статус.
     private func notify(_ text: String) {
@@ -149,6 +215,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         refresh()
         rescheduleTimer()   // периодический опрос статуса (интервал из настроек)
+        panicHotkeyAction = { [weak self] in self?.hotkeyPressed() }
+        // Фейл регистрации (комбинация занята другим приложением) не глотаем — пользователь должен знать.
+        if !registerPanicHotkey(preset: hotkeyPreset()) { notify(L("notif_hotkey_fail")) }
     }
 
     // Перезапустить таймер опроса с текущим интервалом (вызывается при старте и сохранении настроек).
@@ -453,6 +522,17 @@ private func runSelfTests() -> Never {
     expect(resolveLang(override: "ru", systemLang: "en") == "ru", "resolveLang override ru")
     expect(resolveLang(override: "system", systemLang: "ru") == "ru", "resolveLang system ru")
     expect(resolveLang(override: "system", systemLang: "fr") == "en", "resolveLang system fr->en")   // не-RU → en
+    // double-press: второй тик в окне 2с → огонь; вне окна → перевзвод
+    let base = Date(timeIntervalSince1970: 2_000_000)
+    expect(panicShouldFire(now: base, armedAt: nil) == false, "not armed no fire")
+    expect(panicShouldFire(now: base.addingTimeInterval(1.5), armedAt: base) == true, "fire in window")
+    expect(panicShouldFire(now: base.addingTimeInterval(2.0), armedAt: base) == true, "window boundary inclusive")
+    expect(panicShouldFire(now: base.addingTimeInterval(2.5), armedAt: base) == false, "window passed")
+    // пресеты: маппинг в виртуальные клавиши; off → nil (не регистрировать)
+    expect(hotkeyVK(preset: "ctrl-opt-shift-p") == UInt32(kVK_ANSI_P), "preset P")
+    expect(hotkeyVK(preset: "ctrl-opt-shift-l") == UInt32(kVK_ANSI_L), "preset L")
+    expect(hotkeyVK(preset: "off") == nil, "off nil")
+    expect(hotkeyVK(preset: "garbage") == nil, "garbage nil")
     // весь словарь: нет пустых/placeholder значений
     for (k, v) in strings { expect(!v.en.isEmpty && !v.ru.isEmpty, "empty value for \(k)") }
     // движок уведомлений: каждое событие один раз за эпизод, закрытие сейфа сбрасывает всё
