@@ -21,9 +21,33 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
 | macOS | `macos/ParanoidBar.swift` + `macos/build.sh` | **Source compiles** with `swiftc` (Command Line Tools). AppKit `NSStatusItem` menu-bar agent: monochrome SF-Symbol status glyph (adapts to light/dark menu bar), live vault/FileVault status, **vaultwatch session + TTL countdown** (in the glyph + menu), Status/PANIC/Vault▸(open·close·empty·destroy)/launcher, **Start at login** toggle (LaunchAgent), runs CLIs via Terminal. |
 | Windows | `windows/paranoid-tray.ps1` (+ Pester) | **Runnable PowerShell** (no compile). `NotifyIcon` tray, same menu + **vaultwatch TTL countdown** (tooltip + menu headers) + **Start at login** toggle (HKCU Run), runs CLIs in a new console. Menu/status/autostart/vaultwatch logic Pester-tested. |
 
-Verified here: macOS source compiles cleanly (`swiftc -O`); Windows tray menu/dispatch/autostart
-logic is Pester-tested in CI (`gui/windows/test` runs on `windows-latest`). The two mirror each
-other and the bash launcher's grouping.
+**Phase B polish (product-grade UX, both platforms, full feature parity):**
+
+- **Global panic hotkey** — ⌃⌥⇧P on macOS (Carbon `RegisterEventHotKey`, no Accessibility
+  permission needed), Ctrl+Alt+Shift+P on Windows (`RegisterHotKey` + a hidden message window).
+  Double-press within 2s → `panic now` fires (a terminal/console opens with real output — the
+  honesty contract holds; no confirm dialog, `panic now` is reversible). Single press arms +
+  notifies. Presets (P / L / Off) in Settings; a failed registration is reported honestly, never
+  silently swallowed.
+- **Native notifications** — TTL warning (<120s to auto-close), TTL expired while still open,
+  and a long-open reminder (30+ min without a vaultwatch session). Pure decision engine, fires
+  once per episode, re-arms if the session is extended. Delivery via `osascript` on macOS,
+  `NotifyIcon.ShowBalloonTip` on Windows.
+- **Welcome onboarding (first run)** — a live readiness checklist (CLI installed / vault created
+  / hotkey enabled / start at login) with action buttons, shown once on first launch and always
+  reachable from the menu ("Setup guide…") and from Settings.
+- **RU/EN localization** — an in-code string dictionary (49 keys), no `.lproj` bundles (keeps the
+  single-file design). Language: System / English / Русский in Settings. Key parity between the
+  two languages and between macOS and Windows is enforced by test.
+- **Settings v2** — vault volume, poll interval, language, panic-hotkey preset, and a "Setup
+  guide" button, all in the existing settings window.
+
+Verified here: macOS source compiles cleanly (`swiftc -O`) and passes `./ParanoidBar --selftest`
+(pure-logic checks: hotkey preset parsing, notification decision engine, localization-dictionary
+completeness, onboarding-checklist state — `gui/macos/test.sh` runs both as the build gate).
+Windows tray menu/dispatch/autostart/hotkey/notification/localization/onboarding logic is
+Pester-tested in CI (`gui/windows/test` runs on `windows-latest`). The two mirror each other and
+the bash launcher's grouping.
 
 ## Build / run
 
@@ -67,11 +91,14 @@ cert (`Set-AuthenticodeSignature`) or ship a signed launch shim. Needs a Windows
 
 ## Not done yet (honest scope — the rest of Phase B)
 
-- A settings pane (vault-volume override, poll interval, language) — a UX-design decision, staged
-  separately. *(Auto-start at login, monochrome status glyphs, and vaultwatch session + TTL
-  countdown are now done — see the table above.)*
+- **Signing / distribution** — Apple Developer Program enrollment + Developer ID cert +
+  notarization (macOS), and a Windows code-signing cert for Authenticode-signing the `.ps1`
+  (see the readiness table above). The pipelines are built and ready; only the credentials/cert
+  are missing.
 - **Open-core packaging** (the convenience layer is the paid tier per the project's monetization
   direction; the CLIs stay free + fully usable without the GUI).
 
-These are deliberately staged: the foundations (compilable source, same-CLI dispatch, honest status)
-are in; signing/distribution/polish are the follow-on Phase-B work.
+UX polish is done: hotkey, notifications, onboarding, RU/EN, and the settings pane (vault-volume
+override, poll interval, language, hotkey preset — see the table above) all shipped in Phase B.
+What remains is distribution (signing/notarization/code-signing) and the open-core packaging
+decision — not UX.
