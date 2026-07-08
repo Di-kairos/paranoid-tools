@@ -23,6 +23,78 @@ private func pollSeconds() -> Double {
     return v >= 5 ? v : 15
 }
 
+// --- локализация: словарь в коде (без .lproj — single-file принцип). Ключи зеркалятся
+// в Windows-tray ($PtStrings); паритет наборов проверяется тестом (Task 11). Честные формулировки
+// («at risk») переводим без смягчения. ---
+private let strings: [String: (en: String, ru: String)] = [
+    "vault_label":      ("Vault:", "Сейф:"),
+    "vault_open_risk":  ("OPEN — at risk", "ОТКРЫТ — под риском"),
+    "vault_closed":     ("closed", "закрыт"),
+    "vault_not_setup":  ("not set up", "не создан"),
+    "fv_label":         ("FileVault:", "FileVault:"),
+    "fv_on":            ("ON", "включён"),
+    "fv_off":           ("off / unknown", "выкл / неизвестно"),
+    "status_item":      ("Status — full read-only check", "Статус — полная read-only проверка"),
+    "panic_item":       ("PANIC NOW — hide & lock", "ПАНИКА — спрятать и заблокировать"),
+    "vault_menu":       ("Vault", "Сейф"),
+    "vault_close":      ("Close the vault", "Закрыть сейф"),
+    "vault_open":       ("Open the vault", "Открыть сейф"),
+    "vault_create":     ("Create a vault", "Создать сейф"),
+    "vault_empty":      ("Empty — wipe contents, keep the vault", "Очистить — стереть содержимое, сейф оставить"),
+    "vault_destroy":    ("Destroy the vault (irreversible)", "Уничтожить сейф (необратимо)"),
+    "launcher_item":    ("Open the full launcher (paranoid)", "Открыть полный лаунчер (paranoid)"),
+    "settings_item":    ("Settings…", "Настройки…"),
+    "login_item":       ("Start at login", "Запускать при входе"),
+    "setup_item":       ("Setup guide…", "Гид по настройке…"),
+    "quit_item":        ("Quit Paranoid Bar", "Выйти из Paranoid Bar"),
+    "ttl_expired":      ("TTL expired", "TTL истёк"),
+    "auto_exit_in":     ("auto-exit in", "авто-выход через"),
+    "watching_no_ttl":  ("watching (no TTL)", "наблюдение (без TTL)"),
+    "tip_open":         ("Vault is OPEN — at risk while open", "Сейф ОТКРЫТ — под риском, пока открыт"),
+    "tip_closed":       ("Vault closed", "Сейф закрыт"),
+    "notif_ttl_warn":   ("Vault auto-closes in {0}", "Сейф авто-закроется через {0}"),
+    "notif_ttl_expired": ("vaultwatch TTL expired — vault is still OPEN", "TTL vaultwatch истёк — сейф всё ещё ОТКРЫТ"),
+    "notif_long_open":  ("Vault open for 30+ minutes (no vaultwatch)", "Сейф открыт дольше 30 минут (без vaultwatch)"),
+    "notif_panic_arm":  ("Press again to PANIC", "Нажмите ещё раз для ПАНИКИ"),
+    "set_vol":          ("Vault volume:", "Том сейфа:"),
+    "set_poll":         ("Poll interval (s):", "Интервал опроса (с):"),
+    "set_lang":         ("Language:", "Язык:"),
+    "set_hotkey":       ("Panic hotkey:", "Хоткей паники:"),
+    "set_save":         ("Save", "Сохранить"),
+    "set_setup_btn":    ("Show setup guide", "Показать гид"),
+    "hk_off":           ("Off", "Выкл"),
+    "ob_title":         ("Paranoid Bar — Welcome", "Paranoid Bar — Добро пожаловать"),
+    "ob_sub":           ("A status bar over the same signed CLIs. Secrets never pass through the GUI.",
+                         "Панель статуса поверх тех же подписанных CLI. Секреты через GUI не проходят."),
+    "ob_cli_ok":        ("CLIs installed (securetrash, panic, vaultwatch)", "CLI установлены (securetrash, panic, vaultwatch)"),
+    "ob_cli_missing":   ("CLIs not found — install first", "CLI не найдены — сначала установите"),
+    "ob_vault_ok":      ("Vault created", "Сейф создан"),
+    "ob_vault_missing": ("No vault yet", "Сейф ещё не создан"),
+    "ob_create_btn":    ("Create vault…", "Создать сейф…"),
+    "ob_hotkey_line":   ("Panic hotkey", "Хоткей паники"),
+    "ob_login_line":    ("Start at login", "Запускать при входе"),
+    "ob_enable_btn":    ("Enable", "Включить"),
+    "ob_risk":          ("An open vault is always “at risk” — the GUI never hides that.",
+                         "Открытый сейф всегда «под риском» — GUI этого не прячет."),
+    "ob_done":          ("Done", "Готово"),
+]
+
+// Выбор языка: override из настроек ("en"/"ru") бьёт систему; "system" → префикс локали,
+// всё не-русское схлопывается в en. Чистая функция — гоняется в selftest.
+private func resolveLang(override: String, systemLang: String) -> String {
+    if override == "en" || override == "ru" { return override }
+    return systemLang.hasPrefix("ru") ? "ru" : "en"
+}
+private func currentLang() -> String {
+    let override = UserDefaults.standard.string(forKey: "language") ?? "system"
+    let sys = Locale.preferredLanguages.first ?? "en"
+    return resolveLang(override: override, systemLang: sys)
+}
+private func L(_ key: String, lang: String? = nil) -> String {
+    guard let s = strings[key] else { return key }
+    return (lang ?? currentLang()) == "ru" ? s.ru : s.en
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
@@ -117,9 +189,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.button?.image = nil
             statusItem.button?.title = ttl != nil ? suffix.trimmingCharacters(in: .whitespaces) : (open ? "🔓⚠" : "🔒")
         }
-        let tip = open ? "Vault is OPEN — at risk while open" : "Vault closed"
+        let tip = open ? L("tip_open") : L("tip_closed")
         if let t = ttl {
-            statusItem.button?.toolTip = tip + (t == 0 ? " · vaultwatch TTL expired" : " · vaultwatch auto-exit in " + fmtDuration(t))
+            statusItem.button?.toolTip = tip + (t == 0 ? " · vaultwatch " + L("ttl_expired") : " · vaultwatch " + L("auto_exit_in") + " " + fmtDuration(t))
         } else {
             statusItem.button?.toolTip = tip
         }
@@ -129,20 +201,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // --- меню ---
     private func rebuildMenu(open: Bool, sessions: [VWSession]) {
         let menu = NSMenu()
-        menu.addItem(header("Vault:      " + (open ? "OPEN — at risk" : (vaultExists() ? "closed" : "not set up"))))
-        menu.addItem(header("FileVault:  " + (fileVaultOn() ? "ON" : "off / unknown")))
+        menu.addItem(header(L("vault_label") + "      " + (open ? L("vault_open_risk") : (vaultExists() ? L("vault_closed") : L("vault_not_setup")))))
+        menu.addItem(header(L("fv_label") + "  " + (fileVaultOn() ? L("fv_on") : L("fv_off"))))
         // Активные vaultwatch-сессии: точка монтирования + обратный отсчёт TTL (или «no TTL»).
         for s in sessions {
             let name = (s.mount as NSString).lastPathComponent
             let detail: String
-            if let r = s.remaining { detail = r == 0 ? "TTL expired" : "auto-exit in " + fmtDuration(r) }
-            else { detail = "watching (no TTL)" }
+            if let r = s.remaining { detail = r == 0 ? L("ttl_expired") : L("auto_exit_in") + " " + fmtDuration(r) }
+            else { detail = L("watching_no_ttl") }
             menu.addItem(header("vaultwatch: " + name + " — " + detail))
         }
         menu.addItem(.separator())
 
-        menu.addItem(item("Status — full read-only check", #selector(doStatus)))
-        menu.addItem(item("🔒  PANIC NOW — hide & lock", #selector(doPanic)))
+        menu.addItem(item(L("status_item"), #selector(doStatus)))
+        menu.addItem(item("🔒  " + L("panic_item"), #selector(doPanic)))
         menu.addItem(.separator())
 
         // Подменю «Сейф» — зеркало группировки bash-лаунчера. autoenablesItems=false, иначе AppKit
@@ -150,29 +222,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let vault = NSMenu()
         vault.autoenablesItems = false
         let hasVault = vaultExists()
-        vault.addItem(item(open ? "Close the vault" : (hasVault ? "Open the vault" : "Create a vault"), #selector(doVaultToggle)))
+        vault.addItem(item(open ? L("vault_close") : (hasVault ? L("vault_open") : L("vault_create")), #selector(doVaultToggle)))
         // Empty/Destroy имеют смысл только при существующем контейнере — иначе grey-out, чтобы
         // деструктив не был активен «в пустоту» (P2-7).
-        let emptyItem = item("Empty — wipe contents, keep the vault", #selector(doVaultEmpty))
+        let emptyItem = item(L("vault_empty"), #selector(doVaultEmpty))
         emptyItem.isEnabled = hasVault
         vault.addItem(emptyItem)
-        let destroyItem = item("Destroy the vault (irreversible)", #selector(doVaultDestroy))
+        let destroyItem = item(L("vault_destroy"), #selector(doVaultDestroy))
         destroyItem.isEnabled = hasVault
         vault.addItem(destroyItem)
-        let vaultItem = NSMenuItem(title: "Vault ▸", action: nil, keyEquivalent: "")
+        let vaultItem = NSMenuItem(title: L("vault_menu") + " ▸", action: nil, keyEquivalent: "")
         vaultItem.submenu = vault
         menu.addItem(vaultItem)
 
-        menu.addItem(item("Open the full launcher (paranoid)", #selector(doLauncher)))
+        menu.addItem(item(L("launcher_item"), #selector(doLauncher)))
         menu.addItem(.separator())
 
-        menu.addItem(item("Settings…", #selector(doSettings)))
+        menu.addItem(item(L("settings_item"), #selector(doSettings)))
         // Автостарт при логине — галочка отражает текущее состояние LaunchAgent.
-        let loginItem = item("Start at login", #selector(doToggleLogin))
+        let loginItem = item(L("login_item"), #selector(doToggleLogin))
         loginItem.state = loginEnabled() ? .on : .off
         menu.addItem(loginItem)
         menu.addItem(.separator())
-        menu.addItem(item("Quit Paranoid Bar", #selector(doQuit)))
+        menu.addItem(item(L("quit_item"), #selector(doQuit)))
         statusItem.menu = menu
     }
 
@@ -240,18 +312,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         w.isReleasedWhenClosed = false
         let v = w.contentView!
 
-        v.addSubview(settingsLabel("Vault volume:", y: 110))
+        v.addSubview(settingsLabel(L("set_vol"), y: 110))
         let vol = NSTextField(frame: NSRect(x: 130, y: 106, width: 234, height: 24))
         vol.stringValue = vaultVolume
         v.addSubview(vol); volField = vol
 
-        v.addSubview(settingsLabel("Poll interval (s):", y: 70))
+        v.addSubview(settingsLabel(L("set_poll"), y: 70))
         let poll = NSTextField(frame: NSRect(x: 130, y: 66, width: 70, height: 24))
         poll.stringValue = String(Int(pollSeconds()))
         v.addSubview(poll); pollField = poll
 
         let save = NSButton(frame: NSRect(x: 274, y: 16, width: 90, height: 30))
-        save.title = "Save"; save.bezelStyle = .rounded; save.keyEquivalent = "\r"
+        save.title = L("set_save"); save.bezelStyle = .rounded; save.keyEquivalent = "\r"
         save.target = self; save.action = #selector(saveSettings)
         v.addSubview(save)
 
@@ -310,6 +382,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return String(data: data, encoding: .utf8) ?? ""
     }
 }
+
+// --- selftest: чистая логика без GUI (аналог ST_NO_MAIN у Windows-tray). `./ParanoidBar --selftest`
+// гоняет ассерты и выходит; в CI/локально это гейт вместе с компиляцией. ---
+private func runSelfTests() -> Never {
+    // под -O precondition трапается молча — свой expect() даёт имя упавшего ассерта
+    func expect(_ cond: Bool, _ what: String) {
+        if !cond { FileHandle.standardError.write(Data("selftest FAIL: \(what)\n".utf8)); exit(1) }
+    }
+    // локализация: ключ есть в обеих таблицах, неизвестный ключ возвращается как есть
+    expect(L("vault_closed", lang: "en") == "closed", "L vault_closed en")
+    expect(L("vault_closed", lang: "ru") == "закрыт", "L vault_closed ru")
+    expect(L("no_such_key", lang: "en") == "no_such_key", "L unknown key fallback")
+    // выбор языка: явный override бьёт систему; "system" падает на префикс локали
+    expect(resolveLang(override: "ru", systemLang: "en") == "ru", "resolveLang override ru")
+    expect(resolveLang(override: "system", systemLang: "ru") == "ru", "resolveLang system ru")
+    expect(resolveLang(override: "system", systemLang: "fr") == "en", "resolveLang system fr->en")   // не-RU → en
+    // весь словарь: нет пустых/placeholder значений
+    for (k, v) in strings { expect(!v.en.isEmpty && !v.ru.isEmpty, "empty value for \(k)") }
+    print("selftest OK")
+    exit(0)
+}
+if CommandLine.arguments.contains("--selftest") { runSelfTests() }
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)   // агент строки меню: без иконки в Dock
