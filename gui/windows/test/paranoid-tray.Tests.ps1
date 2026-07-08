@@ -20,17 +20,17 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $labels | Should -Match 'Quit'
     }
     It 'пункт сейфа: closed → Open the vault / securetrash vault open' {
-        $vault = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en')[3]
+        $vault = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en')[6]
         $vault.Label   | Should -Be (Get-PtL -Key 'vault_open' -Lang 'en')
         $vault.Command | Should -Be 'securetrash vault open'
     }
     It 'пункт сейфа: open → Close the vault / securetrash vault close' {
-        $vault = (Get-PtMenuSpec -VaultState 'open' -Lang 'en')[3]
+        $vault = (Get-PtMenuSpec -VaultState 'open' -Lang 'en')[6]
         $vault.Label   | Should -Be (Get-PtL -Key 'vault_close' -Lang 'en')
         $vault.Command | Should -Be 'securetrash vault close'
     }
     It 'пункт сейфа: none → Create a vault / securetrash vault create' {
-        $vault = (Get-PtMenuSpec -VaultState 'none' -Lang 'en')[3]
+        $vault = (Get-PtMenuSpec -VaultState 'none' -Lang 'en')[6]
         $vault.Label   | Should -Be (Get-PtL -Key 'vault_create' -Lang 'en')
         $vault.Command | Should -Be 'securetrash vault create'
     }
@@ -56,8 +56,21 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $set = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Label -match 'Settings' }
         $set.Command | Should -Be '__settings__'
     }
-    It 'пункт сейфа остаётся на индексе 3 после добавления автостарта/настроек' {
-        (Get-PtMenuSpec -VaultState 'closed' -Lang 'en')[3].Command | Should -Be 'securetrash vault open'
+    It 'пункт сейфа остаётся на индексе 6 после добавления статус-заголовков/автостарта/настроек' {
+        (Get-PtMenuSpec -VaultState 'closed' -Lang 'en')[6].Command | Should -Be 'securetrash vault open'
+    }
+    It 'первые два пункта — disabled статус-заголовки Vault/BitLocker (честность, P1)' {
+        $spec = Get-PtMenuSpec -VaultState 'open' -Lang 'en' -FvOn $false
+        $spec[0].Enabled | Should -BeFalse
+        $spec[0].Label   | Should -Match ([regex]::Escape((Get-PtL -Key 'vault_label' -Lang 'en')))
+        $spec[0].Label   | Should -Match ([regex]::Escape((Get-PtL -Key 'vault_open_risk' -Lang 'en')))
+        $spec[1].Enabled | Should -BeFalse
+        $spec[1].Label   | Should -Match ([regex]::Escape((Get-PtL -Key 'fv_label' -Lang 'en')))
+        $spec[1].Label   | Should -Match ([regex]::Escape((Get-PtL -Key 'fv_off' -Lang 'en')))
+    }
+    It 'BitLocker-заголовок честно отражает FvOn=true' {
+        $spec = Get-PtMenuSpec -VaultState 'closed' -Lang 'en' -FvOn $true
+        $spec[1].Label | Should -Match ([regex]::Escape((Get-PtL -Key 'fv_on' -Lang 'en')))
     }
 }
 
@@ -122,6 +135,26 @@ Describe 'Get-PtVaultwatchSessions — чтение session-файлов vaultwa
         Set-Content -LiteralPath (Join-Path $vwDir 'z_gone') -Value @('mount=/Volumes/Gone', 'started=1', 'ttl_secs=0')
         { Get-PtVaultwatchSessions -Now 1900 } | Should -Not -Throw
         (@(Get-PtVaultwatchSessions -Now 1900) | Where-Object { $_.Mount -eq '/Volumes/Good' }).Count | Should -Be 1
+    }
+}
+
+Describe 'Normalize-PtMount — скоуп vaultwatch-сессий к текущему тому (P1)' {
+    It 'одинаковые пути (без нормализации) совпадают' {
+        Normalize-PtMount 'C:\Vault' | Should -Be (Normalize-PtMount 'C:\Vault')
+    }
+    It 'конечный слэш (обоих стилей) игнорируется' {
+        Normalize-PtMount 'C:\Vault\'      | Should -Be (Normalize-PtMount 'C:\Vault')
+        Normalize-PtMount '/Volumes/Vault/' | Should -Be (Normalize-PtMount '/Volumes/Vault')
+    }
+    It 'регистр игнорируется' {
+        Normalize-PtMount 'C:\VAULT' | Should -Be (Normalize-PtMount 'c:\vault')
+    }
+    It 'разные тома не совпадают' {
+        Normalize-PtMount 'C:\Vault' | Should -Not -Be (Normalize-PtMount 'D:\Vault')
+    }
+    It 'пусто/$null → пустая строка' {
+        Normalize-PtMount $null | Should -Be ''
+        Normalize-PtMount ''    | Should -Be ''
     }
 }
 
@@ -279,6 +312,9 @@ Describe 'Panic hotkey' {
         Test-PtPanicShouldFire -Now 1001.5 -ArmedAt 1000.0 | Should -BeTrue
         Test-PtPanicShouldFire -Now 1002.0 -ArmedAt 1000.0 | Should -BeTrue
         Test-PtPanicShouldFire -Now 1002.5 -ArmedAt 1000.0 | Should -BeFalse
+    }
+    It 'clock-jump назад (Now < ArmedAt) не считается мгновенным двойным нажатием (P2)' {
+        Test-PtPanicShouldFire -Now 995.0 -ArmedAt 1000.0 | Should -BeFalse
     }
     It 'maps presets to vk codes, off/garbage to $null' {
         (Get-PtHotkeySpec -Preset 'ctrl-alt-shift-p').Vk | Should -Be 0x50

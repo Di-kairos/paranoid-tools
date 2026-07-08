@@ -24,6 +24,16 @@ function Get-PtVaultState {
     if ($home -and (Test-Path -LiteralPath (Join-Path $home 'SecureVault.vhdx'))) { return 'closed' }
     return 'none'
 }
+# BitLocker-статус (честность платформы, зеркало macOS fileVaultOn). Get-BitLockerVolume требует
+# модуль BitLocker (не на всех SKU Windows) и может бросить без прав администратора — ловим и
+# трактуем как «неизвестно» (fv_off покрывает оба случая: 'off / unknown', как честно и есть).
+function Test-PtBitLocker {
+    param([string]$MountPoint = $env:SystemDrive)
+    try {
+        $v = Get-BitLockerVolume -MountPoint $MountPoint -ErrorAction Stop
+        return ($v.ProtectionStatus -eq 'On')
+    } catch { return $false }
+}
 
 # --- локализация: словарь в коде, зеркало macOS `strings` (ключи 1:1, паритет — Pester).
 # Честные формулировки («at risk») переводим без смягчения. ---
@@ -96,13 +106,21 @@ function Get-PtMenuSpec {
     # -Lang: один резолв языка на вызов (не 12 чтений settings внутри Get-PtL) + детерминизм
     # в тестах независимо от культуры CI-хоста.
     param([string]$VaultState = (Get-PtVaultState),
-          [string]$Lang = (Resolve-PtLang -Override ((Get-PtSettings).Language)))
+          [string]$Lang = (Resolve-PtLang -Override ((Get-PtSettings).Language)),
+          [bool]$FvOn = (Test-PtBitLocker))
     $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } default { 'securetrash vault create' } }
     $vaultLabel  = switch ($VaultState) { 'open' { Get-PtL 'vault_close' -Lang $Lang } 'closed' { Get-PtL 'vault_open' -Lang $Lang } default { Get-PtL 'vault_create' -Lang $Lang } }
     # Empty/Destroy имеют смысл только при существующем контейнере (open|closed) — при 'none'
     # грей-аутим, чтобы деструктив не был активен «в пустоту» (P2-7).
     $hasVault = $VaultState -in @('open', 'closed')
+    # Честный статус-заголовок сверху меню (P1, зеркало macOS rebuildMenu header()-строк) —
+    # без них tray молчал о риске «сейф открыт»/BitLocker выключен, в отличие от macOS.
+    $vaultStatusText = switch ($VaultState) { 'open' { Get-PtL 'vault_open_risk' -Lang $Lang } 'closed' { Get-PtL 'vault_closed' -Lang $Lang } default { Get-PtL 'vault_not_setup' -Lang $Lang } }
+    $fvText = if ($FvOn) { Get-PtL 'fv_on' -Lang $Lang } else { Get-PtL 'fv_off' -Lang $Lang }
     return @(
+        [pscustomobject]@{ Label = ((Get-PtL 'vault_label' -Lang $Lang) + ' ' + $vaultStatusText); Command = ''; Enabled = $false }
+        [pscustomobject]@{ Label = ((Get-PtL 'fv_label' -Lang $Lang) + ' ' + $fvText);              Command = ''; Enabled = $false }
+        [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'status_item' -Lang $Lang);   Command = 'securetrash check'; Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'panic_item' -Lang $Lang);    Command = 'panic now';         Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
@@ -194,6 +212,14 @@ function Get-PtVaultwatchSessions {
     }
     return $out
 }
+# Нормализация точки монтирования для сравнения (P1): stale session-файл ДРУГОГО тома иначе
+# навсегда глушил long_open/ttl текущего сейфа (сессии не скоупились). Trim конечного слэша
+# (оба стиля) + lowercase (Windows FS регистронезависима).
+function Normalize-PtMount {
+    param([string]$Mount)
+    if (-not $Mount) { return '' }
+    return $Mount.TrimEnd('\', '/').ToLowerInvariant()
+}
 
 # --- уведомления: чистый движок решений (Pester), доставка — NotifyIcon.ShowBalloonTip.
 # Правила = спека §2, зеркало Swift decideNotifications: каждое событие один раз за эпизод
@@ -228,7 +254,10 @@ function Get-PtNotifyEvents {
 function Test-PtPanicShouldFire {
     param([double]$Now, [object]$ArmedAt, [double]$Window = 2.0)
     if ($null -eq $ArmedAt) { return $false }
-    return (($Now - [double]$ArmedAt) -le $Window)
+    # Clock-jump guard (P2): системные часы могут скакнуть назад (NTP-корректировка/сон) — тогда
+    # delta отрицательная. Это НЕ валидное окно двойного нажатия, а артефакт часов, не «мгновенно».
+    $d = $Now - [double]$ArmedAt
+    return ($d -ge 0 -and $d -le $Window)
 }
 # MOD_CONTROL=2 MOD_ALT=1 MOD_SHIFT=4 → 7; vk: P=0x50, L=0x4C.
 function Get-PtHotkeySpec {
@@ -555,11 +584,16 @@ public class PtHotkeyWindow : NativeWindow {
         # Один резолв языка на весь rebuild (одно чтение settings), дальше -Lang $lang везде.
         $lang = Resolve-PtLang -Override ((Get-PtSettings).Language)
         $state = Get-PtVaultState
+        $vol = Get-PtVaultMount
         $sessions = Get-PtVaultwatchSessions
+        # Скоуп к ТЕКУЩЕМУ тому (P1): stale session-файл ЧУЖОГО тома (переехавший/старый vault)
+        # иначе навсегда глушил long_open/ttl текущего сейфа. Полный список $sessions ниже в меню
+        # оставляем как есть (informational — пусть видно все активные vaultwatch-наблюдения).
+        $vaultSessions = @($sessions | Where-Object { (Normalize-PtMount $_.Mount) -eq (Normalize-PtMount $vol) })
         # TTL в главном статусе — ТОЛЬКО при реально открытом сейфе: осиротевший session-файл иначе
         # рисовал бы «auto-exit in …» при закрытом vault (P2-10).
         $ttl = if ($state -eq 'open') {
-            ($sessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
+            ($vaultSessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
         } else { $null }
         $notify.Text =
             if ($state -eq 'open' -and $null -ne $ttl -and $ttl -eq 0) { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'ttl_expired' -Lang $lang)" }
@@ -615,7 +649,7 @@ public class PtHotkeyWindow : NativeWindow {
         }
         # уведомления: движок решает, BalloonTip доставляет (10с; текст без секретов)
         $now = [int64][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        $nr = Get-PtNotifyEvents -Open ($state -eq 'open') -Ttl $ttl -HasSessions ($sessions.Count -gt 0) -Now $now -State $script:notifyState
+        $nr = Get-PtNotifyEvents -Open ($state -eq 'open') -Ttl $ttl -HasSessions ($vaultSessions.Count -gt 0) -Now $now -State $script:notifyState
         $script:notifyState = $nr.State
         foreach ($e in $nr.Events) {
             $text = switch ($e) {
