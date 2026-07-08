@@ -176,6 +176,10 @@ func registerPanicHotkey(preset: String) -> Bool {
 func hotkeyPreset() -> String {
     UserDefaults.standard.string(forKey: "panicHotkey") ?? "ctrl-opt-shift-p"
 }
+// Значения попапов Settings: индекс пункта попапа ↔ значение в UserDefaults (единый источник
+// для построения, ресинка кэшированного окна и сохранения — рассинхрон индексов исключён).
+private let langValues = ["system", "en", "ru"]
+private let hotkeyValues = ["ctrl-opt-shift-p", "ctrl-opt-shift-l", "off"]
 
 // Строка чеклиста Welcome-окна — чистая для selftest.
 func checklistLine(ok: Bool, okKey: String, missKey: String, lang: String? = nil) -> String {
@@ -195,8 +199,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Carbon hot-key события приходят на main thread через event loop NSApplication —
     // синхронизация panicArmedAt не нужна.
     private var panicArmedAt: Date?
-    // Факт успешной регистрации хоткея — для честного статуса в Welcome-чеклисте
-    // (пресет «включён» в настройках ≠ хоткей реально работает: комбинация может быть занята).
+    // true = хоткей в запрошенном состоянии (зарегистрирован ИЛИ осознанно снят через off);
+    // false = реальный фейл регистрации. Читать только под гейтом hotkeyVK(preset:) != nil —
+    // сам по себе true при off НЕ означает «хоткей работает» (честный статус Welcome-чеклиста).
     private var hotkeyRegistered = false
 
     // Обработка глобального хоткея: первое нажатие — взвод + уведомление, второе в окне 2с — паника.
@@ -535,6 +540,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set("ctrl-opt-shift-p", forKey: "panicHotkey")
         hotkeyRegistered = registerPanicHotkey(preset: hotkeyPreset())
         if !hotkeyRegistered { notify(L("notif_hotkey_fail")) }
+        // Открытый Settings-попап ресинкаем сразу: его Save иначе молча откатил бы новый пресет.
+        hotkeyPopup?.selectItem(at: hotkeyValues.firstIndex(of: hotkeyPreset()) ?? 0)
         if let w = welcomeWindow { rebuildWelcome(in: w) }
     }
     @objc private func obEnableLogin() {
@@ -547,6 +554,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Секретов не касается: только пути/интервал, хранятся в UserDefaults, применяются без рестарта.
     @objc private func doSettings() {
         if let w = settingsWindow {
+            // Скрытое кэш-окно ресинкаем из текущего состояния (настройки могли смениться извне,
+            // напр. Welcome/Enable). ВИДИМОЕ окно не трогаем: там могут быть набранные, но не
+            // сохранённые правки — консистентность hotkey держит ресинк в obEnableHotkey.
+            if !w.isVisible {
+                volField?.stringValue = vaultVolume
+                pollField?.stringValue = String(Int(pollSeconds()))
+                let langNow = UserDefaults.standard.string(forKey: "language") ?? "system"
+                langPopup?.selectItem(at: langValues.firstIndex(of: langNow) ?? 0)
+                hotkeyPopup?.selectItem(at: hotkeyValues.firstIndex(of: hotkeyPreset()) ?? 0)
+            }
             w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
         }
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 230),
@@ -568,21 +585,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         v.addSubview(settingsLabel(L("set_lang"), y: 110))
         let lang = NSPopUpButton(frame: NSRect(x: 130, y: 104, width: 150, height: 26))
         lang.addItems(withTitles: ["System", "English", "Русский"])
-        switch UserDefaults.standard.string(forKey: "language") ?? "system" {
-        case "en": lang.selectItem(at: 1)
-        case "ru": lang.selectItem(at: 2)
-        default:   lang.selectItem(at: 0)
-        }
+        let langNow = UserDefaults.standard.string(forKey: "language") ?? "system"
+        lang.selectItem(at: langValues.firstIndex(of: langNow) ?? 0)
         v.addSubview(lang); langPopup = lang
 
         v.addSubview(settingsLabel(L("set_hotkey"), y: 70))
         let hk = NSPopUpButton(frame: NSRect(x: 130, y: 64, width: 150, height: 26))
         hk.addItems(withTitles: ["⌃⌥⇧P", "⌃⌥⇧L", L("hk_off")])
-        switch hotkeyPreset() {
-        case "ctrl-opt-shift-l": hk.selectItem(at: 1)
-        case "off":              hk.selectItem(at: 2)
-        default:                 hk.selectItem(at: 0)
-        }
+        hk.selectItem(at: hotkeyValues.firstIndex(of: hotkeyPreset()) ?? 0)
         v.addSubview(hk); hotkeyPopup = hk
 
         let setup = NSButton(title: L("set_setup_btn"), target: self, action: #selector(doWelcome))
@@ -611,16 +621,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(Double(n), forKey: "pollSeconds")
         }
         if let lp = langPopup {
-            let langValue = ["system", "en", "ru"][max(0, lp.indexOfSelectedItem)]
-            UserDefaults.standard.set(langValue, forKey: "language")
+            UserDefaults.standard.set(langValues[max(0, lp.indexOfSelectedItem)], forKey: "language")
         }
         if let hp = hotkeyPopup {
-            let hkValue = ["ctrl-opt-shift-p", "ctrl-opt-shift-l", "off"][max(0, hp.indexOfSelectedItem)]
+            let hkValue = hotkeyValues[max(0, hp.indexOfSelectedItem)]
             UserDefaults.standard.set(hkValue, forKey: "panicHotkey")
             hotkeyRegistered = registerPanicHotkey(preset: hkValue)
-            if !hotkeyRegistered && hkValue != "off" { notify(L("notif_hotkey_fail")) }
+            // off возвращает true → !hotkeyRegistered уже исключает осознанное снятие
+            if !hotkeyRegistered { notify(L("notif_hotkey_fail")) }
         }
-        settingsWindow?.close(); settingsWindow = nil; langPopup = nil; hotkeyPopup = nil
+        // Сброс кэша окна целиком: при смене языка следующий doSettings пересоздаст заголовки.
+        settingsWindow?.close()
+        settingsWindow = nil; volField = nil; pollField = nil; langPopup = nil; hotkeyPopup = nil
+        if let w = welcomeWindow { rebuildWelcome(in: w) }   // открытый Welcome не должен stale-ить
         rescheduleTimer()   // подхватить новый интервал
         refresh()           // подхватить новую точку монтирования (и язык — меню перестроится)
     }
