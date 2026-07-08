@@ -122,7 +122,8 @@ function Get-PtMenuSpec {
         [pscustomobject]@{ Label = ((Get-PtL 'fv_label' -Lang $Lang) + ' ' + $fvText);              Command = ''; Enabled = $false }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'status_item' -Lang $Lang);   Command = 'securetrash check'; Enabled = $true }
-        [pscustomobject]@{ Label = (Get-PtL 'panic_item' -Lang $Lang);    Command = 'panic now';         Enabled = $true }
+        # --hard = паритет с «PANIC NOW» лаунчера (hide&lock + cloud-демоны + recents)
+        [pscustomobject]@{ Label = (Get-PtL 'panic_item' -Lang $Lang);    Command = 'panic now --hard';  Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = $vaultLabel;                      Command = $vaultToggle;        Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'vault_empty' -Lang $Lang);   Command = 'securetrash vault reset';   Enabled = $hasVault }
@@ -248,7 +249,8 @@ function Get-PtNotifyEvents {
 }
 
 # --- глобальный хоткей паники: RegisterHotKey + скрытое message-окно (WM_HOTKEY=0x0312).
-# Двойное нажатие в 2с (включительно) → panic now БЕЗ confirm (panic обратим); одиночное —
+# Двойное нажатие в 2с (включительно) → panic now --hard БЕЗ confirm (double-press = подтверждение;
+# --hard = паритет с «PANIC NOW» лаунчера: hide&lock + cloud-демоны + recents); одиночное —
 # взвод + balloon. Чистая логика (окно 2с, маппинг пресетов) — Pester; регистрация — GUI-путь.
 # Результат RegisterHotKey не глотаем (зеркало macOS honesty-фикса): фейл → notif_hotkey_fail. ---
 function Test-PtPanicShouldFire {
@@ -546,7 +548,7 @@ public class PtHotkeyWindow : NativeWindow {
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
         if (Test-PtPanicShouldFire -Now $now -ArmedAt $script:panicArmedAt) {
             $script:panicArmedAt = $null
-            Invoke-PtTool -Command 'panic now'
+            Invoke-PtTool -Command 'panic now --hard'
         } else {
             $script:panicArmedAt = $now
             $notify.ShowBalloonTip(3000, 'Paranoid Tools', (Get-PtL notif_panic_arm), [System.Windows.Forms.ToolTipIcon]::Warning)

@@ -138,8 +138,9 @@ func decideNotifications(open: Bool, ttl: Int?, hasSessions: Bool, now: Date,
 }
 
 // --- глобальный хоткей паники (Carbon RegisterEventHotKey; работает без Accessibility-разрешений,
-// в отличие от CGEventTap). Двойное нажатие в 2с → panic now БЕЗ confirm (panic обратим: прячет
-// и лочит, данные не трогает; ASSUMPTION из спеки). Одиночное — взвод + уведомление. ---
+// в отличие от CGEventTap). Двойное нажатие в 2с → panic now --hard БЕЗ confirm (double-press =
+// подтверждение; --hard = паритет с «PANIC NOW» лаунчера: hide&lock + cloud-демоны + recents).
+// Одиночное — взвод + уведомление. ---
 func panicShouldFire(now: Date, armedAt: Date?, window: TimeInterval = 2.0) -> Bool {
     guard let a = armedAt else { return false }
     // d < 0 → перевод часов назад между взводом и вторым нажатием; не считать это «вторым в окне».
@@ -226,7 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let now = Date()
         if panicShouldFire(now: now, armedAt: panicArmedAt) {
             panicArmedAt = nil
-            runInTerminal("panic now")
+            runInTerminal("panic now --hard")
         } else {
             panicArmedAt = now
             notify(L("notif_panic_arm"))
@@ -430,7 +431,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // --- действия: запускают те же CLI; вывод/ввод видны в Terminal (GUI ничего не прячет) ---
     @objc private func doStatus()        { runInTerminal("securetrash check") }
-    @objc private func doPanic()         { runInTerminal("panic now") }
+    // --hard = паритет с «PANIC NOW» лаунчера (hide&lock + cloud-демоны + recents)
+    @objc private func doPanic()         { runInTerminal("panic now --hard") }
     @objc private func doVaultToggle()   { runInTerminal("securetrash vault " + (vaultOpen() ? "close" : (vaultExists() ? "open" : "create"))) }
     @objc private func doVaultEmpty()    { runInTerminal("securetrash vault reset") }
     @objc private func doVaultDestroy()  { runInTerminal("securetrash vault destroy") }
