@@ -24,7 +24,8 @@ func clampPoll(_ v: Int) -> Int { min(max(v, 5), 3600) }
 // Интервал опроса статуса (сек) из настроек; <5 (включая ещё не заданное 0) → дефолт 15, иначе clamp сверху.
 private func pollSeconds() -> Double {
     let v = UserDefaults.standard.double(forKey: "pollSeconds")
-    return v >= 5 ? Double(clampPoll(Int(v))) : 15
+    // min в Double-домене ДО Int(): огромный/inf double из руками правленных defaults иначе трапнул бы Int(v)
+    return v >= 5 ? Double(clampPoll(Int(min(v, 3600)))) : 15
 }
 // Тот же смонтированный том? Нормализация через standardizedFileURL съедает trailing slash и
 // относительные компоненты, чтобы "/Volumes/Foo" и "/Volumes/Foo/" совпадали как один том.
