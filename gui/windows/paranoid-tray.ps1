@@ -84,7 +84,7 @@ function Resolve-PtLang {
 }
 function Get-PtL {
     param([Parameter(Mandatory)][string]$Key, [string]$Lang)
-    # ASSUMPTION: поле Language появится в Task 10; до этого $null -> '' -> system-ветка (StrictMode в репо не используется)
+    # Language — поле настроек (Task 10), дефолт 'system' → Resolve-PtLang сам решит en/ru по культуре.
     if (-not $Lang) { $Lang = Resolve-PtLang -Override ((Get-PtSettings).Language) }
     $t = $script:PtStrings[$Lang]
     if ($t -and $t.ContainsKey($Key)) { return $t[$Key] } else { return $Key }
@@ -239,8 +239,14 @@ function Get-PtHotkeySpec {
     }
 }
 
-# --- настройки трея (override точки монтирования vault + интервал опроса) ---
+# --- настройки трея (override точки монтирования vault + интервал опроса + Фаза B: язык/хоткей/онбординг) ---
 # JSON в %APPDATA%\ParanoidTools\settings.json; путь переопределяем через PT_SETTINGS_FILE (тесты).
+
+# Значения ComboBox по индексу (зеркало macOS langValues/hotkeyValues) — один источник правды
+# для формы (Show-PtSettingsForm) и для санации в Get/Set-PtSettings.
+$script:PtLangValues = @('system', 'en', 'ru')
+$script:PtHotkeyValues = @('ctrl-alt-shift-p', 'ctrl-alt-shift-l', 'off')
+
 function Get-PtSettingsFile {
     if ($env:PT_SETTINGS_FILE) { return $env:PT_SETTINGS_FILE }
     $base = if ($env:APPDATA) { $env:APPDATA } elseif ($env:HOME) { Join-Path $env:HOME '.config' } else { $null }
@@ -248,28 +254,47 @@ function Get-PtSettingsFile {
     return (Join-Path $base 'ParanoidTools\settings.json')
 }
 function Get-PtSettings {
-    $s = [pscustomobject]@{ VaultVolume = ''; PollSeconds = 15 }
+    $s = [pscustomobject]@{ VaultVolume = ''; PollSeconds = 15; Language = 'system'
+                            PanicHotkey = 'ctrl-alt-shift-p'; Onboarded = $false }
     $f = Get-PtSettingsFile
     if ($f -and (Test-Path -LiteralPath $f)) {
         try {
             $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
             if ($null -ne $j.VaultVolume) { $s.VaultVolume = [string]$j.VaultVolume }
             if ($null -ne ($j.PollSeconds -as [int])) { $s.PollSeconds = [int]$j.PollSeconds }
+            if ($null -ne $j.Language)    { $s.Language = [string]$j.Language }
+            if ($null -ne $j.PanicHotkey) { $s.PanicHotkey = [string]$j.PanicHotkey }
+            # -eq $true, не [bool]: рукописное "Onboarded":"false" (строка) через [bool] давало бы $true
+            if ($null -ne $j.Onboarded)   { $s.Onboarded = ($j.Onboarded -eq $true) }
         } catch { }   # битый файл → дефолты
     }
     # Clamp в [5, 3600]: руками вписанный в JSON PollSeconds > 3600 иначе бросал на
     # NumericUpDown.Value (Maximum=3600) при открытии settings-панели.
     if ($s.PollSeconds -lt 5) { $s.PollSeconds = 5 } elseif ($s.PollSeconds -gt 3600) { $s.PollSeconds = 3600 }
+    # Санация: мусор из руками правленного JSON (или устаревшая версия) → дефолты, тем же
+    # принципом, что и clamp у PollSeconds. Lowercase ДО -notin: -notin регистронезависим,
+    # а Array.IndexOf в форме — нет ("RU" иначе пережил бы санацию, но форма показала бы System).
+    $s.Language = ([string]$s.Language).ToLowerInvariant()
+    $s.PanicHotkey = ([string]$s.PanicHotkey).ToLowerInvariant()
+    if ($s.Language -notin $script:PtLangValues) { $s.Language = 'system' }
+    if ($s.PanicHotkey -notin $script:PtHotkeyValues) { $s.PanicHotkey = 'ctrl-alt-shift-p' }
     return $s
 }
 function Set-PtSettings {
-    param([string]$VaultVolume = '', [int]$PollSeconds = 15)
+    param([string]$VaultVolume = '', [int]$PollSeconds = 15, [string]$Language = 'system',
+          [string]$PanicHotkey = 'ctrl-alt-shift-p', [bool]$Onboarded = $false)
     if ($PollSeconds -lt 5) { $PollSeconds = 5 } elseif ($PollSeconds -gt 3600) { $PollSeconds = 3600 }
+    # Та же санация + lowercase, что в Get-PtSettings: в JSON всегда уходит канонический lowercase.
+    $Language = $Language.ToLowerInvariant()
+    $PanicHotkey = $PanicHotkey.ToLowerInvariant()
+    if ($Language -notin $script:PtLangValues) { $Language = 'system' }
+    if ($PanicHotkey -notin $script:PtHotkeyValues) { $PanicHotkey = 'ctrl-alt-shift-p' }
     $f = Get-PtSettingsFile
     if (-not $f) { return }
     $dir = Split-Path -Parent $f
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    [pscustomobject]@{ VaultVolume = $VaultVolume; PollSeconds = $PollSeconds } | ConvertTo-Json | Set-Content -LiteralPath $f
+    [pscustomobject]@{ VaultVolume = $VaultVolume; PollSeconds = $PollSeconds; Language = $Language
+                       PanicHotkey = $PanicHotkey; Onboarded = $Onboarded } | ConvertTo-Json | Set-Content -LiteralPath $f
 }
 
 # Запустить CLI в НОВОМ окне консоли (pwsh) — вывод и ввод секретов идут в сам CLI, не через tray.
@@ -286,32 +311,60 @@ function Show-PtSettingsForm {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     $cur = Get-PtSettings
+    # Один резолв языка на всю форму (консистентность с T7: не N чтений settings в Get-PtL).
+    $lang = Resolve-PtLang -Override $cur.Language
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'Paranoid Tools - Settings'
     $form.FormBorderStyle = 'FixedDialog'; $form.MaximizeBox = $false; $form.MinimizeBox = $false
-    $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(380, 150)
+    $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(380, 230)
 
     $lblVol = New-Object System.Windows.Forms.Label
-    $lblVol.Text = 'Vault volume:'; $lblVol.SetBounds(12, 18, 110, 20)
+    $lblVol.Text = (Get-PtL set_vol -Lang $lang); $lblVol.SetBounds(12, 18, 110, 20)
     $tbVol = New-Object System.Windows.Forms.TextBox
     $tbVol.SetBounds(130, 15, 235, 22); $tbVol.Text = $cur.VaultVolume
 
     $lblPoll = New-Object System.Windows.Forms.Label
-    $lblPoll.Text = 'Poll interval (s):'; $lblPoll.SetBounds(12, 52, 110, 20)
+    $lblPoll.Text = (Get-PtL set_poll -Lang $lang); $lblPoll.SetBounds(12, 52, 110, 20)
     $nudPoll = New-Object System.Windows.Forms.NumericUpDown
     $nudPoll.SetBounds(130, 49, 70, 22); $nudPoll.Minimum = 5; $nudPoll.Maximum = 3600; $nudPoll.Value = $cur.PollSeconds
 
-    $ok = New-Object System.Windows.Forms.Button
-    $ok.Text = 'Save'; $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK; $ok.SetBounds(190, 110, 80, 28)
-    $cancel = New-Object System.Windows.Forms.Button
-    $cancel.Text = 'Cancel'; $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; $cancel.SetBounds(280, 110, 80, 28)
+    $lblLang = New-Object System.Windows.Forms.Label
+    $lblLang.Text = (Get-PtL set_lang -Lang $lang); $lblLang.SetBounds(12, 86, 110, 20)
+    $cbLang = New-Object System.Windows.Forms.ComboBox
+    $cbLang.DropDownStyle = 'DropDownList'; $cbLang.SetBounds(130, 83, 150, 22)
+    [void]$cbLang.Items.AddRange(@('System', 'English', 'Русский'))
+    $cbLang.SelectedIndex = [math]::Max(0, $script:PtLangValues.IndexOf($cur.Language))
 
-    $form.Controls.AddRange(@($lblVol, $tbVol, $lblPoll, $nudPoll, $ok, $cancel))
+    $lblHk = New-Object System.Windows.Forms.Label
+    $lblHk.Text = (Get-PtL set_hotkey -Lang $lang); $lblHk.SetBounds(12, 120, 110, 20)
+    $cbHk = New-Object System.Windows.Forms.ComboBox
+    $cbHk.DropDownStyle = 'DropDownList'; $cbHk.SetBounds(130, 117, 150, 22)
+    [void]$cbHk.Items.AddRange(@('Ctrl+Alt+Shift+P', 'Ctrl+Alt+Shift+L', (Get-PtL hk_off -Lang $lang)))
+    $cbHk.SelectedIndex = [math]::Max(0, $script:PtHotkeyValues.IndexOf($cur.PanicHotkey))
+
+    # Setup guide (Show-PtWelcomeForm) приходит в Task 11 — кнопку создаём заранее (макет/Save
+    # уже готовы), но НЕ добавляем в $form.Controls, иначе клик уронит форму (функции ещё нет).
+    $setup = New-Object System.Windows.Forms.Button
+    $setup.Text = (Get-PtL set_setup_btn -Lang $lang); $setup.SetBounds(12, 185, 150, 28)
+    $setup.Add_Click({ Show-PtWelcomeForm })
+    # кнопка включается в Controls в Task 11 (Show-PtWelcomeForm)
+
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = (Get-PtL set_save -Lang $lang); $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK; $ok.SetBounds(190, 190, 80, 28)
+    $cancel = New-Object System.Windows.Forms.Button
+    $cancel.Text = 'Cancel'; $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; $cancel.SetBounds(280, 190, 80, 28)
+
+    $form.Controls.AddRange(@($lblVol, $tbVol, $lblPoll, $nudPoll, $lblLang, $cbLang, $lblHk, $cbHk, $ok, $cancel))
     $form.AcceptButton = $ok; $form.CancelButton = $cancel
 
     if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        Set-PtSettings -VaultVolume ($tbVol.Text.Trim()) -PollSeconds ([int]$nudPoll.Value)
+        # Onboarded — из СВЕЖИХ настроек, не из $cur: пока форма открыта, Welcome (Setup-кнопка,
+        # T11) мог выставить Onboarded=true — Save со stale $cur воскресил бы онбординг.
+        Set-PtSettings -VaultVolume ($tbVol.Text.Trim()) -PollSeconds ([int]$nudPoll.Value) `
+            -Language $script:PtLangValues[([math]::Max(0, $cbLang.SelectedIndex))] `
+            -PanicHotkey $script:PtHotkeyValues[([math]::Max(0, $cbHk.SelectedIndex))] `
+            -Onboarded ((Get-PtSettings).Onboarded)
         return (Get-PtSettings)
     }
     return $null
@@ -357,8 +410,8 @@ public class PtHotkeyWindow : NativeWindow {
             $notify.ShowBalloonTip(3000, 'Paranoid Tools', (Get-PtL notif_panic_arm), [System.Windows.Forms.ToolTipIcon]::Warning)
         }
     })
-    # ASSUMPTION: поле PanicHotkey в настройках появится в Task 10; до этого $null → Get-PtHotkeySpec
-    # $null → $null (default-ветка switch) → хоткей не регистрируем. Порядок задач безопасен.
+    # PanicHotkey — поле настроек (Task 10), дефолт ctrl-alt-shift-p → хоткей активен из коробки
+    # (паритет с macOS).
     $hkSpec = Get-PtHotkeySpec -Preset ((Get-PtSettings).PanicHotkey)
     if ($hkSpec) {
         if (-not $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)) {
@@ -418,6 +471,16 @@ public class PtHotkeyWindow : NativeWindow {
                         if ($s.VaultVolume) { $env:ST_VAULT_VOLUME = $s.VaultVolume }
                         else { Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue }
                         $timer.Interval = [math]::Max(5, $s.PollSeconds) * 1000
+                        # Перевзвод хоткея по новому пресету — результат Register не глотаем
+                        # (честность, T9): фейл → тот же balloon, что при старте трея.
+                        $hkSpec = Get-PtHotkeySpec -Preset $s.PanicHotkey
+                        if ($hkSpec) {
+                            if (-not $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)) {
+                                $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
+                            }
+                        } else { $script:hotkeyWin.Unregister() }
+                        # Смена языка: & $rebuild ниже сам перечитывает Get-PtSettings.Language
+                        # в $lang в начале блока — отдельного шага не нужно.
                     }
                     & $rebuild
                 }.GetNewClosure())

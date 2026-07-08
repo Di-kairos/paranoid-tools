@@ -201,6 +201,33 @@ Describe 'Get-PtSettings / Set-PtSettings — хранилище настрое�
     }
 }
 
+Describe 'Settings v2 (language/hotkey/onboarded)' {
+    BeforeEach {
+        $env:PT_SETTINGS_FILE = Join-Path $TestDrive 'settings.json'
+        # чистый лист на каждый It: файл мог остаться от соседнего теста в том же TestDrive
+        Remove-Item -LiteralPath $env:PT_SETTINGS_FILE -ErrorAction SilentlyContinue
+    }
+    AfterEach  { Remove-Item Env:\PT_SETTINGS_FILE -ErrorAction SilentlyContinue }
+    It 'defaults: system language, hotkey on (ctrl-alt-shift-p), not onboarded' {
+        $s = Get-PtSettings
+        $s.Language | Should -Be 'system'
+        $s.PanicHotkey | Should -Be 'ctrl-alt-shift-p'
+        $s.Onboarded | Should -BeFalse
+    }
+    It 'round-trips new fields' {
+        Set-PtSettings -VaultVolume 'X:' -PollSeconds 30 -Language 'ru' -PanicHotkey 'off' -Onboarded $true
+        $s = Get-PtSettings
+        $s.Language | Should -Be 'ru'
+        $s.PanicHotkey | Should -Be 'off'
+        $s.Onboarded | Should -BeTrue
+    }
+    It 'sanitizes garbage language/hotkey to defaults' {
+        Set-PtSettings -Language 'xx' -PanicHotkey 'garbage'
+        (Get-PtSettings).Language | Should -Be 'system'
+        (Get-PtSettings).PanicHotkey | Should -Be 'ctrl-alt-shift-p'
+    }
+}
+
 Describe 'Localization' {
     It 'returns en/ru strings and falls back to key' {
         Get-PtL -Key 'vault_closed' -Lang 'en' | Should -Be 'closed'
