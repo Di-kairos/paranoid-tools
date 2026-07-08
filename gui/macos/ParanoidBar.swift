@@ -95,12 +95,55 @@ private func L(_ key: String, lang: String? = nil) -> String {
     return (lang ?? currentLang()) == "ru" ? s.ru : s.en
 }
 
+// --- уведомления: чистый движок решений (selftest) + доставка через osascript.
+// UNUserNotificationCenter требует .app-бандл с identity — неподписанный бинарь падает,
+// поэтому display notification через osascript (работает у голого исполняемого). ---
+struct NotifyState: Equatable {
+    var ttlWarned = false          // «авто-закроется через N» уже показано в этом эпизоде
+    var ttlExpiredWarned = false   // «TTL истёк» уже показано
+    var longOpenWarned = false     // «открыт 30+ мин» уже показано
+    var openSince: Date? = nil     // начало текущего эпизода «сейф открыт»
+                                   // (= первый опрос, увидевший open; рестарт GUI сбрасывает отсчёт)
+}
+// Правила (спека §2): TTL<120с → ttl_warn; TTL==0 при открытом → ttl_expired; открыт >30 мин
+// БЕЗ vaultwatch-сессии → long_open. Каждое — однократно за эпизод; закрытие сейфа сбрасывает.
+// Имена событий-строк намеренно зеркалят Windows-tray (Get-PtNotifyEvents) — не заменять на enum.
+func decideNotifications(open: Bool, ttl: Int?, hasSessions: Bool, now: Date,
+                         state: NotifyState) -> ([String], NotifyState) {
+    var s = state
+    guard open else { return ([], NotifyState()) }         // закрыт → сброс эпизода
+    if s.openSince == nil { s.openSince = now }
+    var events: [String] = []
+    if let t = ttl, t >= 120 { s.ttlWarned = false; s.ttlExpiredWarned = false }   // новая/продлённая сессия → перевзвод
+    if let t = ttl {
+        if t > 0 && t < 120 && !s.ttlWarned { events.append("ttl_warn"); s.ttlWarned = true }
+        if t == 0 && !s.ttlExpiredWarned { events.append("ttl_expired"); s.ttlExpiredWarned = true }
+    }
+    if !hasSessions, let since = s.openSince,
+       now.timeIntervalSince(since) > 1800, !s.longOpenWarned {
+        events.append("long_open"); s.longOpenWarned = true
+    }
+    return (events, s)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
     private var settingsWindow: NSWindow?
     private var volField: NSTextField?
     private var pollField: NSTextField?
+    private var notifyState = NotifyState()
+
+    // Доставка нативного уведомления. Секретов в тексте нет — только статус.
+    private func notify(_ text: String) {
+        let esc = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.arguments = ["-e", "display notification \"\(esc)\" with title \"Paranoid Bar\""]
+        try? p.run()
+    }
 
     func applicationDidFinishLaunching(_ note: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -196,6 +239,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.button?.toolTip = tip
         }
         rebuildMenu(open: open, sessions: sessions)
+
+        let (events, newState) = decideNotifications(
+            open: open, ttl: ttl, hasSessions: !sessions.isEmpty, now: Date(), state: notifyState)
+        notifyState = newState
+        for e in events {
+            switch e {
+            case "ttl_warn":    notify(L("notif_ttl_warn").replacingOccurrences(of: "{0}", with: fmtDuration(ttl ?? 0)))
+            case "ttl_expired": notify(L("notif_ttl_expired"))
+            case "long_open":   notify(L("notif_long_open"))
+            default: break
+            }
+        }
     }
 
     // --- меню ---
@@ -400,6 +455,46 @@ private func runSelfTests() -> Never {
     expect(resolveLang(override: "system", systemLang: "fr") == "en", "resolveLang system fr->en")   // не-RU → en
     // весь словарь: нет пустых/placeholder значений
     for (k, v) in strings { expect(!v.en.isEmpty && !v.ru.isEmpty, "empty value for \(k)") }
+    // движок уведомлений: каждое событие один раз за эпизод, закрытие сейфа сбрасывает всё
+    var ns = NotifyState()
+    var ev: [String]
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    (ev, ns) = decideNotifications(open: true, ttl: 90, hasSessions: true, now: t0, state: ns)
+    expect(ev == ["ttl_warn"], "ttl<120 warns")
+    (ev, ns) = decideNotifications(open: true, ttl: 80, hasSessions: true, now: t0, state: ns)
+    expect(ev.isEmpty, "no repeat warn")
+    (ev, ns) = decideNotifications(open: true, ttl: 0, hasSessions: true, now: t0, state: ns)
+    expect(ev == ["ttl_expired"], "ttl==0 expired")
+    (ev, ns) = decideNotifications(open: false, ttl: nil, hasSessions: false, now: t0, state: ns)
+    expect(ev.isEmpty && ns.openSince == nil, "close resets")
+    (ev, ns) = decideNotifications(open: true, ttl: nil, hasSessions: false, now: t0, state: ns)
+    expect(ev.isEmpty && ns.openSince == t0, "episode starts")
+    (ev, ns) = decideNotifications(open: true, ttl: nil, hasSessions: false,
+                                   now: t0.addingTimeInterval(1801), state: ns)
+    expect(ev == ["long_open"], "30min long_open")
+    (ev, ns) = decideNotifications(open: true, ttl: nil, hasSessions: false,
+                                   now: t0.addingTimeInterval(3600), state: ns)
+    expect(ev.isEmpty, "no repeat long_open")
+    // re-arm: новая/продлённая vaultwatch-сессия (ttl≥120) перевзводит ttl-предупреждения,
+    // не дожидаясь закрытия сейфа — повторное истечение внутри эпизода не должно молчать
+    (ev, ns) = decideNotifications(open: true, ttl: 90, hasSessions: true,
+                                   now: t0.addingTimeInterval(3590), state: ns)
+    expect(ev == ["ttl_warn"], "warn mid-episode")
+    (ev, ns) = decideNotifications(open: true, ttl: 0, hasSessions: true,
+                                   now: t0.addingTimeInterval(3600), state: ns)
+    expect(ev == ["ttl_expired"], "expired mid-episode")
+    (ev, ns) = decideNotifications(open: true, ttl: 300, hasSessions: true,
+                                   now: t0.addingTimeInterval(3660), state: ns)
+    expect(ev.isEmpty, "ttl>=120 silent re-arm")
+    (ev, ns) = decideNotifications(open: true, ttl: 90, hasSessions: true,
+                                   now: t0.addingTimeInterval(3900), state: ns)
+    expect(ev == ["ttl_warn"], "re-armed warn after new session")
+    // long_open подавляется, пока жива vaultwatch-сессия (даже без TTL)
+    var ns2 = NotifyState()
+    (ev, ns2) = decideNotifications(open: true, ttl: nil, hasSessions: true, now: t0, state: ns2)
+    (ev, ns2) = decideNotifications(open: true, ttl: nil, hasSessions: true,
+                                    now: t0.addingTimeInterval(1801), state: ns2)
+    expect(ev.isEmpty, "long_open suppressed with live session")
     print("selftest OK")
     exit(0)
 }
