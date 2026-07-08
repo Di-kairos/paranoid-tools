@@ -217,6 +217,49 @@ Describe 'Localization' {
     }
 }
 
+Describe 'Panic hotkey' {
+    It 'double-press fires only within 2s window' {
+        Test-PtPanicShouldFire -Now 1000.0 -ArmedAt $null | Should -BeFalse
+        Test-PtPanicShouldFire -Now 1001.5 -ArmedAt 1000.0 | Should -BeTrue
+        Test-PtPanicShouldFire -Now 1002.0 -ArmedAt 1000.0 | Should -BeTrue
+        Test-PtPanicShouldFire -Now 1002.5 -ArmedAt 1000.0 | Should -BeFalse
+    }
+    It 'maps presets to vk codes, off/garbage to $null' {
+        (Get-PtHotkeySpec -Preset 'ctrl-alt-shift-p').Vk | Should -Be 0x50
+        (Get-PtHotkeySpec -Preset 'ctrl-alt-shift-l').Vk | Should -Be 0x4C
+        (Get-PtHotkeySpec -Preset 'ctrl-alt-shift-p').Modifiers | Should -Be 7
+        Get-PtHotkeySpec -Preset 'off' | Should -BeNullOrEmpty
+        Get-PtHotkeySpec -Preset 'garbage' | Should -BeNullOrEmpty
+    }
+    It 'compiles the PtHotkeyWindow helper (windows-only)' -Skip:(-not $IsWindows) {
+        # тот же Add-Type сниппет, что в Start-PtTray (идемпотентен: тип уже загружен -> ловим и проверяем)
+        try {
+            Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+public class PtHotkeyWindow : NativeWindow {
+    public event EventHandler HotkeyPressed;
+    [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mods, uint vk);
+    [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    public PtHotkeyWindow() { CreateHandle(new CreateParams()); }
+    public bool Register(uint mods, uint vk) { UnregisterHotKey(Handle, 1); return RegisterHotKey(Handle, 1, mods, vk); }
+    public void Unregister() { UnregisterHotKey(Handle, 1); }
+    protected override void WndProc(ref Message m) {
+        if (m.Msg == 0x0312) { var h = HotkeyPressed; if (h != null) h(this, EventArgs.Empty); }
+        base.WndProc(ref m);
+    }
+}
+'@
+        } catch {
+            if ($_.FullyQualifiedErrorId -notmatch 'TYPE_ALREADY_EXISTS') { throw }
+        }
+        [PtHotkeyWindow] | Should -Not -BeNullOrEmpty
+        $w = New-Object PtHotkeyWindow
+        $w.Unregister()   # smoke: instance + P/Invoke биндинг живы
+    }
+}
+
 Describe 'Notification engine' {
     It 'fires each event once per episode and resets on close' {
         $s = New-PtNotifyState

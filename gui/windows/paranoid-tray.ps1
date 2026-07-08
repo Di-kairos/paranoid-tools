@@ -220,6 +220,25 @@ function Get-PtNotifyEvents {
     return [pscustomobject]@{ Events = $events; State = $s }
 }
 
+# --- глобальный хоткей паники: RegisterHotKey + скрытое message-окно (WM_HOTKEY=0x0312).
+# Двойное нажатие в 2с (включительно) → panic now БЕЗ confirm (panic обратим); одиночное —
+# взвод + balloon. Чистая логика (окно 2с, маппинг пресетов) — Pester; регистрация — GUI-путь.
+# Результат RegisterHotKey не глотаем (зеркало macOS honesty-фикса): фейл → notif_hotkey_fail. ---
+function Test-PtPanicShouldFire {
+    param([double]$Now, [object]$ArmedAt, [double]$Window = 2.0)
+    if ($null -eq $ArmedAt) { return $false }
+    return (($Now - [double]$ArmedAt) -le $Window)
+}
+# MOD_CONTROL=2 MOD_ALT=1 MOD_SHIFT=4 → 7; vk: P=0x50, L=0x4C.
+function Get-PtHotkeySpec {
+    param([string]$Preset)
+    switch ($Preset) {
+        'ctrl-alt-shift-p' { return [pscustomobject]@{ Modifiers = 7; Vk = 0x50 } }
+        'ctrl-alt-shift-l' { return [pscustomobject]@{ Modifiers = 7; Vk = 0x4C } }
+        default { return $null }
+    }
+}
+
 # --- настройки трея (override точки монтирования vault + интервал опроса) ---
 # JSON в %APPDATA%\ParanoidTools\settings.json; путь переопределяем через PT_SETTINGS_FILE (тесты).
 function Get-PtSettingsFile {
@@ -307,6 +326,45 @@ function Start-PtTray {
     $notify.Icon = [System.Drawing.SystemIcons]::Shield
     $notify.Text = 'Paranoid Tools'
     $notify.Visible = $true
+
+    # Скрытое NativeWindow ловит WM_HOTKEY (RegisterHotKey требует окно; у NotifyIcon его нет).
+    Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+public class PtHotkeyWindow : NativeWindow {
+    public event EventHandler HotkeyPressed;
+    [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mods, uint vk);
+    [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    public PtHotkeyWindow() { CreateHandle(new CreateParams()); }
+    public bool Register(uint mods, uint vk) { UnregisterHotKey(Handle, 1); return RegisterHotKey(Handle, 1, mods, vk); }
+    public void Unregister() { UnregisterHotKey(Handle, 1); }
+    protected override void WndProc(ref Message m) {
+        if (m.Msg == 0x0312) { var h = HotkeyPressed; if (h != null) h(this, EventArgs.Empty); }
+        base.WndProc(ref m);
+    }
+}
+'@
+    $script:hotkeyWin = New-Object PtHotkeyWindow
+    $script:panicArmedAt = $null
+    $script:hotkeyWin.add_HotkeyPressed({
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
+        if (Test-PtPanicShouldFire -Now $now -ArmedAt $script:panicArmedAt) {
+            $script:panicArmedAt = $null
+            Invoke-PtTool -Command 'panic now'
+        } else {
+            $script:panicArmedAt = $now
+            $notify.ShowBalloonTip(3000, 'Paranoid Tools', (Get-PtL notif_panic_arm), [System.Windows.Forms.ToolTipIcon]::Warning)
+        }
+    })
+    # ASSUMPTION: поле PanicHotkey в настройках появится в Task 10; до этого $null → Get-PtHotkeySpec
+    # $null → $null (default-ветка switch) → хоткей не регистрируем. Порядок задач безопасен.
+    $hkSpec = Get-PtHotkeySpec -Preset ((Get-PtSettings).PanicHotkey)
+    if ($hkSpec) {
+        if (-not $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)) {
+            $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
+        }
+    }
 
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
 
