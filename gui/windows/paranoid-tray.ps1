@@ -114,6 +114,7 @@ function Get-PtMenuSpec {
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'login_item' -Lang $Lang);    Command = '__autostart__';     Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'settings_item' -Lang $Lang); Command = '__settings__';      Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'setup_item' -Lang $Lang);    Command = '__setup__';         Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'quit_item' -Lang $Lang);     Command = '__quit__';          Enabled = $true }
     )
@@ -239,6 +240,21 @@ function Get-PtHotkeySpec {
     }
 }
 
+# --- онбординг: чистые хелперы чеклиста Welcome-окна (зеркало macOS checklistLine/clisInstalled) ---
+# Строка чеклиста — чистая для Pester (зеркало Swift checklistLine): ✅+okKey / ❌+missKey.
+function Get-PtChecklistLine {
+    param([bool]$Ok, [string]$OkKey, [string]$MissKey, [string]$Lang)
+    if ($Ok) { return ([char]0x2705 + ' ' + (Get-PtL -Key $OkKey -Lang $Lang)) }
+    return ([char]0x274C + ' ' + (Get-PtL -Key $MissKey -Lang $Lang))
+}
+# Все 3 CLI на PATH? (install.sh ставит комплектом — по одному не проверяем.)
+function Test-PtClisInstalled {
+    foreach ($t in @('securetrash', 'panic', 'vaultwatch')) {
+        if (-not (Get-Command $t -ErrorAction SilentlyContinue)) { return $false }
+    }
+    return $true
+}
+
 # --- настройки трея (override точки монтирования vault + интервал опроса + Фаза B: язык/хоткей/онбординг) ---
 # JSON в %APPDATA%\ParanoidTools\settings.json; путь переопределяем через PT_SETTINGS_FILE (тесты).
 
@@ -300,7 +316,7 @@ function Set-PtSettings {
 # Запустить CLI в НОВОМ окне консоли (pwsh) — вывод и ввод секретов идут в сам CLI, не через tray.
 function Invoke-PtTool {
     param([string]$Command)
-    if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__' -or $Command -eq '__settings__') { return }
+    if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__' -or $Command -eq '__settings__' -or $Command -eq '__setup__') { return }
     # Команда фиксирована (из Get-PtMenuSpec), не из пользовательского ввода → инъекций нет.
     Start-Process -FilePath 'pwsh' -ArgumentList @('-NoExit', '-Command', $Command) | Out-Null
 }
@@ -343,19 +359,17 @@ function Show-PtSettingsForm {
     [void]$cbHk.Items.AddRange(@('Ctrl+Alt+Shift+P', 'Ctrl+Alt+Shift+L', (Get-PtL hk_off -Lang $lang)))
     $cbHk.SelectedIndex = [math]::Max(0, $script:PtHotkeyValues.IndexOf($cur.PanicHotkey))
 
-    # Setup guide (Show-PtWelcomeForm) приходит в Task 11 — кнопку создаём заранее (макет/Save
-    # уже готовы), но НЕ добавляем в $form.Controls, иначе клик уронит форму (функции ещё нет).
+    # Setup guide (Show-PtWelcomeForm, Task 11) — открывает Welcome-чеклист прямо из Settings.
     $setup = New-Object System.Windows.Forms.Button
     $setup.Text = (Get-PtL set_setup_btn -Lang $lang); $setup.SetBounds(12, 185, 150, 28)
     $setup.Add_Click({ Show-PtWelcomeForm })
-    # кнопка включается в Controls в Task 11 (Show-PtWelcomeForm)
 
     $ok = New-Object System.Windows.Forms.Button
     $ok.Text = (Get-PtL set_save -Lang $lang); $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK; $ok.SetBounds(190, 190, 80, 28)
     $cancel = New-Object System.Windows.Forms.Button
     $cancel.Text = 'Cancel'; $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; $cancel.SetBounds(280, 190, 80, 28)
 
-    $form.Controls.AddRange(@($lblVol, $tbVol, $lblPoll, $nudPoll, $lblLang, $cbLang, $lblHk, $cbHk, $ok, $cancel))
+    $form.Controls.AddRange(@($lblVol, $tbVol, $lblPoll, $nudPoll, $lblLang, $cbLang, $lblHk, $cbHk, $setup, $ok, $cancel))
     $form.AcceptButton = $ok; $form.CancelButton = $cancel
 
     if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -368,6 +382,101 @@ function Show-PtSettingsForm {
         return (Get-PtSettings)
     }
     return $null
+}
+
+# Welcome-окно (спека §3, зеркало macOS doWelcome/rebuildWelcome): живой чеклист + кнопки-действия.
+# Кнопки перерисовывают форму (close + reopen — приемлемо для диалога). Секретов не касается.
+function Show-PtWelcomeForm {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    $cur = Get-PtSettings
+    $lang = Resolve-PtLang -Override $cur.Language
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = (Get-PtL ob_title -Lang $lang)
+    $form.FormBorderStyle = 'FixedDialog'; $form.MaximizeBox = $false; $form.MinimizeBox = $false
+    $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(480, 280)
+
+    $y = 14
+    function Add-PtObLabel {
+        # -Width 448 (вместо дефолтных 330) — для строк БЕЗ кнопки справа (ob_sub/ob_risk):
+        # длинные EN/RU подписи (~74-78 симв.) на 330px обрезались.
+        param($Form, [string]$Text, [ref]$Y, [single]$Size = 9, [object]$Color = $null, [int]$Width = 330)
+        $l = New-Object System.Windows.Forms.Label
+        $l.Text = $Text; $l.AutoSize = $false
+        $l.SetBounds(16, $Y.Value, $Width, 22)
+        $l.Font = New-Object System.Drawing.Font('Segoe UI', $Size)
+        if ($Color) { $l.ForeColor = $Color }
+        $Form.Controls.Add($l); $Y.Value += 28
+    }
+    function Add-PtObButton {
+        param($Form, [string]$Text, [int]$AtY, [scriptblock]$OnClick)
+        $b = New-Object System.Windows.Forms.Button
+        $b.Text = $Text; $b.SetBounds(352, $AtY - 2, 112, 24)
+        $b.Add_Click($OnClick)
+        $Form.Controls.Add($b)
+    }
+
+    Add-PtObLabel $form '🔒 Paranoid Bar' ([ref]$y) 11
+    Add-PtObLabel $form (Get-PtL ob_sub -Lang $lang) ([ref]$y) 8 ([System.Drawing.Color]::Gray) -Width 448
+    Add-PtObLabel $form (Get-PtChecklistLine -Ok (Test-PtClisInstalled) -OkKey 'ob_cli_ok' -MissKey 'ob_cli_missing' -Lang $lang) ([ref]$y)
+    $hasVault = ((Get-PtVaultState) -ne 'none')
+    $vaultY = $y
+    Add-PtObLabel $form (Get-PtChecklistLine -Ok $hasVault -OkKey 'ob_vault_ok' -MissKey 'ob_vault_missing' -Lang $lang) ([ref]$y)
+    if (-not $hasVault) {
+        Add-PtObButton $form (Get-PtL ob_create_btn -Lang $lang) $vaultY { Invoke-PtTool -Command 'securetrash vault create' }
+    }
+    # хоткей: подпись по РЕАЛЬНОМУ пресету (P/L), готовность = пресет включён И регистрация реально
+    # прошла ($script:hotkeyRegistered, T9) — зеркало honesty-фикса macOS T4 (не глотать RegisterHotKey).
+    $preset = $cur.PanicHotkey
+    $hkLabel = if ($preset -eq 'ctrl-alt-shift-l') { 'Ctrl+Alt+Shift+L' } else { 'Ctrl+Alt+Shift+P' }
+    $hkOn = ($null -ne (Get-PtHotkeySpec -Preset $preset)) -and $script:hotkeyRegistered
+    $mark = if ($hkOn) { [char]0x2705 } else { [char]0x2B1C }
+    $hkY = $y
+    Add-PtObLabel $form ("$mark " + (Get-PtL ob_hotkey_line -Lang $lang) + ": $hkLabel (" + [char]0x00D7 + '2)') ([ref]$y)
+    if (-not $hkOn) {
+        Add-PtObButton $form (Get-PtL ob_enable_btn -Lang $lang) $hkY {
+            # ASSUMPTION (зеркало macOS obEnableHotkey): Enable всегда включает дефолт P;
+            # восстановление прежнего пресета — территория Settings.
+            $s = Get-PtSettings
+            Set-PtSettings -VaultVolume $s.VaultVolume -PollSeconds $s.PollSeconds -Language $s.Language `
+                -PanicHotkey 'ctrl-alt-shift-p' -Onboarded $s.Onboarded
+            # $script:hotkeyWin существует только внутри работающего трея (Start-PtTray) — Welcome
+            # всегда открывается из этого контекста (first-run/меню/Settings), так что он на месте.
+            $ok = $false
+            if ($script:hotkeyWin) {
+                $spec = Get-PtHotkeySpec -Preset 'ctrl-alt-shift-p'
+                $ok = $script:hotkeyWin.Register($spec.Modifiers, $spec.Vk)
+                $script:hotkeyRegistered = $ok
+            }
+            # Ресинк открытого Settings-комбо (зеркало macOS obEnableHotkey → hotkeyPopup):
+            # Welcome вызван из Settings → его Save иначе молча откатил бы новый пресет.
+            # Индекс 0 = 'ctrl-alt-shift-p' в $script:PtHotkeyValues.
+            $cb = Get-Variable cbHk -ValueOnly -ErrorAction SilentlyContinue
+            if ($cb) { $cb.SelectedIndex = 0 }
+            # Фейл регистрации не глотаем (зеркало macOS notify): balloon через $notify трея,
+            # если он в области видимости (Welcome открыт из живого Start-PtTray).
+            $n = Get-Variable notify -ValueOnly -ErrorAction SilentlyContinue
+            if ($n -and -not $ok) {
+                $n.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail -Lang $lang), [System.Windows.Forms.ToolTipIcon]::Warning)
+            }
+            $form.Close(); Show-PtWelcomeForm
+        }
+    }
+    $loginOn = [bool](Test-PtAutostart)
+    $mark = if ($loginOn) { [char]0x2705 } else { [char]0x2B1C }
+    $loginY = $y
+    Add-PtObLabel $form ("$mark " + (Get-PtL ob_login_line -Lang $lang)) ([ref]$y)
+    if (-not $loginOn) {
+        Add-PtObButton $form (Get-PtL ob_enable_btn -Lang $lang) $loginY { Enable-PtAutostart; $form.Close(); Show-PtWelcomeForm }
+    }
+    Add-PtObLabel $form ([char]0x26A0 + ' ' + (Get-PtL ob_risk -Lang $lang)) ([ref]$y) 8 ([System.Drawing.Color]::DarkOrange) -Width 448
+
+    $done = New-Object System.Windows.Forms.Button
+    $done.Text = (Get-PtL ob_done -Lang $lang); $done.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $done.SetBounds(384, 238, 80, 28)
+    $form.Controls.Add($done); $form.AcceptButton = $done
+    [void]$form.ShowDialog()
 }
 
 # --- WinForms tray (стартует только как самостоятельный скрипт; под ST_NO_MAIN=1 — нет) ---
@@ -400,6 +509,9 @@ public class PtHotkeyWindow : NativeWindow {
 '@
     $script:hotkeyWin = New-Object PtHotkeyWindow
     $script:panicArmedAt = $null
+    # Честный статус регистрации (зеркало macOS hotkeyRegistered, T4/T9): читает его Welcome-чеклист
+    # (Show-PtWelcomeForm) — гейт готовности = валидный пресет И реально вставшая регистрация.
+    $script:hotkeyRegistered = $false
     $script:hotkeyWin.add_HotkeyPressed({
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
         if (Test-PtPanicShouldFire -Now $now -ArmedAt $script:panicArmedAt) {
@@ -414,7 +526,8 @@ public class PtHotkeyWindow : NativeWindow {
     # (паритет с macOS).
     $hkSpec = Get-PtHotkeySpec -Preset ((Get-PtSettings).PanicHotkey)
     if ($hkSpec) {
-        if (-not $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)) {
+        $script:hotkeyRegistered = $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
+        if (-not $script:hotkeyRegistered) {
             $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
         }
     }
@@ -424,6 +537,14 @@ public class PtHotkeyWindow : NativeWindow {
     # Настройки: override точки монтирования (через env, который чтит Get-PtVaultMount) + интервал.
     $settings = Get-PtSettings
     if ($settings.VaultVolume) { $env:ST_VAULT_VOLUME = $settings.VaultVolume }
+    # First-run: Welcome один раз (зеркало macOS didOnboard) — ПОСЛЕ хоткей-блока (чеклист видит
+    # актуальный $script:hotkeyRegistered), ДО Application::Run. Onboarded=true пишем ДО показа формы,
+    # как в macOS: закрытие без Done не должно снова показать Welcome на следующем запуске.
+    if (-not $settings.Onboarded) {
+        Set-PtSettings -VaultVolume $settings.VaultVolume -PollSeconds $settings.PollSeconds `
+            -Language $settings.Language -PanicHotkey $settings.PanicHotkey -Onboarded $true
+        Show-PtWelcomeForm
+    }
     # Периодический опрос — раньше tooltip обновлялся только при открытии меню; теперь живой.
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = [math]::Max(5, $settings.PollSeconds) * 1000
@@ -475,15 +596,18 @@ public class PtHotkeyWindow : NativeWindow {
                         # (честность, T9): фейл → тот же balloon, что при старте трея.
                         $hkSpec = Get-PtHotkeySpec -Preset $s.PanicHotkey
                         if ($hkSpec) {
-                            if (-not $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)) {
+                            $script:hotkeyRegistered = $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
+                            if (-not $script:hotkeyRegistered) {
                                 $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
                             }
-                        } else { $script:hotkeyWin.Unregister() }
+                        } else { $script:hotkeyWin.Unregister(); $script:hotkeyRegistered = $false }
                         # Смена языка: & $rebuild ниже сам перечитывает Get-PtSettings.Language
                         # в $lang в начале блока — отдельного шага не нужно.
                     }
                     & $rebuild
                 }.GetNewClosure())
+            } elseif ($cmd -eq '__setup__') {
+                $it.Add_Click({ Show-PtWelcomeForm }.GetNewClosure())
             } else {
                 $it.Add_Click({ Invoke-PtTool -Command $cmd }.GetNewClosure())
             }

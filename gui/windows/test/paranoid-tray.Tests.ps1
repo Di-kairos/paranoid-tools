@@ -244,6 +244,35 @@ Describe 'Localization' {
     }
 }
 
+Describe 'Onboarding' {
+    It 'builds checklist lines from readiness' {
+        Get-PtChecklistLine -Ok $true -OkKey 'ob_cli_ok' -MissKey 'ob_cli_missing' -Lang 'en' |
+            Should -Be ([char]0x2705 + ' ' + 'CLIs installed (securetrash, panic, vaultwatch)')
+        Get-PtChecklistLine -Ok $false -OkKey 'ob_vault_ok' -MissKey 'ob_vault_missing' -Lang 'ru' |
+            Should -Be ([char]0x274C + ' ' + 'Сейф ещё не создан')
+    }
+    It 'содержит пункт Setup guide (__setup__) в меню' {
+        $set = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Command -eq '__setup__' }
+        $set.Label | Should -Be (Get-PtL -Key 'setup_item' -Lang 'en')
+    }
+    It 'Invoke-PtTool игнорирует __setup__ (форму открывает сам tray)' {
+        Mock Start-Process { }
+        Invoke-PtTool -Command '__setup__'
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+}
+
+Describe 'Cross-platform l10n parity' {
+    It 'ps1 key set equals Swift key set' {
+        $swiftPath = Join-Path $PSScriptRoot '..' '..' 'macos' 'ParanoidBar.swift'
+        $swift = Get-Content -LiteralPath $swiftPath -Raw
+        $swiftKeys = [regex]::Matches($swift, '(?m)^\s*"([a-z0-9_]+)":\s*\(') |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+        $psKeys = $PtStrings.en.Keys | Sort-Object -Unique
+        ($psKeys -join ',') | Should -Be ($swiftKeys -join ',')
+    }
+}
+
 Describe 'Panic hotkey' {
     It 'double-press fires only within 2s window' {
         Test-PtPanicShouldFire -Now 1000.0 -ArmedAt $null | Should -BeFalse
