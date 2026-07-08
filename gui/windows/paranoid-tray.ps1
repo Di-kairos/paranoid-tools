@@ -519,7 +519,8 @@ function Start-PtTray {
     $notify.Visible = $true
 
     # Скрытое NativeWindow ловит WM_HOTKEY (RegisterHotKey требует окно; у NotifyIcon его нет).
-    Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+    # Primitives: на .NET 10+ тип Message форварднут в System.Windows.Forms.Primitives (CS1069 без него).
+    Add-Type -ReferencedAssemblies System.Windows.Forms, System.Windows.Forms.Primitives -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;

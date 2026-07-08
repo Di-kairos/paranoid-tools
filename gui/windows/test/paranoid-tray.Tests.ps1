@@ -331,7 +331,7 @@ Describe 'Panic hotkey' {
     It 'compiles the PtHotkeyWindow helper (windows-only)' -Skip:(-not $IsWindows) {
         # тот же Add-Type сниппет, что в Start-PtTray (идемпотентен: тип уже загружен -> ловим и проверяем)
         try {
-            Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+            Add-Type -ReferencedAssemblies System.Windows.Forms, System.Windows.Forms.Primitives -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
