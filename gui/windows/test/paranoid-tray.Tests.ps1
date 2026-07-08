@@ -216,3 +216,43 @@ Describe 'Localization' {
         ($PtStrings.en.Keys | Sort-Object) -join ',' | Should -Be (($PtStrings.ru.Keys | Sort-Object) -join ',')
     }
 }
+
+Describe 'Notification engine' {
+    It 'fires each event once per episode and resets on close' {
+        $s = New-PtNotifyState
+        $r = Get-PtNotifyEvents -Open $true -Ttl 90 -HasSessions $true -Now 1000000 -State $s
+        $r.Events | Should -Be @('ttl_warn')
+        $r2 = Get-PtNotifyEvents -Open $true -Ttl 80 -HasSessions $true -Now 1000001 -State $r.State
+        $r2.Events | Should -BeNullOrEmpty
+        $r3 = Get-PtNotifyEvents -Open $true -Ttl 0 -HasSessions $true -Now 1000002 -State $r2.State
+        $r3.Events | Should -Be @('ttl_expired')
+        $r4 = Get-PtNotifyEvents -Open $false -Ttl $null -HasSessions $false -Now 1000003 -State $r3.State
+        $r4.State.OpenSince | Should -BeNullOrEmpty
+    }
+    It 'warns once after 30 min open without vaultwatch' {
+        $s = New-PtNotifyState
+        $r = Get-PtNotifyEvents -Open $true -Ttl $null -HasSessions $false -Now 1000000 -State $s
+        $r.Events | Should -BeNullOrEmpty
+        $r2 = Get-PtNotifyEvents -Open $true -Ttl $null -HasSessions $false -Now 1001801 -State $r.State
+        $r2.Events | Should -Be @('long_open')
+        $r3 = Get-PtNotifyEvents -Open $true -Ttl $null -HasSessions $false -Now 1003600 -State $r2.State
+        $r3.Events | Should -BeNullOrEmpty
+    }
+    It 're-arms ttl warnings when a fresh/renewed session appears (>=120s)' {
+        $s = New-PtNotifyState
+        $r = Get-PtNotifyEvents -Open $true -Ttl 90 -HasSessions $true -Now 1000000 -State $s
+        $r.Events | Should -Be @('ttl_warn')
+        $r2 = Get-PtNotifyEvents -Open $true -Ttl 0 -HasSessions $true -Now 1000090 -State $r.State
+        $r2.Events | Should -Be @('ttl_expired')
+        $r3 = Get-PtNotifyEvents -Open $true -Ttl 300 -HasSessions $true -Now 1000100 -State $r2.State
+        $r3.Events | Should -BeNullOrEmpty
+        $r4 = Get-PtNotifyEvents -Open $true -Ttl 90 -HasSessions $true -Now 1000300 -State $r3.State
+        $r4.Events | Should -Be @('ttl_warn')
+    }
+    It 'suppresses long_open while a vaultwatch session is alive' {
+        $s = New-PtNotifyState
+        $r = Get-PtNotifyEvents -Open $true -Ttl $null -HasSessions $true -Now 1000000 -State $s
+        $r2 = Get-PtNotifyEvents -Open $true -Ttl $null -HasSessions $true -Now 1001801 -State $r.State
+        $r2.Events | Should -BeNullOrEmpty
+    }
+}

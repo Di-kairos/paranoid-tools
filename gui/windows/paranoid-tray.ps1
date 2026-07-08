@@ -194,6 +194,32 @@ function Get-PtVaultwatchSessions {
     return $out
 }
 
+# --- уведомления: чистый движок решений (Pester), доставка — NotifyIcon.ShowBalloonTip.
+# Правила = спека §2, зеркало Swift decideNotifications: каждое событие один раз за эпизод
+# «сейф открыт»; закрытие сейфа сбрасывает эпизод; свежая/продлённая vaultwatch-сессия
+# (TTL >= 120с) перевзводит ttl-предупреждения. Имена событий зеркалят macOS — не менять.
+function New-PtNotifyState {
+    [pscustomobject]@{ TtlWarned = $false; TtlExpiredWarned = $false; LongOpenWarned = $false; OpenSince = $null }
+}
+function Get-PtNotifyEvents {
+    param([bool]$Open, [object]$Ttl, [bool]$HasSessions, [int64]$Now, [Parameter(Mandatory)]$State)
+    if (-not $Open) { return [pscustomobject]@{ Events = @(); State = (New-PtNotifyState) } }
+    $s = [pscustomobject]@{ TtlWarned = $State.TtlWarned; TtlExpiredWarned = $State.TtlExpiredWarned
+                            LongOpenWarned = $State.LongOpenWarned; OpenSince = $State.OpenSince }
+    if ($null -eq $s.OpenSince) { $s.OpenSince = $Now }
+    $events = @()
+    if ($null -ne $Ttl) {
+        # новая/продлённая сессия -> перевзвод (зеркало Swift re-arm, ревью T2)
+        if ($Ttl -ge 120) { $s.TtlWarned = $false; $s.TtlExpiredWarned = $false }
+        if ($Ttl -gt 0 -and $Ttl -lt 120 -and -not $s.TtlWarned) { $events += 'ttl_warn'; $s.TtlWarned = $true }
+        if ($Ttl -eq 0 -and -not $s.TtlExpiredWarned) { $events += 'ttl_expired'; $s.TtlExpiredWarned = $true }
+    }
+    if (-not $HasSessions -and ($Now - $s.OpenSince) -gt 1800 -and -not $s.LongOpenWarned) {
+        $events += 'long_open'; $s.LongOpenWarned = $true
+    }
+    return [pscustomobject]@{ Events = $events; State = $s }
+}
+
 # --- настройки трея (override точки монтирования vault + интервал опроса) ---
 # JSON в %APPDATA%\ParanoidTools\settings.json; путь переопределяем через PT_SETTINGS_FILE (тесты).
 function Get-PtSettingsFile {
@@ -290,6 +316,7 @@ function Start-PtTray {
     # Периодический опрос — раньше tooltip обновлялся только при открытии меню; теперь живой.
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = [math]::Max(5, $settings.PollSeconds) * 1000
+    $script:notifyState = New-PtNotifyState
 
     $rebuild = {
         $menu.Items.Clear()
@@ -340,6 +367,18 @@ function Start-PtTray {
                 $it.Add_Click({ Invoke-PtTool -Command $cmd }.GetNewClosure())
             }
             $menu.Items.Add($it) | Out-Null
+        }
+        # уведомления: движок решает, BalloonTip доставляет (10с; текст без секретов)
+        $now = [int64][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $nr = Get-PtNotifyEvents -Open ($state -eq 'open') -Ttl $ttl -HasSessions ($sessions.Count -gt 0) -Now $now -State $script:notifyState
+        $script:notifyState = $nr.State
+        foreach ($e in $nr.Events) {
+            $text = switch ($e) {
+                'ttl_warn'    { (Get-PtL notif_ttl_warn -Lang $lang) -replace '\{0\}', (Format-PtDuration $ttl) }
+                'ttl_expired' { Get-PtL notif_ttl_expired -Lang $lang }
+                'long_open'   { Get-PtL notif_long_open -Lang $lang }
+            }
+            if ($text) { $notify.ShowBalloonTip(10000, 'Paranoid Tools', $text, [System.Windows.Forms.ToolTipIcon]::Warning) }
         }
     }
     $timer.Add_Tick($rebuild)     # живой опрос статуса/TTL по интервалу из настроек
