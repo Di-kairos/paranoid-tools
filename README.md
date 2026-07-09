@@ -12,7 +12,7 @@
 &nbsp;![releases](https://img.shields.io/badge/releases-Ed25519%20signed-blueviolet)
 &nbsp;![tools](https://img.shields.io/badge/tools-5-informational)
 
-**[Manifesto](MANIFEST.md)** &nbsp;·&nbsp; **[Tools](#the-tools)** &nbsp;·&nbsp; **[Install](#install)** &nbsp;·&nbsp; **[Launcher](#the-launcher)**
+**[Manifesto](MANIFEST.md)** &nbsp;·&nbsp; **[Threat model](THREAT-MODEL.md)** &nbsp;·&nbsp; **[Tools](#the-tools)** &nbsp;·&nbsp; **[Install](#install)** &nbsp;·&nbsp; **[Launcher](#the-launcher)**
 
 <img src="assets/dashboard.svg" alt="The paranoid launcher: a status dashboard plus a menu over the five tools" width="560">
 
@@ -22,6 +22,12 @@
 > auditable file per tool · shellcheck-clean. Every limitation is stated plainly — see each
 > tool's *Scope &amp; limitations*. No third-party audit is claimed; the code is small enough
 > to read yourself.
+
+**Not a password manager.** A small, auditable, local toolkit for the few secrets whose
+leak you can't undo — no cloud, no telemetry, no promises it can't keep. It closes the
+gap between your password manager, disk encryption, and a paper backup. Whether it fits
+your case — and what it will *not* protect you from — is spelled out in the
+**[threat model](THREAT-MODEL.md)**.
 
 An umbrella of small command-line tools around the **lifecycle of a secret**
 (seed phrase / password / key). Each tool is its own git repo — a single-file
@@ -34,9 +40,9 @@ runtime dependencies** — and is honest about the limits of what it can guarant
 |---|------|-------------------------|----------|--------|
 | 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/securetrash?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/securetrash/releases/latest) |
 | 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
-| 3 | [`panic`](https://github.com/Di-kairos/panic)             | hide & lock everything, instantly | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
+| 3 | [`panic`](https://github.com/Di-kairos/panic)             | close vaults, detach volumes, clear the clipboard, lock the screen — instantly | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
 | 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text without leaving copies in the usual places | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
-| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares (+ passphrase) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
+| 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares (+ passphrase on macOS) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
 
 > **Windows.** All five tools ship PowerShell ports (beta, Pester-tested in CI; seedsplit
 > shares are byte-compatible with the macOS build). The macOS primitives — Spotlight, Time
@@ -208,8 +214,9 @@ your shell rc to keep it on.
   `# === BEGIN vendored common (pin: <ref>) ===` markers. A sync script + a CI
   drift check keep copies honest. No runtime dependency, no build step.
 - **Vault hooks.** `securetrash vault open/close` fire
-  `~/.securetrash/hooks/{post-open,post-close}`; `vaultwatch`/`panic` hook into
-  the container's lifecycle through them.
+  `~/.securetrash/hooks/{post-open,post-close}`; `vaultwatch install-hooks` wires the
+  guard into the container's lifecycle through them. (`panic` stays hook-free on
+  purpose: it must work even when nothing else is set up.)
 - **The ecosystem law.** One tool = one job. Every README must carry an honest
   *Scope & limitations* section. Never manufacture a false sense of security.
 

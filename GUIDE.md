@@ -93,6 +93,93 @@ the menu does is available directly via the commands below.
 
 ---
 
+## I have a seed phrase. Walk me through.
+
+The full lifecycle of one high-value secret, end to end. Works the same for a private
+key, a recovery code, or a password you can't afford to leak. Ten minutes, six steps.
+
+Before anything else — decide whether this toolkit fits your case at all:
+[THREAT-MODEL.md](THREAT-MODEL.md) says plainly what it protects against and what it doesn't.
+
+**1. Check what actually protects you on this machine.**
+
+```bash
+securetrash check
+```
+
+Read the verdict. If it says FileVault is off — turn it on first (System Settings →
+Privacy & Security → FileVault). Everything below assumes the disk itself is encrypted;
+without that, the vault is a locked box in an open room.
+
+**2. Create the vault.**
+
+```bash
+securetrash vault create
+```
+
+Asks for a size and a password. The password is the whole game: it isn't stored
+anywhere, and there is no reset. The vault appears as an encrypted container
+(`~/SecureVault.sparsebundle`); opened, it mounts at `/Volumes/SecretVault`.
+
+**3. Write the seed phrase down — inside the vault.**
+
+```bash
+securetrash vault open
+nano /Volumes/SecretVault/seed.txt
+```
+
+A plain file inside the encrypted container: close the vault and it's ciphertext on
+disk. This is your persistent copy. Don't use `ghostdraft new` for this — that's the
+opposite tool: an ephemeral draft, shredded the moment you leave the editor (right for
+a secret you write and hand over once, fatal for one you meant to keep).
+
+**4. Guard the vault while it's open.**
+
+While the vault is mounted, its contents are readable by anyone at your Mac.
+`vaultwatch` narrows the leak channels it can control (Spotlight indexing,
+Time Machine) and honestly reports the ones it can't (running cloud-sync clients).
+Wire it up once, and `vault open`/`close` will start and stop the guard themselves:
+
+```bash
+vaultwatch install-hooks
+```
+
+To also close a forgotten vault on a timer (it refuses to force-detach a vault with
+files still in use — honest, not magic):
+
+```bash
+vaultwatch start --ttl 30m /Volumes/SecretVault
+```
+
+**5. Set up the panic button — before you need it.**
+
+```bash
+panic status     # what would happen right now
+panic now        # the real thing: detach volumes, clear the clipboard, lock the screen
+```
+
+Or run the GUI (Paranoid Bar) and set the global hotkey: double-press ⌃⌥⇧P closes the
+vault and locks the screen no matter what app is in front.
+
+**6. Back up the secret — in pieces.**
+
+```bash
+seedsplit split
+```
+
+Splits the phrase into Shamir shares — e.g. 2-of-3: any two reconstruct it, fewer
+reveal nothing about the secret itself. The shares print to the terminal — write them
+down and **close that terminal window** (scrollback holding all shares is a single
+point of failure again). Store them in separate places: home, a bank cell, a trusted
+person. `seedsplit combine` puts them back together. The vault is your working copy;
+the shares are the disaster copy.
+
+That's the whole loop: **check → vault → vaultwatch → panic → seedsplit**.
+Close the vault (`securetrash vault close`) when you're done; open it the next time you
+actually need the secret — which, for a good seed phrase, should be almost never.
+
+---
+
 ## The tools
 
 ### 1. securetrash — wipe files, and the encrypted vault
@@ -239,7 +326,7 @@ into N parts so that any **T** of them rebuild the secret, while T−1 reveal **
 ```bash
 # Split a seed into 5 shares, threshold 3 (any 3 of 5 restore it). Secret via stdin:
 printf '%s' "legal winner thank year wave ..." | seedsplit split -n 5 -t 3
-# → 5 lines like SSS1-3-1-<hex>-<chk>. Spread them across different places.
+# → 5 lines like SSS2-<setid>-3-1-<hex>-<chk>. Spread them across different places.
 
 # Rebuild from any 3 shares (one share per line):
 seedsplit combine < my-3-shares.txt
