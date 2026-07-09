@@ -322,8 +322,9 @@ Describe 'Cross-platform l10n parity' {
         @($psRefs | Where-Object { $_ -notin $table }) | Should -BeNullOrEmpty
         $swiftPath = Join-Path $PSScriptRoot '..' '..' 'macos' 'ParanoidBar.swift'
         $swift = Get-Content -LiteralPath $swiftPath -Raw
+        # no_such_key — сентинел Swift-selftest'а на fallback L(); в таблице его быть не должно.
         $swiftRefs = [regex]::Matches($swift, 'L\("([a-z0-9_]+)"') |
-            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+            ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -ne 'no_such_key' } | Sort-Object -Unique
         $swiftRefs | Should -Not -BeNullOrEmpty
         @($swiftRefs | Where-Object { $_ -notin $table }) | Should -BeNullOrEmpty
     }
