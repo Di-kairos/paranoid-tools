@@ -310,6 +310,23 @@ Describe 'Cross-platform l10n parity' {
         $psKeys = $PtStrings.en.Keys | Sort-Object -Unique
         ($psKeys -join ',') | Should -Be ($swiftKeys -join ',')
     }
+    It 'every referenced l10n key exists in the strings table' {
+        # Опечатка в ключе (`set_titel`) молча вернула бы имя ключа в UI — L/Get-PtL не падают.
+        # Ловим статически: все литеральные ссылки в обоих исходниках обязаны быть в таблице.
+        # Динамические ссылки (Get-PtL -Key $var / L(okKey...)) регексы намеренно не матчат.
+        $table = @($PtStrings.en.Keys)
+        $psSrc = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'paranoid-tray.ps1') -Raw
+        $psRefs = [regex]::Matches($psSrc, "Get-PtL\s+'?([a-z][a-z0-9_]*)'?") |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+        $psRefs | Should -Not -BeNullOrEmpty
+        @($psRefs | Where-Object { $_ -notin $table }) | Should -BeNullOrEmpty
+        $swiftPath = Join-Path $PSScriptRoot '..' '..' 'macos' 'ParanoidBar.swift'
+        $swift = Get-Content -LiteralPath $swiftPath -Raw
+        $swiftRefs = [regex]::Matches($swift, 'L\("([a-z0-9_]+)"') |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+        $swiftRefs | Should -Not -BeNullOrEmpty
+        @($swiftRefs | Where-Object { $_ -notin $table }) | Should -BeNullOrEmpty
+    }
 }
 
 Describe 'Panic hotkey' {

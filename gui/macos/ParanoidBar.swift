@@ -67,13 +67,18 @@ private let strings: [String: (en: String, ru: String)] = [
     "notif_long_open":  ("Vault open for 30+ minutes (no vaultwatch)", "Сейф открыт дольше 30 минут (без vaultwatch)"),
     "notif_panic_arm":  ("Press again to PANIC", "Нажмите ещё раз для ПАНИКИ"),
     "notif_hotkey_fail": ("Panic hotkey unavailable (taken by another app)", "Хоткей паники недоступен (занят другим приложением)"),
+    "set_title":        ("Paranoid Bar — Settings", "Paranoid Bar — Настройки"),
     "set_vol":          ("Vault volume:", "Том сейфа:"),
     "set_poll":         ("Poll interval (s):", "Интервал опроса (с):"),
     "set_lang":         ("Language:", "Язык:"),
     "set_hotkey":       ("Panic hotkey:", "Хоткей паники:"),
     "set_save":         ("Save", "Сохранить"),
+    // set_cancel используется только Windows-формой (у macOS-окна нет кнопки Cancel);
+    // ключ объявлен здесь ради паритета ключей ps1↔Swift (Pester-тест).
+    "set_cancel":       ("Cancel", "Отмена"),
     "set_setup_btn":    ("Show setup guide", "Показать гид"),
     "hk_off":           ("Off", "Выкл"),
+    "lang_system":      ("System", "Системный"),
     "ob_title":         ("Paranoid Bar — Welcome", "Paranoid Bar — Добро пожаловать"),
     "ob_sub":           ("A status bar over the same signed CLIs. Secrets never pass through the GUI.",
                          "Панель статуса поверх тех же подписанных CLI. Секреты через GUI не проходят."),
@@ -592,7 +597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 230),
                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        w.title = "Paranoid Bar — Settings"
+        w.title = L("set_title")
         w.isReleasedWhenClosed = false
         let v = w.contentView!
 
@@ -608,7 +613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         v.addSubview(settingsLabel(L("set_lang"), y: 110))
         let lang = NSPopUpButton(frame: NSRect(x: 130, y: 104, width: 150, height: 26))
-        lang.addItems(withTitles: ["System", "English", "Русский"])
+        lang.addItems(withTitles: [L("lang_system"), "English", "Русский"])
         let langNow = UserDefaults.standard.string(forKey: "language") ?? "system"
         lang.selectItem(at: langValues.firstIndex(of: langNow) ?? 0)
         v.addSubview(lang); langPopup = lang

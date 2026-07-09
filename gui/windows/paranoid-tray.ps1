@@ -51,8 +51,9 @@ $script:PtStrings = @{
         notif_ttl_warn='Vault auto-closes in {0}'; notif_ttl_expired='vaultwatch TTL expired — vault is still OPEN'
         notif_long_open='Vault open for 30+ minutes (no vaultwatch)'; notif_panic_arm='Press again to PANIC'
         notif_hotkey_fail='Panic hotkey unavailable (taken by another app)'
+        set_title='Paranoid Bar — Settings'
         set_vol='Vault volume:'; set_poll='Poll interval (s):'; set_lang='Language:'; set_hotkey='Panic hotkey:'
-        set_save='Save'; set_setup_btn='Show setup guide'; hk_off='Off'
+        set_save='Save'; set_cancel='Cancel'; set_setup_btn='Show setup guide'; hk_off='Off'; lang_system='System'
         ob_title='Paranoid Bar — Welcome'
         ob_sub='A status bar over the same signed CLIs. Secrets never pass through the GUI.'
         ob_cli_ok='CLIs installed (securetrash, panic, vaultwatch)'; ob_cli_missing='CLIs not found — install first'
@@ -73,8 +74,9 @@ $script:PtStrings = @{
         notif_ttl_warn='Сейф авто-закроется через {0}'; notif_ttl_expired='TTL vaultwatch истёк — сейф всё ещё ОТКРЫТ'
         notif_long_open='Сейф открыт дольше 30 минут (без vaultwatch)'; notif_panic_arm='Нажмите ещё раз для ПАНИКИ'
         notif_hotkey_fail='Хоткей паники недоступен (занят другим приложением)'
+        set_title='Paranoid Bar — Настройки'
         set_vol='Том сейфа:'; set_poll='Интервал опроса (с):'; set_lang='Язык:'; set_hotkey='Хоткей паники:'
-        set_save='Сохранить'; set_setup_btn='Показать гид'; hk_off='Выкл'
+        set_save='Сохранить'; set_cancel='Отмена'; set_setup_btn='Показать гид'; hk_off='Выкл'; lang_system='Системный'
         ob_title='Paranoid Bar — Добро пожаловать'
         ob_sub='Панель статуса поверх тех же подписанных CLI. Секреты через GUI не проходят.'
         ob_cli_ok='CLI установлены (securetrash, panic, vaultwatch)'; ob_cli_missing='CLI не найдены — сначала установите'
@@ -362,7 +364,7 @@ function Show-PtSettingsForm {
     $lang = Resolve-PtLang -Override $cur.Language
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Paranoid Tools - Settings'
+    $form.Text = (Get-PtL set_title -Lang $lang)
     $form.FormBorderStyle = 'FixedDialog'; $form.MaximizeBox = $false; $form.MinimizeBox = $false
     $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(380, 230)
 
@@ -380,7 +382,7 @@ function Show-PtSettingsForm {
     $lblLang.Text = (Get-PtL set_lang -Lang $lang); $lblLang.SetBounds(12, 86, 110, 20)
     $cbLang = New-Object System.Windows.Forms.ComboBox
     $cbLang.DropDownStyle = 'DropDownList'; $cbLang.SetBounds(130, 83, 150, 22)
-    [void]$cbLang.Items.AddRange(@('System', 'English', 'Русский'))
+    [void]$cbLang.Items.AddRange(@((Get-PtL lang_system -Lang $lang), 'English', 'Русский'))
     $cbLang.SelectedIndex = [math]::Max(0, $script:PtLangValues.IndexOf($cur.Language))
 
     $lblHk = New-Object System.Windows.Forms.Label
@@ -398,7 +400,7 @@ function Show-PtSettingsForm {
     $ok = New-Object System.Windows.Forms.Button
     $ok.Text = (Get-PtL set_save -Lang $lang); $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK; $ok.SetBounds(190, 190, 80, 28)
     $cancel = New-Object System.Windows.Forms.Button
-    $cancel.Text = 'Cancel'; $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; $cancel.SetBounds(280, 190, 80, 28)
+    $cancel.Text = (Get-PtL set_cancel -Lang $lang); $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; $cancel.SetBounds(280, 190, 80, 28)
 
     $form.Controls.AddRange(@($lblVol, $tbVol, $lblPoll, $nudPoll, $lblLang, $cbLang, $lblHk, $cbHk, $setup, $ok, $cancel))
     $form.AcceptButton = $ok; $form.CancelButton = $cancel
