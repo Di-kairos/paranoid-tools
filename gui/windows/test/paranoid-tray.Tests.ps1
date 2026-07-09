@@ -90,6 +90,26 @@ Describe 'Format-PtDuration — формат как у vaultwatch CLI' {
     It '0s → 0m 0s'       { Format-PtDuration 0    | Should -Be '0m 0s' }
 }
 
+Describe 'Limit-PtTrayText — лимит NotifyIcon.Text (63 на .NET Framework)' {
+    It 'короткий текст не трогает' {
+        Limit-PtTrayText 'Vault closed' | Should -Be 'Vault closed'
+    }
+    It 'ровно 63 символа проходит без обрезки' {
+        $t = 'x' * 63
+        Limit-PtTrayText $t | Should -Be $t
+    }
+    It 'обрезает длиннее 63 до 63 с многоточием' {
+        $out = Limit-PtTrayText ('x' * 70)
+        $out.Length | Should -Be 63
+        $out | Should -Be (('x' * 62) + [char]0x2026)
+    }
+    It 'RU worst-case tooltip (открыт + авто-выход) укладывается в лимит' {
+        $t = "$(Get-PtL 'tip_open' -Lang 'ru') - $(Get-PtL 'auto_exit_in' -Lang 'ru') $(Format-PtDuration 86399)"
+        $t.Length | Should -BeGreaterThan 63   # сценарий реально переполняет лимит до обрезки
+        (Limit-PtTrayText $t).Length | Should -BeLessOrEqual 63
+    }
+}
+
 Describe 'Get-PtVaultwatchSessions — чтение session-файлов vaultwatch' {
     BeforeAll {
         $script:vwDir = Join-Path $TestDrive 'vw-sessions'

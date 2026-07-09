@@ -185,6 +185,14 @@ function Format-PtDuration {
     $h = [math]::Floor($S / 3600); $m = [math]::Floor(($S % 3600) / 60); $sec = $S % 60
     if ($h -gt 0) { return "${h}h ${m}m ${sec}s" } else { return "${m}m ${sec}s" }
 }
+# NotifyIcon.Text на .NET Framework (PS 5.1) кидает ArgumentException при >63 символах
+# (на .NET Core лимит 127, но держим 63 — общий знаменатель). RU worst-case tooltip
+# («…под риском… - авто-выход через 23h 59m 59s») = 68 симв. Обрезаем с многоточием.
+function Limit-PtTrayText {
+    param([string]$Text, [int]$Max = 63)
+    if ($Text.Length -le $Max) { return $Text }
+    return $Text.Substring(0, $Max - 1) + [char]0x2026
+}
 # Парсим key=value session-файлы (mount/started/ttl_secs). remaining = started+ttl_secs-now;
 # $null если ttl_secs=0 (сессия без TTL). -Now параметризован для детерминированных тестов.
 function Get-PtVaultwatchSessions {
@@ -600,11 +608,11 @@ public class PtHotkeyWindow : NativeWindow {
         $ttl = if ($state -eq 'open') {
             ($vaultSessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
         } else { $null }
-        $notify.Text =
+        $notify.Text = Limit-PtTrayText $(
             if ($state -eq 'open' -and $null -ne $ttl -and $ttl -eq 0) { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'ttl_expired' -Lang $lang)" }
             elseif ($state -eq 'open' -and $null -ne $ttl)              { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $ttl)" }
             elseif ($state -eq 'open')                                  { (Get-PtL 'tip_open' -Lang $lang) }
-            else                                                        { (Get-PtL 'tip_closed' -Lang $lang) }
+            else                                                        { (Get-PtL 'tip_closed' -Lang $lang) })
         # vaultwatch-сессии — отключённые заголовки сверху меню (точка монтирования + TTL-отсчёт).
         foreach ($s in $sessions) {
             $name = Split-Path -Leaf $s.Mount
