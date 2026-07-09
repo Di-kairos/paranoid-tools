@@ -44,6 +44,22 @@ The main entry point. One command opens a status dashboard and a menu over all f
 paranoid
 ```
 
+At the top — a live status line (refreshed every time you return to the menu):
+
+```
+Vault:       ● OPEN (/Volumes/SecretVault)   ⚠ at risk while open
+FileVault:   ● ON
+vaultwatch:  ● active
+```
+
+- **Vault** — open or closed. An open vault is flagged "at risk": while it is mounted,
+  the data is readable by anyone at your Mac.
+- **FileVault** — whether system disk encryption is on.
+- **vaultwatch** — whether the open vault is currently guarded (`active`) or there are
+  no sessions (`idle`).
+
+Below it — the menu (pick by number):
+
 ```
 1) Status        — full read-only check (what actually protects you on your hardware)
 2) 🔒 PANIC NOW  — hide & lock everything (instant, no confirmation)
