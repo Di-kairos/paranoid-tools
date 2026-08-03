@@ -69,7 +69,9 @@ the installer checks the Ed25519 signature over `SHA256SUMS`, then the checksum 
 tool's own `install.sh`, and only then runs it — which in turn verifies the binary before
 installing. So every artifact pulled from the network — a tool's own `install.sh` and its
 binary — is verified before it runs (you launch the top-level `bash install.sh` yourself,
-after reading it). Pin a version with, e.g., `PT_PANIC_VERSION=0.1.8`; change the target dir
+after reading it). Pin a version with `PT_ST_VERSION` / `PT_VW_VERSION` / `PT_PANIC_VERSION` /
+`PT_GHOSTDRAFT_VERSION` / `PT_SEEDSPLIT_VERSION` (any other spelling is ignored silently);
+change the target dir
 with `PT_DEST=/usr/local/bin`.
 
 Honest switches and edges, named before you find them: `ALLOW_UNSIGNED_LEGACY=1`

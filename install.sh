@@ -23,8 +23,11 @@
 #
 # Переменные окружения:
 #   PT_DEST            — каталог установки. По умолчанию ~/.local/bin (без sudo).
-#   PT_<TOOL>_VERSION  — закрепить версию конкретного тула (публичный режим),
-#                        напр. PT_PANIC_VERSION=0.1.5. По умолчанию latest.
+#   PT_<TOOL>_VERSION  — закрепить версию конкретного тула (публичный режим).
+#                        Точные имена: PT_ST_VERSION (securetrash), PT_VW_VERSION
+#                        (vaultwatch), PT_PANIC_VERSION, PT_GHOSTDRAFT_VERSION,
+#                        PT_SEEDSPLIT_VERSION. Прочие (напр. PT_SECURETRASH_VERSION)
+#                        игнорируются молча. По умолчанию latest.
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

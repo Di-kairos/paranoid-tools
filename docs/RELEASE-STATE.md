@@ -12,18 +12,19 @@
 > и тег. Рассинхрон этой таблицы с реальными HEAD не ломает сборку/установку ни одного тула —
 > он лишь означает, что снимок устарел. Обновлять при закрытии сессии вместе с `HANDOFF.md`.
 
-Обновлено: 2026-07-09 (сессия 24 — securetrash v0.4.13: Windows BitLocker tri-state в `check`
-+ реанимация windows-ci; tap-формула добита с v0.4.7 до v0.4.13. Ранее s20 — РЕЛИЗ-КАТ всей
-экосистемы: весь аудит `AUDIT_2026-07-03.md` закрыт/смягчён и ОТГРУЖЕН, P1-2 Ed25519
-sig-verify во всех 5 Windows-инсталляторах).
+Обновлено: 2026-08-03 (сессия 27 — РЕЛИЗ-КАТ всей экосистемы после аудита
+`AUDIT_2026-08-03.md`: отгружены все 4 P0 (потеря данных в Windows-портах), P1-1 fail-closed
+подписи в 5 инсталляторах, Ed25519 doc-pass, а также закрытое окно потери данных в
+`securetrash vault reset`, новая подкоманда `vault destroy-old` и честный учёт снимков
+APFS/VSS. `verify-releases.sh` перепиннут на новые теги и прогнан: 5/5 подпись + бинарь верны).
 
 | Tool | Repo | Tag (release) | Version | Статус |
 |------|------|---------------|---------|--------|
-| securetrash | `Di-kairos/securetrash` | `v0.4.13` | **0.4.13** | CI ✅ · Release подписан ✅ · Windows sig-verify · FileVault/BitLocker unknown/off |
-| vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.6` | **0.1.6** | CI ✅ · Release подписан ✅ · `--force` safety-gate · Win unmount-guard · sig-verify |
-| panic       | `Di-kairos/panic`       | `v0.1.8` | **0.1.8** | CI ✅ · Release подписан ✅ · Windows sig-verify · headless-safe status |
-| ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.9` | **0.1.9** | CI ✅ · Release подписан ✅ · Windows sig-verify · non-TTY guard · Warp hint |
-| seedsplit   | `Di-kairos/seedsplit`   | `v0.4.1` | **0.4.1** | CI ✅ · Release подписан ✅ · passphrase no-spill · split self-check · sig-verify |
+| securetrash | `Di-kairos/securetrash` | `v0.5.0` | **0.5.0** | CI ✅ · Release подписан ✅ · reset без окна потери данных · `vault destroy-old` · снимки в `check` |
+| vaultwatch  | `Di-kairos/vaultwatch`  | `v0.1.7` | **0.1.7** | CI ✅ · Release подписан ✅ · eject → restore N/A · fail-closed installer |
+| panic       | `Di-kairos/panic`       | `v0.1.9` | **0.1.9** | CI ✅ · Release подписан ✅ · честный теглайн · fail-closed installer |
+| ghostdraft  | `Di-kairos/ghostdraft`  | `v0.1.10` | **0.1.10** | CI ✅ · Release подписан ✅ · vault-буква через sidecar · fail-closed installer |
+| seedsplit   | `Di-kairos/seedsplit`   | `v0.4.2` | **0.4.2** | CI ✅ · Release подписан ✅ · Windows split self-check · fail-closed installer |
 
 > Формулы Homebrew обновлены на новые теги + sha256 (source-тарбол). `verify-releases.sh` пиннут
 > на эти теги. HEAD-колонка убрана — дрейфует; смотри `git -C <tool> describe --tags`.

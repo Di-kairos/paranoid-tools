@@ -26,7 +26,7 @@ bash install.sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
 
-Проверь: `securetrash version` печатает версию (текущий релиз — `securetrash 0.4.11`).
+Проверь: `securetrash version` печатает версию и она совпадает с последним тегом репозитория.
 Удалить всё потом: `bash install.sh --uninstall`.
 
 ---
