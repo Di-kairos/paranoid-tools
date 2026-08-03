@@ -580,3 +580,43 @@ _make_fake_clone() {
   # неудачная установка не должна прятать баннер «доступно обновление»
   [ -f "$TMP/.cache/paranoid-tools/update-check" ]
 }
+
+@test "a symlinked install.sh is not executed" {
+  # -f идёт по ссылке: подменённая цель прошла бы проверку, а пользователь видел бы
+  # прежний доверенный путь. Ссылки не принимаем.
+  _make_fake_clone "$TMP/evil" "EVIL RAN"
+  mkdir -p "$TMP/clone"
+  ln -s "$TMP/evil/install.sh" "$TMP/clone/install.sh"
+  : > "$TMP/clone/paranoid"
+  cp "$SCRIPT" "$TMP/paranoid-standalone"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_SRC="$TMP/clone" \
+    bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
+  [ "$status" -eq 0 ]
+  ! grep -q "EVIL RAN" "$LOG"
+  [[ "$output" == *"Cannot find the installer"* ]]
+}
+
+@test "a trailing space in the state file is not silently trimmed into another dir" {
+  # /tmp/x и '/tmp/x ' — разные каталоги; общий trim подменил бы один другим.
+  _make_fake_clone "$TMP/other" "OTHER RAN"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s \n' "$TMP/other" > "$TMP/.local/share/paranoid-tools/source"
+  cp "$SCRIPT" "$TMP/paranoid-standalone"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en \
+    bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
+  [ "$status" -eq 0 ]
+  ! grep -q "OTHER RAN" "$LOG"
+}
+
+@test "a failed pull is still called out after a successful install" {
+  _make_fake_clone "$TMP/clone" "INSTALLER RAN"
+  printf '#!/usr/bin/env bash\ncase "$*" in *rev-parse*) exit 0;; *pull*) exit 1;; esac\nexit 0\n' > "$STUBS/git"
+  chmod +x "$STUBS/git"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  grep -q "INSTALLER RAN" "$LOG"
+  # успех установщика не должен выдаваться за «всё свежее»
+  [[ "$output" == *"clone itself was not updated"* ]]
+}

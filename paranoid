@@ -95,6 +95,8 @@ t() {
     ru:upd_src)      printf 'Установщик: %s' "$2" ;;
     en:upd_confirm)  echo 'Pull the latest sources and reinstall all tools?' ;;
     ru:upd_confirm)  echo 'Подтянуть свежие исходники и переустановить все тулы?' ;;
+    en:upd_stale_src) echo 'Note: the clone itself was not updated — what got installed came from its current state.' ;;
+    ru:upd_stale_src) echo 'Учти: сам клон обновить не удалось — установилось то, что в нём сейчас.' ;;
     en:upd_pull)     echo 'Updating the clone…' ;;
     ru:upd_pull)     echo 'Обновляю клон…' ;;
     en:upd_pull_fail) echo 'git pull did not succeed — see the message above. Continuing with the clone in its current state.' ;;
@@ -369,24 +371,35 @@ _render() {
 _pause() { read -r -p "  $(t press_enter)… " _ <&0 || true; }
 
 # --- действия ---
+# Похож ли каталог на наш клон. Символические ссылки на install.sh/paranoid не
+# принимаем: `-f` идёт ПО ссылке, поэтому подменённая цель прошла бы проверку, а
+# пользователь увидел бы прежний, доверенный путь.
+_is_clone_dir() {
+  local d="${1:-}"
+  [[ -n "$d" && -d "$d" ]] || return 1
+  [[ -f "$d/install.sh" && ! -L "$d/install.sh" ]] || return 1
+  [[ -f "$d/paranoid"   && ! -L "$d/paranoid"   ]] || return 1
+  return 0
+}
+
 # Где лежит установщик. Порядок: явный PARANOID_SRC → путь, записанный install.sh при
 # последней установке → каталог самого лаунчера (когда его запускают прямо из клона).
 # Пусто, если ничего не подошло — тогда честно говорим, а не гадаем.
 _update_source() {
   local state src
-  if [[ -n "${PARANOID_SRC:-}" && -f "${PARANOID_SRC}/install.sh" && -f "${PARANOID_SRC}/paranoid" ]]; then
+  if _is_clone_dir "${PARANOID_SRC:-}"; then
     printf '%s' "$PARANOID_SRC"; return 0
   fi
   state="${XDG_DATA_HOME:-$HOME/.local/share}/paranoid-tools/source"
   if [[ -f "$state" ]]; then
-    # Обрезаем CR и краевые пробелы: иначе путь из файла с CRLF молча не совпал бы
-    # и лаунчер тихо взял бы другой каталог. Только абсолютный путь.
+    # Обрезаем ТОЛЬКО CR (файл мог оказаться с CRLF). Общий trim краевых пробелов
+    # менял бы сам путь: у каталога с пробелом на конце это уже другой каталог.
     src="$(head -n1 "$state" 2>/dev/null || true)"
-    src="${src%$'\r'}"; src="${src#"${src%%[![:space:]]*}"}"; src="${src%"${src##*[![:space:]]}"}"
-    if [[ "$src" == /* && -f "$src/install.sh" && -f "$src/paranoid" ]]; then printf '%s' "$src"; return 0; fi
+    src="${src%$'\r'}"
+    if [[ "$src" == /* ]] && _is_clone_dir "$src"; then printf '%s' "$src"; return 0; fi
   fi
   src="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || src=""
-  if [[ -n "$src" && -f "$src/install.sh" && -f "$src/paranoid" ]]; then printf '%s' "$src"; return 0; fi
+  if _is_clone_dir "$src"; then printf '%s' "$src"; return 0; fi
   return 0
 }
 
@@ -404,10 +417,11 @@ _act_update() {
   read -r -p "  $(t upd_confirm) [yes] " ans <&0 || ans=""
   [[ "$ans" == "yes" ]] || { echo "  $(t upd_cancel)"; _pause; return; }
 
+  local pulled=1
   if git -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
     echo "  $(t upd_pull)"
     # --ff-only: молча перезаписывать локальные правки пользователя нельзя.
-    git -C "$src" pull --ff-only || echo "  ${C_YEL}$(t upd_pull_fail)${C_RST}" >&2
+    git -C "$src" pull --ff-only || { pulled=0; echo "  ${C_YEL}$(t upd_pull_fail)${C_RST}" >&2; }
   else
     echo "  ${C_YEL}$(t upd_nogit)${C_RST}" >&2
   fi
@@ -416,6 +430,9 @@ _act_update() {
   if bash "$src/install.sh"; then
     # Баннер «доступно обновление» кэшируется на сутки — после установки он соврал бы.
     rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/paranoid-tools/update-check" 2>/dev/null || true
+    # Не выдаём «всё свежее», если исходники подтянуть не удалось: установщик мог
+    # отработать, но клон при этом остался прежним.
+    (( pulled )) || echo "  ${C_YEL}$(t upd_stale_src)${C_RST}" >&2
     echo "  ${C_GRN}$(t upd_done)${C_RST}"
   else
     echo "  ${C_YEL}$(t upd_fail)${C_RST}" >&2

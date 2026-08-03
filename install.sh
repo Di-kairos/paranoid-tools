@@ -189,7 +189,11 @@ esac
 # в ~/.local/bin про свой исходный клон ничего не знает.
 _state_dir="${XDG_DATA_HOME:-$HOME/.local/share}/paranoid-tools"
 if mkdir -p "$_state_dir" 2>/dev/null; then
-  printf '%s\n' "$ROOT" > "$_state_dir/source" 2>/dev/null || true
+  # Сносим прежний файл до записи: если это симлинк, `>` затёр бы его цель.
+  rm -f "$_state_dir/source" 2>/dev/null || true
+  if ! printf '%s\n' "$ROOT" > "$_state_dir/source" 2>/dev/null; then
+    echo "ВНИМАНИЕ: не смог записать ${_state_dir}/source — пункт «Обновить» в лаунчере не найдёт этот клон." >&2
+  fi
 fi
 
 echo
