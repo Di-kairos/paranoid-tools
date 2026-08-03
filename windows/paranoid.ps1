@@ -61,6 +61,9 @@ function T {
         'en:vw_active'    { return 'active' }       'ru:vw_active'    { return 'активен' }
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
         'en:update_avail' { return 'update available:' } 'ru:update_avail' { return 'доступно обновление:' }
+        # Пункта меню «Обновить» тут нет (в отличие от macOS-лаунчера): umbrella-установщика
+        # для Windows не существует — у каждого тула свой windows/install.ps1, и запоминать
+        # «откуда ставили» нечему. Осознанный разрыв паритета, а не недосмотр.
         'en:update_how'   { return 'to update: re-run install.ps1 or brew upgrade' }
         'ru:update_how'   { return 'обновить: перезапусти install.ps1 или brew upgrade' }
         'en:m_status'     { return 'Status — full read-only check' }

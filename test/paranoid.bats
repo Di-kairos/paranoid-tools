@@ -449,3 +449,134 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" != *"update available"* ]]
 }
+
+# --- пункт меню Update: перезапуск установщика из клона ---
+# Своей логики скачивания у лаунчера нет намеренно: обновление = install.sh из клона.
+# Тесты идут через run_paranoid (env -i): иначе XDG_DATA_HOME/PARANOID_SRC из окружения
+# разработчика протекли бы внутрь, лаунчер взял бы НАСТОЯЩИЙ клон и тест запустил бы
+# боевой установщик, оставаясь при этом «зелёным».
+
+# Каталог, похожий на наш клон: install.sh + paranoid рядом.
+_make_fake_clone() {
+  local dir="$1" marker="$2"
+  mkdir -p "$dir"
+  printf '#!/usr/bin/env bash\necho "%s" >> "%s"\nexit %s\n' "$marker" "$LOG" "${3:-0}" > "$dir/install.sh"
+  chmod +x "$dir/install.sh"
+  : > "$dir/paranoid"
+}
+
+@test "menu shows the Update item" {
+  run_paranoid $'0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"6)"* ]]
+  [[ "$output" == *"Update"* ]]
+}
+
+@test "update runs install.sh from the recorded source dir and shows which one" {
+  _make_fake_clone "$TMP/clone" "INSTALLER RAN"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  grep -q "INSTALLER RAN" "$LOG"
+  # пользователь обязан ВИДЕТЬ, код какого каталога сейчас выполнится
+  [[ "$output" == *"$TMP/clone"* ]]
+}
+
+@test "update does nothing without an explicit yes" {
+  _make_fake_clone "$TMP/clone" "INSTALLER RAN"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  run_paranoid $'6\nn\n\n0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  ! grep -q "INSTALLER RAN" "$LOG"
+  [[ "$output" == *"Cancelled"* ]]
+}
+
+@test "update says plainly when no installer can be found" {
+  cp "$SCRIPT" "$TMP/paranoid-standalone"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en \
+    bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cannot find the installer"* ]]
+}
+
+@test "PARANOID_SRC overrides the recorded source dir" {
+  _make_fake_clone "$TMP/other" "OTHER RAN"
+  _make_fake_clone "$TMP/clone" "RECORDED RAN"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP" PARANOID_SRC="$TMP/other"
+  [ "$status" -eq 0 ]
+  grep -q "OTHER RAN" "$LOG"
+  ! grep -q "RECORDED RAN" "$LOG"
+}
+
+@test "a CRLF state file still resolves to the recorded dir" {
+  _make_fake_clone "$TMP/clone" "INSTALLER RAN"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s\r\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  grep -q "INSTALLER RAN" "$LOG"
+}
+
+@test "a directory that is not our clone is not executed" {
+  # только install.sh, без paranoid рядом — чужой каталог запускать нельзя
+  mkdir -p "$TMP/notclone"
+  printf '#!/usr/bin/env bash\necho "STRANGER RAN" >> "%s"\n' "$LOG" > "$TMP/notclone/install.sh"
+  chmod +x "$TMP/notclone/install.sh"
+  cp "$SCRIPT" "$TMP/paranoid-standalone"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_SRC="$TMP/notclone" \
+    bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
+  [ "$status" -eq 0 ]
+  ! grep -q "STRANGER RAN" "$LOG"
+  [[ "$output" == *"Cannot find the installer"* ]]
+}
+
+@test "update pulls first when the source really is a git clone" {
+  _make_fake_clone "$TMP/clone" "INSTALLER RAN"
+  # стаб git пишет в лог, чтобы увидеть, что pull вообще звали
+  printf '#!/usr/bin/env bash\necho "git $*" >> "%s"\nexit 0\n' "$LOG" > "$STUBS/git"
+  chmod +x "$STUBS/git"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  grep -q "pull --ff-only" "$LOG"
+  grep -q "INSTALLER RAN" "$LOG"
+}
+
+@test "a failed pull does not stop the reinstall and is reported" {
+  _make_fake_clone "$TMP/clone" "INSTALLER RAN"
+  printf '#!/usr/bin/env bash\ncase "$*" in *rev-parse*) exit 0;; *pull*) exit 1;; esac\nexit 0\n' > "$STUBS/git"
+  chmod +x "$STUBS/git"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"did not succeed"* ]]
+  grep -q "INSTALLER RAN" "$LOG"
+}
+
+@test "update clears the cached update-available banner after a successful install" {
+  _make_fake_clone "$TMP/clone" "INSTALLER RAN"
+  mkdir -p "$TMP/.local/share/paranoid-tools" "$TMP/.cache/paranoid-tools"
+  printf '%s\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  echo "securetrash 0.1.0->9.9.9" > "$TMP/.cache/paranoid-tools/update-check"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  [ ! -f "$TMP/.cache/paranoid-tools/update-check" ]
+}
+
+@test "a failing installer is reported and the stale banner is kept" {
+  _make_fake_clone "$TMP/clone" "INSTALLER RAN" 1
+  mkdir -p "$TMP/.local/share/paranoid-tools" "$TMP/.cache/paranoid-tools"
+  printf '%s\n' "$TMP/clone" > "$TMP/.local/share/paranoid-tools/source"
+  echo "securetrash 0.1.0->9.9.9" > "$TMP/.cache/paranoid-tools/update-check"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"exited with an error"* ]]
+  # неудачная установка не должна прятать баннер «доступно обновление»
+  [ -f "$TMP/.cache/paranoid-tools/update-check" ]
+}

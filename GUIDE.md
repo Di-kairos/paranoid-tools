@@ -21,8 +21,18 @@ On a fresh clone each tool is pulled from its signed release and verified (Ed255
 
 ## Updating
 
-There is no `update` command — updating means **re-running the installer**. It pulls the
-latest signed release of each tool and overwrites the binary in place:
+Pick **6) Update** in the launcher (macOS launcher only for now — the Windows launcher still
+sends you to the installer by hand). It re-runs `install.sh` from your clone, which fetches the
+latest release of each tool and overwrites the binary in place. Releases downloaded from GitHub
+are Ed25519-verified; a tool already present in the clone is installed from there as-is, so what
+you get depends on the clone you point it at.
+
+It asks for a literal `yes`, prints the exact directory it is about to run, and refuses to guess:
+if it cannot find a clone it says so rather than downloading anything on its own. The launcher
+remembers the clone you last installed from; override with `PARANOID_SRC=/path`. Note the running
+launcher process keeps executing the old code until you quit and start it again.
+
+The equivalent by hand:
 
 ```bash
 cd paranoid-tools
@@ -66,6 +76,7 @@ Below it — the menu (pick by number):
 3) Vault ▸       — open / close / create, empty, destroy, watch
 4) Notepad ▸     — ghostdraft: note (write/edit/copy, vanishes) / show clipboard
 5) Secrets ▸     — seedsplit: split / combine
+6) Update        — pull the latest signed releases and reinstall
 0) Quit
 ```
 

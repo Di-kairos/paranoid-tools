@@ -184,6 +184,14 @@ case ":$PATH:" in
     ;;
 esac
 
+# Запоминаем, ОТКУДА ставили: лаунчер (`paranoid` → Update) перезапускает установщик
+# из этого каталога. Без этого пункт меню не знал бы, что обновлять — копия лаунчера
+# в ~/.local/bin про свой исходный клон ничего не знает.
+_state_dir="${XDG_DATA_HOME:-$HOME/.local/share}/paranoid-tools"
+if mkdir -p "$_state_dir" 2>/dev/null; then
+  printf '%s\n' "$ROOT" > "$_state_dir/source" 2>/dev/null || true
+fi
+
 echo
 echo "Проверь: securetrash version  |  panic version  |  ghostdraft version"
 echo "Запусти лаунчер: paranoid"

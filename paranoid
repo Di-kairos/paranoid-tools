@@ -87,6 +87,26 @@ t() {
     ru:m_t_vault)    echo 'Сейф ▸         открыть · очистить · уничтожить · сторожить' ;;
     en:m_t_notepad)  echo 'Notepad ▸      ghostdraft: ephemeral note / clipboard' ;;
     ru:m_t_notepad)  echo 'Блокнот ▸      ghostdraft: эфемерная заметка / буфер' ;;
+    en:m_update)     echo 'Update         re-run the installer from your clone' ;;
+    ru:m_update)     echo 'Обновить       перезапустить установщик из твоего клона' ;;
+    en:upd_src_none) echo 'Cannot find the installer. Run it from your clone of the repo once (bash install.sh) — after that this menu item will work. Or set PARANOID_SRC to the clone path.' ;;
+    ru:upd_src_none) echo 'Не нахожу установщик. Запусти его один раз из клона репозитория (bash install.sh) — после этого пункт меню заработает. Или укажи путь к клону в PARANOID_SRC.' ;;
+    en:upd_src)      printf 'Installer: %s' "$2" ;;
+    ru:upd_src)      printf 'Установщик: %s' "$2" ;;
+    en:upd_confirm)  echo 'Pull the latest sources and reinstall all tools?' ;;
+    ru:upd_confirm)  echo 'Подтянуть свежие исходники и переустановить все тулы?' ;;
+    en:upd_pull)     echo 'Updating the clone…' ;;
+    ru:upd_pull)     echo 'Обновляю клон…' ;;
+    en:upd_pull_fail) echo 'git pull did not succeed — see the message above. Continuing with the clone in its current state.' ;;
+    ru:upd_pull_fail) echo 'git pull не прошёл — причина выше. Продолжаю с клоном в текущем состоянии.' ;;
+    en:upd_nogit)    echo 'Not a git clone — reinstalling from the local copy as it is.' ;;
+    ru:upd_nogit)    echo 'Это не git-клон — переустанавливаю из локальной копии как есть.' ;;
+    en:upd_run)      echo 'Running the installer from that directory. Downloaded releases are signature-verified; anything already present in the clone is installed as-is.' ;;
+    ru:upd_run)      echo 'Запускаю установщик из этого каталога. Скачанные релизы проверяются по подписи; то, что уже лежит в клоне, ставится как есть.' ;;
+    en:upd_done)     echo 'Update finished. This launcher process still runs the old code — quit and start it again; an already-open vault also keeps the old binary until you close and reopen it.' ;;
+    ru:upd_done)     echo 'Обновление завершено. Этот процесс лаунчера всё ещё на старом коде — выйди и запусти заново; уже открытый сейф тоже держит старый бинарь, пока не закроешь и не откроешь его.' ;;
+    en:upd_fail)     echo 'The installer exited with an error — nothing was silently half-done, see the output above.' ;;
+    ru:upd_fail)     echo 'Установщик завершился с ошибкой — молчаливой полуустановки нет, смотри вывод выше.' ;;
     en:m_t_secrets)  echo 'Secrets ▸      seedsplit: split / combine' ;;
     ru:m_t_secrets)  echo 'Секреты ▸      seedsplit: разбить / собрать' ;;
     en:back)         echo 'Back' ;;          ru:back)         echo 'Назад' ;;
@@ -110,18 +130,20 @@ t() {
     en:empty_hint)   echo 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place on an SSD). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' ;;
     ru:empty_hint)   echo 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте на SSD). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' ;;
     # --- выбор размера сейфа (cap, не резерв — sparsebundle тонкий) ---
-    en:size_free)    printf 'Free space on this disk: ~%s GB.' "$1" ;;
-    ru:size_free)    printf 'Свободно на диске: ~%s ГБ.' "$1" ;;
+    en:size_free)    printf 'Free space on this disk: ~%s GB.' "$2" ;;
+    ru:size_free)    printf 'Свободно на диске: ~%s ГБ.' "$2" ;;
     en:size_prompt)  echo 'Vault size cap (e.g. 1g, 5g, 500m; empty = default 1g). A ceiling, not reserved space — the vault grows as you add files:' ;;
     ru:size_prompt)  echo 'Потолок размера сейфа (напр. 1g, 5g, 500m; пусто = по умолчанию 1g). Это лимит, не резерв — сейф растёт по мере добавления файлов:' ;;
     en:size_bad)     echo 'Invalid size — use a number with optional g/m (e.g. 1g, 500m). Cancelled.' ;;
     ru:size_bad)     echo 'Неверный размер — число с опц. g/m (напр. 1g, 500m). Отменено.' ;;
-    en:size_cap_warn) printf 'Note: a %sg cap exceeds free space (~%sg) — the vault still cannot grow past what is actually free.' "$1" "$2" ;;
-    ru:size_cap_warn) printf 'Note: потолок %sg больше свободного (~%sg) — сейф всё равно не вырастет дальше реально свободного места.' "$1" "$2" ;;
+    en:size_cap_warn) printf 'Note: a %sg cap exceeds free space (~%sg) — the vault still cannot grow past what is actually free.' "$2" "$3" ;;
+    ru:size_cap_warn) printf 'Note: потолок %sg больше свободного (~%sg) — сейф всё равно не вырастет дальше реально свободного места.' "$2" "$3" ;;
     en:not_installed) echo 'not installed' ;; ru:not_installed) echo 'не установлен' ;;
     en:install_hint)  printf 'Install %s: %s' "$2" "$3" ;;
     ru:install_hint)  printf 'Установить %s: %s' "$2" "$3" ;;
     en:choose)       echo 'Choose' ;;        ru:choose)       echo 'Выбор' ;;
+    en:upd_cancel)   echo 'Cancelled — nothing was changed.' ;;
+    ru:upd_cancel)   echo 'Отменено — ничего не изменено.' ;;
     en:press_enter)  echo 'Press Enter to continue' ;;
     ru:press_enter)  echo 'Нажми Enter, чтобы продолжить' ;;
     en:ask_ttl)      echo 'Auto-exit after (e.g. 30m, 2h; empty = no timer):' ;;
@@ -340,12 +362,67 @@ _render() {
   printf '  3) %s\n' "$(t m_t_vault)"
   printf '  4) %s\n' "$(t m_t_notepad)"
   printf '  5) %s\n' "$(t m_t_secrets)"
+  printf '  6) %s\n' "$(t m_update)"
   printf '  0) %s\n\n' "$(t m_quit)"
 }
 
 _pause() { read -r -p "  $(t press_enter)… " _ <&0 || true; }
 
 # --- действия ---
+# Где лежит установщик. Порядок: явный PARANOID_SRC → путь, записанный install.sh при
+# последней установке → каталог самого лаунчера (когда его запускают прямо из клона).
+# Пусто, если ничего не подошло — тогда честно говорим, а не гадаем.
+_update_source() {
+  local state src
+  if [[ -n "${PARANOID_SRC:-}" && -f "${PARANOID_SRC}/install.sh" && -f "${PARANOID_SRC}/paranoid" ]]; then
+    printf '%s' "$PARANOID_SRC"; return 0
+  fi
+  state="${XDG_DATA_HOME:-$HOME/.local/share}/paranoid-tools/source"
+  if [[ -f "$state" ]]; then
+    # Обрезаем CR и краевые пробелы: иначе путь из файла с CRLF молча не совпал бы
+    # и лаунчер тихо взял бы другой каталог. Только абсолютный путь.
+    src="$(head -n1 "$state" 2>/dev/null || true)"
+    src="${src%$'\r'}"; src="${src#"${src%%[![:space:]]*}"}"; src="${src%"${src##*[![:space:]]}"}"
+    if [[ "$src" == /* && -f "$src/install.sh" && -f "$src/paranoid" ]]; then printf '%s' "$src"; return 0; fi
+  fi
+  src="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || src=""
+  if [[ -n "$src" && -f "$src/install.sh" && -f "$src/paranoid" ]]; then printf '%s' "$src"; return 0; fi
+  return 0
+}
+
+# Обновление = перезапуск установщика из клона: он сам тянет последние ПОДПИСАННЫЕ
+# релизы каждого тула и проверяет подпись. Своей логики скачивания тут нет намеренно —
+# иначе рядом с проверенным путём появился бы второй, непроверенный.
+_act_update() {
+  local src; src="$(_update_source)"
+  if [[ -z "$src" ]]; then
+    echo "  ${C_YEL}$(t upd_src_none)${C_RST}" >&2
+    _pause; return
+  fi
+  echo "  ${C_DIM}$(t upd_src "$src")${C_RST}"
+  local ans
+  read -r -p "  $(t upd_confirm) [yes] " ans <&0 || ans=""
+  [[ "$ans" == "yes" ]] || { echo "  $(t upd_cancel)"; _pause; return; }
+
+  if git -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "  $(t upd_pull)"
+    # --ff-only: молча перезаписывать локальные правки пользователя нельзя.
+    git -C "$src" pull --ff-only || echo "  ${C_YEL}$(t upd_pull_fail)${C_RST}" >&2
+  else
+    echo "  ${C_YEL}$(t upd_nogit)${C_RST}" >&2
+  fi
+
+  echo "  $(t upd_run)"
+  if bash "$src/install.sh"; then
+    # Баннер «доступно обновление» кэшируется на сутки — после установки он соврал бы.
+    rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/paranoid-tools/update-check" 2>/dev/null || true
+    echo "  ${C_GRN}$(t upd_done)${C_RST}"
+  else
+    echo "  ${C_YEL}$(t upd_fail)${C_RST}" >&2
+  fi
+  _pause
+}
+
 _act_status() {
   _run_tool securetrash check
   if _tool_installed vaultwatch; then echo; _run_tool vaultwatch status; fi
@@ -628,6 +705,7 @@ main() {
       3) _menu_vault ;;
       4) _menu_notepad ;;
       5) _menu_secrets ;;
+      6) _act_update ;;
       0|q|Q) echo; return 0 ;;
       *) : ;;   # неверный ввод → перерисовать меню
     esac
