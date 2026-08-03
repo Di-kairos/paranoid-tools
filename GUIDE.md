@@ -194,6 +194,7 @@ securetrash vault open         # open (mount) the vault
 securetrash vault close        # close the vault
 securetrash vault reset [size] # crypto-shred everything, recreate a fresh EMPTY vault
 securetrash vault destroy      # remove the vault and its contents (irreversible)
+securetrash vault destroy-old  # crypto-shred a container left aside by an interrupted reset
 securetrash vault status       # is the vault present / open?
 securetrash shred ~/secret.pdf # wipe a single file
 
@@ -277,6 +278,21 @@ one and recreates it — it asks for a size. This is only an upper limit: the co
 (sparsebundle on macOS, VHDX on Windows) is thin and grows as you add files, so picking a large
 cap costs you nothing up front. Press Enter for the default (1 GB). On macOS the format is like
 `5g` / `500m`; on Windows it's a number of megabytes (e.g. `5120`).
+
+**A container left behind by an interrupted reset.** If `vault reset` is interrupted after it
+sets the old container aside, that container stays on disk next to the vault and every `vault`
+command says so — on macOS as `SecureVault.sparsebundle.old`, on Windows as `SecureVault.old.vhdx`
+(the suffix goes before the extension there, so Windows still recognises the container).
+
+It still holds your older data, so it is **never** removed automatically — it may be the only copy
+you have. To get the data back on macOS: `hdiutil attach ~/SecureVault.sparsebundle.old`, copy what
+you need out, then **eject the volume** (Finder, or `hdiutil detach`). On Windows: `Mount-DiskImage
+-ImagePath $HOME\SecureVault.old.vhdx`, unlock it with `manage-bde -unlock <drive>: -Password`,
+copy out, then `Dismount-DiskImage`.
+
+Only once it is unmounted, `securetrash vault destroy-old` crypto-shreds it. While it is still
+mounted the command refuses — deleting the backing store of a live, decrypted volume is exactly
+the kind of damage the tool exists to prevent.
 
 **Delete the vault entirely.** `securetrash vault destroy` removes the container
 (`~/SecureVault.sparsebundle`) and crypto-shreds it — the key is gone, the icon disappears

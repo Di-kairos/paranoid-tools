@@ -81,6 +81,12 @@ logins, Paranoid Tools for the secrets that are too valuable to live in either.
   encryption works.
 - **Copies made before you started.** If the secret ever touched a cloud note or a chat,
   that copy is out of scope.
+- **Snapshots and backups holding an older copy.** A local APFS snapshot (Time Machine,
+  Carbon Copy Cloner, Arq) or a Volume Shadow Copy taken while a file was still outside
+  the vault holds a full copy of it. `shred` cannot reach inside one, and a single file
+  cannot be removed from a snapshot — only the whole snapshot. `securetrash check` reports
+  how many exist; the defence is to create secrets inside the vault, where a snapshot only
+  ever captures ciphertext. See the "putting files into the vault" section of `GUIDE.md`.
 - **Physical coercion.** `panic` hides and locks — it does not wipe, and it won't make
   anyone un-see what they already saw.
 - **Network surveillance or attribution.** The tools themselves never touch the network;
