@@ -15,7 +15,9 @@ setup() {
 _make_fakebin() {
   local bins="${TMP}/fakebin" b p
   mkdir -p "$bins"
-  for b in bash sh env curl shasum mktemp dirname install chmod rm mkdir cat sed grep awk head printf uname; do
+  # uname в список НЕ входит намеренно: симлинк на системный бинарь заставил бы
+  # запись фейка идти по ссылке в /usr/bin/uname (permission denied на CI).
+  for b in bash sh env curl shasum mktemp dirname install chmod rm mkdir cat sed grep awk head; do
     p="$(command -v "$b" 2>/dev/null)" || continue
     ln -sf "$p" "${bins}/${b}" 2>/dev/null || true
   done
