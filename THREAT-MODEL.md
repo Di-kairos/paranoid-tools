@@ -97,7 +97,17 @@ logins, Paranoid Tools for the secrets that are too valuable to live in either.
 ## Verify, don't trust
 
 Every tool is a single readable file — audit it before you run it. Installs are
-checksum- and signature-verified (Ed25519). Each tool's README carries its own
+checksum- and signature-verified (Ed25519).
+
+**One signing key covers all five tools, and that is a real limitation.** The same
+Ed25519 key signs every release, its private half lives in GitHub Actions secrets, and
+the public half is pinned inside the installers. So whoever obtains that key — or lands
+a change in any one repository's `release.yml` — can sign a release the installers will
+accept for the *whole* ecosystem, not just one tool. There is no in-band revocation
+either: a compromised key is replaced by publishing a new one here and in the
+installers, which only helps people who reinstall afterwards. If that matters for your
+case: pin an exact version, and check `SHA256SUMS` yourself with `verify-releases.sh`
+rather than trusting the installer to do it for you. Each tool's README carries its own
 *Scope & limitations* with the fine print of that specific tool; this page is the map,
 those are the territory.
 

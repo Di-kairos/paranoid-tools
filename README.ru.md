@@ -241,5 +241,6 @@ Paranoid Tools — свободный и open-source (MIT). Если он убе
 
 ## Лицензия
 
-[MIT](LICENSE). У каждого репозитория-инструмента своя MIT `LICENSE`, плюс `SECURITY.md`
+[MIT](LICENSE). В этом репозитории лежит [`SECURITY.md`](SECURITY.md) — про лаунчер и
+установщик; у каждого репозитория-инструмента своя MIT `LICENSE`, плюс `SECURITY.md`
 (как приватно сообщить об уязвимости) и `CONTRIBUTING.md`.

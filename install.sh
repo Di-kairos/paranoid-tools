@@ -30,8 +30,76 @@
 #                        игнорируются молча. По умолчанию latest.
 set -euo pipefail
 
+# --- language detection ---
+# Паритет с пятью тулами: по умолчанию английский, русский — opt-in. Security-ошибки
+# установщика (провал подписи, отсутствие верификатора) обязаны читаться тем, кто
+# ставит: раньше они были только по-русски, то есть для EN-пользователя это был
+# молчаливый отказ без причины.
+# Приоритет: PT_LANG → ST_LANG (общий для экосистемы) → $LC_ALL/$LANG.
+_detect_locale() {
+  local want="${PT_LANG:-${ST_LANG:-}}"
+  if [[ -n "$want" ]]; then
+    case "$want" in ru*) echo "ru"; return ;; *) echo "en"; return ;; esac
+  fi
+  case "${LC_ALL:-${LANG:-}}" in ru*) echo "ru" ;; *) echo "en" ;; esac
+}
+LOCALE="$(_detect_locale)"
+
+# Локализованные строки. Первый аргумент — ключ, остальные подставляются printf'ом.
+t() {
+  case "$LOCALE:$1" in
+    en:only_macos)     echo "Paranoid Tools targets macOS." ;;
+    ru:only_macos)     echo "Paranoid Tools рассчитаны на macOS." ;;
+    en:uninstalling)   printf 'Removing Paranoid Tools from %s...\n' "$2" ;;
+    ru:uninstalling)   printf 'Удаляю Paranoid Tools из %s...\n' "$2" ;;
+    en:removed)        printf '  ✓ removed %s\n' "$2" ;;
+    ru:removed)        printf '  ✓ удалён %s\n' "$2" ;;
+    en:uninstall_done) echo "Done. (A Homebrew-installed securetrash, if any, was left alone — remove it with 'brew uninstall'.)" ;;
+    ru:uninstall_done) echo "Готово. (Homebrew-версия securetrash, если была, не тронута — снимай через 'brew uninstall'.)" ;;
+    en:dl_fail)        printf '  ✗ %s: could not download the release (%s).\n' "$2" "$3" ;;
+    ru:dl_fail)        printf '  ✗ %s: не удалось скачать релиз (%s).\n' "$2" "$3" ;;
+    en:sig_bad)        printf '  ✗ %s: the release signature did NOT verify — skipping (possible tampering).\n' "$2" ;;
+    ru:sig_bad)        printf '  ✗ %s: подпись релиза НЕ прошла проверку — пропускаю (возможна подмена).\n' "$2" ;;
+    en:sig_missing)    printf '  ✗ %s: no release signature available — skipping (override: ALLOW_UNSIGNED_LEGACY=1).\n' "$2" ;;
+    ru:sig_missing)    printf '  ✗ %s: подпись релиза недоступна — пропускаю (обход: ALLOW_UNSIGNED_LEGACY=1).\n' "$2" ;;
+    en:no_verifier)    printf '  ✗ %s: ssh-keygen is unavailable, so the signature cannot be checked; skipping (override: ALLOW_UNSIGNED_LEGACY=1).\n' "$2" ;;
+    ru:no_verifier)    printf '  ✗ %s: ssh-keygen недоступен — подпись проверить нечем; пропускаю (обход: ALLOW_UNSIGNED_LEGACY=1).\n' "$2" ;;
+    en:no_verifier_warn) printf '  ! ssh-keygen is unavailable — the signature of %s was NOT verified (ALLOW_UNSIGNED_LEGACY=1, checksum only).\n' "$2" ;;
+    ru:no_verifier_warn) printf '  ! ssh-keygen недоступен — подпись %s НЕ проверена (ALLOW_UNSIGNED_LEGACY=1, только SHA256).\n' "$2" ;;
+    en:sum_mismatch)   printf '  ✗ %s: checksum mismatch on install.sh — skipping.\n' "$2" ;;
+    ru:sum_mismatch)   printf '  ✗ %s: контрольная сумма install.sh не совпала — пропускаю.\n' "$2" ;;
+    en:tool_fail)      printf "  ✗ %s: the tool's own installer exited with an error:\n" "$2" ;;
+    ru:tool_fail)      printf '  ✗ %s: установщик тула завершился с ошибкой:\n' "$2" ;;
+    en:installing)     printf 'Installing Paranoid Tools into %s...\n' "$2" ;;
+    ru:installing)     printf 'Ставлю Paranoid Tools в %s...\n' "$2" ;;
+    en:from_worktree)  printf '  ✓ %s → %s (from the working copy)\n' "$2" "$3" ;;
+    ru:from_worktree)  printf '  ✓ %s → %s (из рабочей копии)\n' "$2" "$3" ;;
+    en:from_release)   printf '  ✓ %s → %s (from the signed release)\n' "$2" "$3" ;;
+    ru:from_release)   printf '  ✓ %s → %s (из подписанного релиза)\n' "$2" "$3" ;;
+    en:installed_n)    printf 'Tools installed: %s/%s (+ the paranoid launcher).\n' "$2" "$3" ;;
+    ru:installed_n)    printf 'Установлено инструментов: %s/%s (+ лаунчер paranoid).\n' "$2" "$3" ;;
+    en:partial_note)   echo "Some tools did not install — see the messages above (network / signature / directory)." ;;
+    ru:partial_note)   echo "Часть тулов не встала — см. сообщения выше (сеть / подпись / каталог)." ;;
+    en:path_ok)        printf 'PATH: %s is already on PATH — call the tools by name.\n' "$2" ;;
+    ru:path_ok)        printf 'PATH: %s уже в PATH — вызывай тулы по имени.\n' "$2" ;;
+    en:path_missing)   printf 'WARNING: %s is NOT on PATH. Add this to ~/.zshrc:\n' "$2" ;;
+    ru:path_missing)   printf 'ВНИМАНИЕ: %s НЕ в PATH. Добавь в ~/.zshrc:\n' "$2" ;;
+    en:state_fail)     printf 'WARNING: could not write %s — the launcher Update item will not find this clone.\n' "$2" ;;
+    ru:state_fail)     printf 'ВНИМАНИЕ: не смог записать %s — пункт «Обновить» в лаунчере не найдёт этот клон.\n' "$2" ;;
+    en:check_hint)     echo "Check: securetrash version  |  panic version  |  ghostdraft version" ;;
+    ru:check_hint)     echo "Проверь: securetrash version  |  panic version  |  ghostdraft version" ;;
+    en:run_launcher)   echo "Run the launcher: paranoid" ;;
+    ru:run_launcher)   echo "Запусти лаунчер: paranoid" ;;
+    en:guide_hint)     echo "Guide: GUIDE.md" ;;
+    ru:guide_hint)     echo "Гайд по-русски: ИНСТРУКЦИЯ.md" ;;
+    en:partial_exit)   printf 'Installation is incomplete (%s/%s) — exiting with an error. Override: PT_ALLOW_PARTIAL=1.\n' "$2" "$3" ;;
+    ru:partial_exit)   printf 'Установка неполная (%s/%s) — выхожу с ошибкой. Обход: PT_ALLOW_PARTIAL=1.\n' "$2" "$3" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "Paranoid Tools рассчитаны на macOS." >&2; exit 1
+  t only_macos >&2; exit 1
 fi
 
 # Корень репозитория = каталог этого скрипта (устойчиво к запуску из любого cwd).
@@ -67,14 +135,14 @@ version_var_for() {
 
 # Режим удаления.
 if [[ "${1:-}" == "--uninstall" ]]; then
-  echo "Удаляю Paranoid Tools из ${DEST}..."
+  t uninstalling "$DEST"
   for t in "${TOOLS[@]}" paranoid; do
     if [[ -e "${DEST}/${t}" ]]; then
       rm -f "${DEST}/${t}"
-      echo "  ✓ удалён ${t}"
+      t removed "$t"
     fi
   done
-  echo "Готово. (Homebrew-версия securetrash, если была, не тронута — снимай через 'brew uninstall'.)"
+  t uninstall_done
   exit 0
 fi
 
@@ -97,7 +165,7 @@ install_from_release() {
 
   if ! curl -fsSL "${base}/install.sh" -o "${tmp}/install.sh" 2>/dev/null \
     || ! curl -fsSL "${base}/SHA256SUMS" -o "${tmp}/SHA256SUMS" 2>/dev/null; then
-    echo "  ✗ ${t}: не удалось скачать релиз (${base})." >&2
+    t dl_fail "$t" "$base" >&2
     return 1
   fi
 
@@ -109,26 +177,26 @@ install_from_release() {
       printf '%s namespaces="file" %s\n' "$SIGN_PRINCIPAL" "$RELEASE_SIGNING_PUBKEY" > "${tmp}/allowed_signers"
       if ! ( cd "$tmp" && ssh-keygen -Y verify -f allowed_signers -I "$SIGN_PRINCIPAL" \
                             -n file -s SHA256SUMS.sig < SHA256SUMS >/dev/null 2>&1 ); then
-        echo "  ✗ ${t}: подпись релиза НЕ прошла проверку — пропускаю (возможна подмена)." >&2
+        t sig_bad "$t" >&2
         return 1
       fi
     elif [[ "${ALLOW_UNSIGNED_LEGACY:-0}" != "1" ]]; then
-      echo "  ✗ ${t}: подпись релиза недоступна — пропускаю (обход: ALLOW_UNSIGNED_LEGACY=1)." >&2
+      t sig_missing "$t" >&2
       return 1
     fi
   else
     # Нет verifier'а. На macOS ssh-keygen идёт в комплекте → его отсутствие аномально;
     # молчаливая деградация до hash-only маскировала бы подмену. Fail-closed (P1-4).
     if [[ "${ALLOW_UNSIGNED_LEGACY:-0}" != "1" ]]; then
-      echo "  ✗ ${t}: ssh-keygen недоступен — подпись проверить нечем; пропускаю (обход: ALLOW_UNSIGNED_LEGACY=1)." >&2
+      t no_verifier "$t" >&2
       return 1
     fi
-    echo "  ! ssh-keygen недоступен — подпись ${t} НЕ проверена (ALLOW_UNSIGNED_LEGACY=1, только SHA256)." >&2
+    t no_verifier_warn "$t" >&2
   fi
 
   # Целостность: хеш самого install.sh из (уже проверенного подписью) SHA256SUMS.
   if ! ( cd "$tmp" && shasum -a 256 -c SHA256SUMS --ignore-missing >/dev/null 2>&1 ); then
-    echo "  ✗ ${t}: контрольная сумма install.sh не совпала — пропускаю." >&2
+    t sum_mismatch "$t" >&2
     return 1
   fi
 
@@ -140,7 +208,7 @@ install_from_release() {
   # сетевой ошибки) — ловим в лог и проксируем при провале (P1-4).
   local errlog="${tmp}/${t}.install.err"
   if ! env "${dvar}=${DEST}/${t}" ${pin:+"${vvar}=${pin}"} bash "${tmp}/install.sh" >/dev/null 2>"$errlog"; then
-    echo "  ✗ ${t}: установщик тула завершился с ошибкой:" >&2
+    t tool_fail "$t" >&2
     sed 's/^/      /' "$errlog" >&2
     return 1
   fi
@@ -149,18 +217,18 @@ install_from_release() {
 
 mkdir -p "$DEST"
 
-echo "Ставлю Paranoid Tools в ${DEST}..."
+t installing "$DEST"
 installed=0
 for t in "${TOOLS[@]}"; do
   local_src="${ROOT}/${t}/${t}"
   if [[ -f "$local_src" ]]; then
     # MAINTAINER: локальный скрипт рядом — копируем (вкл. невыпущенные правки).
     install -m 0755 "$local_src" "${DEST}/${t}"
-    echo "  ✓ ${t} → ${DEST}/${t} (из рабочей копии)"
+    t from_worktree "$t" "${DEST}/${t}"
     installed=$((installed + 1))
   elif install_from_release "$t"; then
     # ПУБЛИКА: подтянут и проверен подписанный релиз.
-    echo "  ✓ ${t} → ${DEST}/${t} (из подписанного релиза)"
+    t from_release "$t" "${DEST}/${t}"
     installed=$((installed + 1))
   fi
 done
@@ -171,18 +239,18 @@ install -m 0755 "${ROOT}/paranoid" "${DEST}/paranoid"
 echo "  ✓ paranoid → ${DEST}/paranoid"
 
 echo
-echo "Установлено инструментов: ${installed}/${#TOOLS[@]} (+ лаунчер paranoid)."
+t installed_n "$installed" "${#TOOLS[@]}"
 partial=0
 if [[ "$installed" -lt "${#TOOLS[@]}" ]]; then
-  echo "Часть тулов не встала — см. сообщения выше (сеть / подпись / каталог)." >&2
+  t partial_note >&2
   partial=1
 fi
 
 # Проверка PATH: без этого тулы стоят, но не вызываются по имени.
 case ":$PATH:" in
-  *":$DEST:"*) echo "PATH: ${DEST} уже в PATH — вызывай тулы по имени." ;;
+  *":$DEST:"*) t path_ok "$DEST" ;;
   *)
-    echo "ВНИМАНИЕ: ${DEST} НЕ в PATH. Добавь в ~/.zshrc:"
+    t path_missing "$DEST"
     echo "  export PATH=\"${DEST}:\$PATH\""
     ;;
 esac
@@ -195,18 +263,18 @@ if mkdir -p "$_state_dir" 2>/dev/null; then
   # Сносим прежний файл до записи: если это симлинк, `>` затёр бы его цель.
   rm -f "$_state_dir/source" 2>/dev/null || true
   if ! printf '%s\n' "$ROOT" > "$_state_dir/source" 2>/dev/null; then
-    echo "ВНИМАНИЕ: не смог записать ${_state_dir}/source — пункт «Обновить» в лаунчере не найдёт этот клон." >&2
+    t state_fail "${_state_dir}/source" >&2
   fi
 fi
 
 echo
-echo "Проверь: securetrash version  |  panic version  |  ghostdraft version"
-echo "Запусти лаунчер: paranoid"
-echo "Гайд по-русски: ИНСТРУКЦИЯ.md"
+t check_hint
+t run_launcher
+t guide_hint
 
 # Частичная установка — не тихий успех: выходим с ошибкой (обход: PT_ALLOW_PARTIAL=1). P2-3.
 if [[ "$partial" == "1" && "${PT_ALLOW_PARTIAL:-0}" != "1" ]]; then
   echo >&2
-  echo "Установка неполная (${installed}/${#TOOLS[@]}) — выхожу с ошибкой. Обход: PT_ALLOW_PARTIAL=1." >&2
+  t partial_exit "$installed" "${#TOOLS[@]}" >&2
   exit 1
 fi

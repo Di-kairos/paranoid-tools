@@ -241,5 +241,6 @@ funds maintenance and the optional convenience layer (the native menu-bar / tray
 
 ## License
 
-[MIT](LICENSE). Each tool repo carries its own MIT `LICENSE`, plus `SECURITY.md`
+[MIT](LICENSE). This repo carries [`SECURITY.md`](SECURITY.md) for the launcher and
+installer; each tool repo carries its own MIT `LICENSE`, plus `SECURITY.md`
 (how to report a vulnerability privately) and `CONTRIBUTING.md`.
