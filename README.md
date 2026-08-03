@@ -78,19 +78,23 @@ check the checksum, read it, then run:
 base=https://github.com/Di-kairos/securetrash/releases/latest/download
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
-shasum -a 256 -c SHA256SUMS --ignore-missing   # verifies install.sh
-less install.sh                                  # read it
+curl -fsSLO "$base/SHA256SUMS.sig"
+printf '%s\n' 'releases@paranoid-tools namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U' > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I releases@paranoid-tools -n file -s SHA256SUMS.sig < SHA256SUMS &&   # authenticity: Ed25519, pinned key
+shasum -a 256 -c SHA256SUMS --ignore-missing &&   # integrity: verifies install.sh
+less install.sh &&                               # read it — then run:
 bash install.sh
 ```
 
 > **Integrity vs authenticity (honest scope).** The checksum proves the downloaded
 > binary matches the `SHA256SUMS` published in the **same release** — it catches
 > corruption, partial/cached tampering, and stops you running code off the moving `main`
-> branch. It does **not** by itself defeat an attacker who can rewrite *both* the binary
-> and its checksum at the source (or your connection), nor does it prove *who* published
-> them. For that you need a signature (notarization / Authenticode — tracked separately,
-> F-4), or **Homebrew**, whose expected hash lives in the tap's git history rather than
-> alongside the download. Pin a specific version with `ST_VERSION=0.4.13` instead of
+> branch. Authenticity comes from the Ed25519 signature over
+> `SHA256SUMS`: the snippet above and `install.sh` both verify it against a key pinned in
+> this repo, and the installer fails closed when it can't (see `SECURITY.md`). Another
+> channel is **Homebrew**, whose expected hash lives in the tap's git history rather than
+> alongside the download. Residual risk: one project key signs all five tools — see the
+> ecosystem [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a specific version with `ST_VERSION=0.4.13` instead of
 > `latest` for reproducibility.
 
 ### Windows (beta)
