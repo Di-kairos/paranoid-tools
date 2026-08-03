@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-08-03
+
+### Fixed
+- **Windows: `split` делает round-trip self-check до печати долей.** Доли
+  восстанавливаются из первых T штук тем же путём, что и `combine`, и сверяются с
+  исходным секретом; при расхождении — ошибка и выход, ничего не печатается. Иначе
+  пользователь мог записать на бумагу доли, которые не собираются обратно. Паритет с bash.
+- **`install.sh` fail-closed без `ssh-keygen`** (обход — `ALLOW_UNSIGNED_LEGACY=1`),
+  `type -P` вместо `command -v`.
+
+### Changed
+- README EN+RU: сниппеты установки проверяют подпись `SHA256SUMS.sig` вшитым ключом,
+  а не только сумму; остаточный риск (один ключ подписи) назван прямо.
+
 ## [0.4.1] — 2026-07-04
 
 ### Security
@@ -142,6 +156,7 @@
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
 [Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.4.1...HEAD
+[0.4.2]: https://github.com/Di-kairos/seedsplit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Di-kairos/seedsplit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Di-kairos/seedsplit/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/Di-kairos/seedsplit/compare/v0.3.2...v0.3.3

@@ -15,7 +15,7 @@
 # Ядро split/combine над GF(256) реализовано (pack 2). См. README «Scope & limitations».
 set -euo pipefail
 
-VERSION="0.4.1"
+VERSION="0.4.2"
 
 # === BEGIN vendored common (pin: 2e3d2dd5b36251bdcb1a8ffd348b63ece5fa7aab) ===
 # shellcheck shell=bash
