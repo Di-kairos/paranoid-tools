@@ -25,8 +25,11 @@ Checksum-verified установка с релизного тега (как у s
 ```bash
 curl -fsSLO https://github.com/Di-kairos/vaultwatch/releases/latest/download/install.sh
 curl -fsSLO https://github.com/Di-kairos/vaultwatch/releases/latest/download/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing   # проверить сам install.sh
-less install.sh                                  # прочитать глазами
+curl -fsSLO https://github.com/Di-kairos/vaultwatch/releases/latest/download/SHA256SUMS.sig
+printf '%s\n' 'releases@paranoid-tools namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U' > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I releases@paranoid-tools -n file -s SHA256SUMS.sig < SHA256SUMS &&   # подлинность: Ed25519, пришитый ключ
+shasum -a 256 -c SHA256SUMS --ignore-missing &&   # целостность: сам install.sh
+less install.sh &&                               # прочитать глазами — и только потом:
 bash install.sh                                  # тянет vaultwatch + сумму, проверяет, ставит
 vaultwatch install-hooks                         # подключить к securetrash
 ```
@@ -42,10 +45,11 @@ curl -fsSL https://github.com/Di-kairos/vaultwatch/releases/latest/download/inst
 `VW_BASE_URL` (переопределить источник для форков/тестов).
 
 > **Целостность ≠ подлинность (честные границы).** Сумма доказывает, что бинарь совпадает
-> с `SHA256SUMS` из **того же релиза** — это ловит повреждение и частичную/кэш-подмену. Она
-> сама по себе НЕ защищает от атакующего, способного переписать *и* бинарь, *и* его сумму в
-> источнике, и НЕ доказывает, *кто* их опубликовал. Для подлинности нужна подпись или
-> Homebrew. Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.6` вместо `latest`.
+> с `SHA256SUMS` из **того же релиза** — это ловит повреждение и частичную/кэш-подмену. Подлинность даёт подпись
+> Ed25519 над `SHA256SUMS`: её проверяют и сниппет выше, и `install.sh` — по ключу,
+> пришитому в этом репо; без проверки установщик отказывает (см. `SECURITY.md`).
+> Остаточный риск — один проектный ключ на все пять тулов, см.
+> [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.6` вместо `latest`.
 
 > Текущий публичный релиз — **v0.1.6** (подписан, с `install.sh` + `SHA256SUMS`).
 > Для воспроизводимости фиксируй его: `VW_VERSION=0.1.6` вместо `latest`.

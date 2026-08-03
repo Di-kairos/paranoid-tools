@@ -27,8 +27,11 @@ verify-then-run — download, check the checksum, read it, then run:
 ```bash
 curl -fsSLO https://github.com/Di-kairos/vaultwatch/releases/latest/download/install.sh
 curl -fsSLO https://github.com/Di-kairos/vaultwatch/releases/latest/download/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing   # verifies install.sh itself
-less install.sh                                  # read it
+curl -fsSLO https://github.com/Di-kairos/vaultwatch/releases/latest/download/SHA256SUMS.sig
+printf '%s\n' 'releases@paranoid-tools namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U' > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I releases@paranoid-tools -n file -s SHA256SUMS.sig < SHA256SUMS &&   # authenticity: Ed25519, pinned key
+shasum -a 256 -c SHA256SUMS --ignore-missing &&   # integrity: verifies install.sh
+less install.sh &&                               # read it — then run:
 bash install.sh                                  # pulls vaultwatch + checksum, verifies, installs
 vaultwatch install-hooks                         # wire into securetrash
 ```
@@ -45,9 +48,11 @@ the hash **before** installing. Environment variables: `VW_VERSION` (pin a speci
 
 > **Integrity vs authenticity (honest scope).** The checksum proves the binary matches the
 > `SHA256SUMS` published in the **same release** — it catches corruption and partial/cached
-> tampering. It does **not** by itself defeat an attacker who can rewrite *both* the binary
-> and its checksum at the source, nor does it prove *who* published them. For authenticity
-> you need a signature or Homebrew. Pin a version with `VW_VERSION=0.1.6` instead of `latest`
+> tampering. Authenticity comes from the Ed25519 signature
+> over `SHA256SUMS`: the snippet above and `install.sh` both verify it against a key
+> pinned in this repo, and the installer fails closed when it can't (see `SECURITY.md`).
+> Residual risk: one project key signs all five tools — see the ecosystem
+> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a version with `VW_VERSION=0.1.6` instead of `latest`
 > for reproducibility.
 
 > The current public release is **v0.1.6** (signed, with `install.sh` + `SHA256SUMS`).
