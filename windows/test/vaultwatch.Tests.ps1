@@ -137,6 +137,19 @@ Describe 'stop — restores and reports' {
         Invoke-VwStop -ArgList @($script:Mount) | Out-Null
         Should -Invoke Unregister-VwGuardTask -Times 1 -Exactly
     }
+
+    # AUDIT_2026-08-03 P0-4: Explorer-eject → guard вызывает stop, когда тома уже НЕТ.
+    # Restore для несуществующего тома = N/A (не ошибка); state-файл обязан очиститься,
+    # иначе следующий start на этот mount вечно отвечает already_watching.
+    It 'eject: mount is gone -> restore N/A, state cleared, no false failure (P0-4)' {
+        $resolved = (Resolve-Path $script:Mount).Path
+        $sf = Get-VwStateFile -Mount $resolved
+        Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Remove-Item -LiteralPath $script:Mount -Recurse -Force   # том «изъят» до stop
+        Invoke-VwStop -ArgList @($resolved) | Out-Null
+        Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly
+        (Test-Path -LiteralPath $sf) | Should -BeFalse
+    }
 }
 
 Describe '_ttl_fire — auto-exit' {

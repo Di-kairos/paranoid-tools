@@ -526,7 +526,16 @@ function Invoke-VwStop {
     # Восстановить РОВНО изменённое.
     $restoreOk = $true
     if ($searchSet -eq '1') {
-        if (-not (Enable-VwSearchIndex -Path $mount)) { $restoreOk = $false }
+        if (-not (Test-Path -LiteralPath $mount)) {
+            # Том уже размонтирован (напр. Explorer-eject → guard вызвал stop) — индексировать
+            # НЕЧЕГО, restore N/A, это НЕ ошибка (зеркало bash). Иначе stale state-файл
+            # навсегда блокировал следующий start: guard уже снят, а сессия «висит»
+            # (AUDIT_2026-08-03 P0-4).
+        } elseif (-not (Enable-VwSearchIndex -Path $mount)) {
+            # TOCTOU: том мог исчезнуть МЕЖДУ Test-Path и Enable — перепроверяем; исчез →
+            # та же ветка N/A, иначе честный провал restore (Codex review P0-4).
+            if (Test-Path -LiteralPath $mount) { $restoreOk = $false }
+        }
     }
 
     # --- session report ---
