@@ -256,7 +256,7 @@ vaultwatch status                              # which vaults are guarded right 
 **Bottom line:** after `install-hooks` you can forget about it — `securetrash vault open`
 raises the guard, `close` drops it.
 
-### 3. panic — hide everything, now
+### 3. panic — everything off the screen, now
 
 **When:** someone walks up and you need everything off the screen instantly.
 

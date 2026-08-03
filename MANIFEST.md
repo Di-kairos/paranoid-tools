@@ -84,7 +84,7 @@ hide it under threat, distribute it, destroy it:
 | write without a trace | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft) | view or draft sensitive text leaving no copy in the usual places |
 | store & destroy | [`securetrash`](https://github.com/Di-kairos/securetrash) | an encrypted vault, and honest deletion that refuses to lie about SSDs |
 | guard while open | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch) | narrow the leak channels while a vault is mounted, restore on close |
-| hide under threat | [`panic`](https://github.com/Di-kairos/panic) | one command to hide and lock everything, instantly |
+| hide under threat | [`panic`](https://github.com/Di-kairos/panic) | one command — everything off the screen, vaults locked, instantly |
 | distribute | [`seedsplit`](https://github.com/Di-kairos/seedsplit) | split a secret into Shamir shares — any T reconstruct, fewer reveal nothing |
 
 Each is pure Bash: a single file, zero dependencies, MIT-licensed, with its own
