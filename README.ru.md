@@ -34,8 +34,11 @@
 base=https://github.com/Di-kairos/seedsplit/releases/latest/download
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
-shasum -a 256 -c SHA256SUMS --ignore-missing   # проверяет install.sh
-less install.sh                                  # прочитать
+curl -fsSLO "$base/SHA256SUMS.sig"
+printf '%s\n' 'releases@paranoid-tools namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U' > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I releases@paranoid-tools -n file -s SHA256SUMS.sig < SHA256SUMS &&   # подлинность: Ed25519, пришитый ключ
+shasum -a 256 -c SHA256SUMS --ignore-missing &&   # целостность: сам install.sh
+less install.sh &&                               # прочитать — и только потом:
 bash install.sh
 ```
 
@@ -48,8 +51,10 @@ curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/insta
 > **Целостность ≠ подлинность (честные границы).** Контрольная сумма доказывает, что
 > скачанный бинарь совпадает с `SHA256SUMS` из **того же релиза** — это ловит
 > повреждение, частичную/кэш-подмену и не даёт запустить код с подвижной ветки `main`.
-> Она сама по себе НЕ защищает от атакующего, способного переписать *и* бинарь, *и* его
-> сумму в источнике (или на твоём канале), и НЕ доказывает, *кто* их опубликовал. Для
+> Подлинность даёт подпись Ed25519 над `SHA256SUMS`: её проверяют и сниппет выше, и
+> `install.sh` — по ключу, пришитому в этом репо; без проверки установщик отказывает
+> (см. `SECURITY.md`). Остаточный риск — один проектный ключ на все пять тулов, см.
+> [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для
 > воспроизводимости фиксируй версию: `SEEDSPLIT_VERSION=0.4.1` вместо `latest`. Источник
 > можно переопределить через `SEEDSPLIT_BASE_URL`, путь установки — через `SEEDSPLIT_DEST`.
 
