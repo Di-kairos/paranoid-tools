@@ -220,6 +220,49 @@ at rest again. Want maximum privacy (the volume kept off the sidebar and desktop
 `ST_VAULT_HIDDEN=1 securetrash vault open`; then the only way to bring the window back is the
 `open` command.
 
+**Putting files into the vault — create inside, don't move inside.** This is the single most
+common misunderstanding, and it costs the guarantee. A mounted vault is a **separate volume**, so
+dragging a file into it is always *copy, then delete the original* — holding `Cmd` changes nothing
+about that. And the important part: the trace on your disk was **not** created by the move. It was
+created the moment the file first landed there — downloaded, saved by an editor, received in a
+messenger. From that instant its plaintext blocks live on the outer disk, and moving it into the
+vault neither adds to that nor removes it.
+
+So the only workflow with no outside copy is to **create the file inside the open vault** from the
+start: `vault open`, then save/create directly in `/Volumes/SecretVault/`. That is exactly what
+`ghostdraft` does for text — the draft lives on a RAM disk or inside the vault and refuses to touch
+`/tmp`.
+
+If a sensitive file already exists outside, move it in and then `securetrash shred` the original —
+but treat that as *reducing exposure*, not as a guarantee. On an SSD you cannot reliably overwrite
+one specific file (wear leveling, TRIM, copy-on-write), which is why `check` says so plainly.
+
+**What can still hold a copy after you shred:**
+
+- **Snapshots.** A local APFS snapshot (macOS — Time Machine, but also Carbon Copy Cloner, Arq and
+  friends) or a Volume Shadow Copy (Windows) taken while the file was still outside holds a **full
+  copy** of it — not just its name. `shred` cannot reach inside one, and you cannot remove a single
+  file from a snapshot: only the whole snapshot. On macOS: `tmutil listlocalsnapshots /`, then
+  `sudo tmutil deletelocalsnapshots <date>`, where `<date>` is the `YYYY-MM-DD-HHMMSS` part of the
+  name (not the full name). On Windows, from an elevated prompt: `vssadmin list shadows`, then
+  `vssadmin delete shadows /for=C: /oldest`. `securetrash check` and the note printed after every
+  `shred` tell you how many exist.
+- **Backups and sync.** Time Machine on an external disk, iCloud/Dropbox version history — full
+  copies your local `shred` knows nothing about.
+- **Names and previews.** `.DS_Store`, Recents, the Spotlight index and apps' "Open Recent" lists
+  keep names and paths; the QuickLook thumbnail cache keeps a rendered *picture* of the document.
+
+**What closes what — be precise here.** Full-disk encryption (FileVault / BitLocker) closes exactly
+one of those channels: the raw leftover blocks of the deleted original. With it on, pull the drive
+and read it elsewhere and you get noise — a stronger guarantee than any overwriting, and `check`
+reports whether it's on. It does **not** help against the other three: a snapshot on a FileVault Mac
+is readable by anyone who can log in, and cloud version history sits outside your disk entirely.
+
+The only thing that closes *all* of them is never letting the file exist outside the vault in the
+first place. That's why the rule at the top of this section is "create inside", not "move inside" —
+and it's also why snapshots don't threaten what's already in the vault: a snapshot captures the
+container as ciphertext.
+
 **Empty the vault for sure.** `securetrash vault reset` (Vault ▸ → 2, Empty) crypto-shreds the
 current container — it throws the key away — and recreates a fresh, **empty** vault in its place.
 Why not just delete the files inside? Wiping files in place inside a live vault on an SSD is only
