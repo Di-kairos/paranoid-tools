@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-08-03
+
+### Fixed
+- **Windows: `stop` после извлечения тома больше не «восстанавливает» в пустоту.** Если том
+  исчез (eject/отключение диска), restore помечается N/A, состояние чистится, а перед
+  действием идёт повторная проверка — закрывает TOCTOU-гонку. Зеркало bash-политики.
+- **`install.sh` fail-closed без `ssh-keygen`.** Раньше отсутствие верификатора молча
+  понижало установку до проверки только по хешу; теперь это отказ (обход —
+  `ALLOW_UNSIGNED_LEGACY=1`, названный явно). Плюс `type -P`: экспортированная функция
+  не может подменить собой верификатор.
+
+### Changed
+- README EN+RU: клеймы про подпись приведены в соответствие коду — сниппеты проверяют
+  подлинность (`.sig` + вшитый pubkey + `ssh-keygen -Y verify`), шаги сцеплены `&&`,
+  остаточный риск (один ключ) назван прямо.
+
 ## [0.1.6] — 2026-07-04
 
 ### Added
@@ -125,6 +141,7 @@
   bootstrap/bootout-цикл, plist валиден (`plutil -lint`).
 
 [Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.6...HEAD
+[0.1.7]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.3...v0.1.4
