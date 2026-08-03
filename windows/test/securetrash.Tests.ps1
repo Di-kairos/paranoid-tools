@@ -891,6 +891,22 @@ Describe 'vault open idempotency (P2-5)' {
         Should -Invoke Invoke-StDiskpart -Times 0 -Exactly
     }
 
+    # AUDIT_2026-08-03 P0-3 (Codex): legacy-vault, смонтированный до появления sidecar'а,
+    # оставлял ghostdraft/paranoid без реальной буквы — already-mounted ветка освежает sidecar.
+    It 'open on an already-mounted vault refreshes the mount sidecar' {
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'D:\' }
+        Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
+        Should -Invoke Write-StVaultMount -Times 1 -Exactly -ParameterFilter { $Mount -eq 'D:\' }
+    }
+
+    It 'sidecar refresh is skipped when the current letter cannot be resolved' {
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { $null }
+        Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
+        Should -Invoke Write-StVaultMount -Times 0 -Exactly
+    }
+
     It 'open on an unmounted vault proceeds to attach' {
         Mock Get-StVaultState { 'unmounted' }
         Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null

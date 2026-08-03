@@ -457,6 +457,18 @@ function Get-StVaultState {
     }
 }
 
+# Текущий корень смонтированного VHDX (напр. 'D:\'); $null, если определить не удалось
+# (нет Storage-модуля / нет буквы). Обёртка для Mock.
+function Get-StMountedVaultRoot {
+    param([string]$Path)
+    try {
+        $part = Get-DiskImage -ImagePath $Path -ErrorAction Stop | Get-Disk -ErrorAction Stop |
+                Get-Partition -ErrorAction Stop | Where-Object DriveLetter | Select-Object -First 1
+        if ($part -and $part.DriveLetter) { return "$($part.DriveLetter):\" }
+    } catch { }
+    return $null
+}
+
 # Размонтировать/отсоединить контейнер (обёртка для Mock).
 function Dismount-StVault {
     param([string]$Path)
@@ -903,6 +915,13 @@ function Invoke-StVault {
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container_open'); Stop-StCommand }
             # Идемпотентность: уже смонтирован → не дублируем attach (AUDIT P2-5, паритет с bash).
             if ((Get-StVaultState -Path $vaultPath) -eq 'mounted') {
+                # Освежаем mount-sidecar: legacy-vault мог быть смонтирован до появления
+                # sidecar'а (или запись провалилась) — без него ghostdraft/paranoid не находят
+                # реальную букву тома (AUDIT_2026-08-03 P0-3, Codex review). Best-effort.
+                try {
+                    $curRoot = Get-StMountedVaultRoot -Path $vaultPath
+                    if ($curRoot) { Write-StVaultMount -VaultPath $vaultPath -Mount $curRoot }
+                } catch { }
                 Write-StInfo (T 'vault_already_open' $vaultPath); return
             }
             $backend = Read-StVaultBackend -VaultPath $vaultPath
