@@ -52,3 +52,36 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -x "$DEST" ]
 }
+
+# Минимальный fakebin: ровно те внешние бинари, что нужны install.sh, + fake uname=Darwin.
+# $1 = with-keygen | without-keygen — управляет наличием ssh-keygen.
+_make_fakebin() {
+  local mode="$1" bins="${WORK}/fakebin" b p
+  mkdir -p "$bins"
+  for b in bash sh env curl shasum mktemp dirname install chmod rm mkdir cat; do
+    p="$(command -v "$b" 2>/dev/null)" || continue
+    ln -s "$p" "${bins}/${b}" 2>/dev/null || true
+  done
+  if [ "$mode" = "with-keygen" ]; then
+    p="$(command -v ssh-keygen 2>/dev/null)" && ln -s "$p" "${bins}/ssh-keygen"
+  fi
+  printf '#!/usr/bin/env bash\necho Darwin\n' > "${bins}/uname"
+  chmod +x "${bins}/uname"
+  printf '%s' "$bins"
+}
+
+@test "install.sh fails closed when ssh-keygen is missing (no silent hash-only)" {
+  # Молчаливая деградация до hash-only маскировала бы подмену (P1-1, паритет с umbrella).
+  BINS="$(_make_fakebin without-keygen)"
+  run env PATH="$BINS" ST_BASE_URL="file://${FIX}" ST_DEST="$DEST" bash "$INSTALL"
+  [ "$status" -ne 0 ]
+  [ ! -e "$DEST" ]
+  [[ "$output" == *"ssh-keygen"* ]]
+}
+
+@test "install.sh with ALLOW_UNSIGNED_LEGACY=1 proceeds hash-only without ssh-keygen" {
+  BINS="$(_make_fakebin without-keygen)"
+  run env PATH="$BINS" ST_BASE_URL="file://${FIX}" ST_DEST="$DEST" ALLOW_UNSIGNED_LEGACY=1 bash "$INSTALL"
+  [ "$status" -eq 0 ]
+  [ -x "$DEST" ]
+}
