@@ -554,6 +554,8 @@ _is_sparsebundle() {
 # на невалидном размере (AUDIT_2026-07-03 P2-2). Валидируем ПЕРЕД destroy.
 _assert_valid_size() {
   if ! [[ "$1" =~ ^[0-9]+[bkmgtBKMGT]?$ ]]; then err "$(t vault_bad_size "$1")"; exit 1; fi
+  # Ноль проходит regex, но `reset 0` уничтожил бы сейф и упал на create (паритет с ps1).
+  if [[ "$1" =~ ^0+[bkmgtBKMGT]?$ ]]; then err "$(t vault_bad_size "$1")"; exit 1; fi
 }
 
 # --- общие низкоуровневые операции (переиспользуются create/destroy/reset) ---

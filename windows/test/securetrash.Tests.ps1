@@ -477,6 +477,20 @@ Describe 'backend metadata routing (#10)' {
 
 Describe 'vault destroy' {
 
+    # Структурная проверка контейнера по умолчанию проходит; негативный кейс мокает $false.
+    BeforeEach { Mock Test-StVaultContainer { $true } }
+
+    It 'refuses to destroy a path that is not our container (before confirm)' {
+        $env:ST_ASSUME_YES = '1'
+        $script:ST_LOCALE = 'en'
+        Mock Test-Path { $false }
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Test-StVaultContainer { $false }
+        Mock Remove-StVaultContainer { }
+        { Invoke-StVault -VaultArgs @('destroy') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
     It 'honors ST_ASSUME_YES and calls remove-container mock (bitlocker backend)' {
         $env:ST_ASSUME_YES = '1'
         $script:ST_LOCALE = 'en'
@@ -568,6 +582,7 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
         $script:ST_LOCALE = 'en'
         Mock Test-Path { $true }  -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.backend' }
+        Mock Test-StVaultContainer { $true }
         Mock Read-StVaultBackend { 'bitlocker' }
         Mock Dismount-StVault { }
         Mock Remove-StVaultContainer { }
@@ -629,6 +644,74 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
         $out = (Invoke-StVault -VaultArgs @('reset') 6>&1) -join "`n"
         $out | Should -Match 'crypto-shred'
         $out | Should -Match 'fresh empty vault'
+    }
+
+    # AUDIT_2026-08-03 P0-1: опечатка в размере не должна успеть уничтожить сейф —
+    # валидация идёт ДО destroy (зеркало bash AUDIT_2026-07-03 P2-2).
+    It 'invalid size fails BEFORE destroy: old vault survives a typo' {
+        Mock Get-StVaultState { 'unmounted' }
+        { Invoke-StVault -VaultArgs @('reset', '10gb') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+        Should -Invoke New-StBitLockerVault -Times 0 -Exactly
+    }
+
+    It 'size 0 fails BEFORE destroy (recreate would die in diskpart)' {
+        Mock Get-StVaultState { 'unmounted' }
+        { Invoke-StVault -VaultArgs @('reset', '0') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+        Should -Invoke New-StBitLockerVault -Times 0 -Exactly
+    }
+
+    It 'refuses to reset a path that is not our container (no destroy)' {
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Test-StVaultContainer { $false }
+        { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+        Should -Invoke New-StBitLockerVault -Times 0 -Exactly
+    }
+}
+
+# Прямые тесты структурной проверки контейнера (реальная FS, без моков).
+Describe 'Test-StVaultContainer (structure check, AUDIT_2026-08-03 P0-1)' {
+    BeforeEach {
+        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ("st_vc_" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+    }
+    AfterEach {
+        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'accepts a file with the VHDX magic' {
+        $f = Join-Path $script:Dir 'v.vhdx'
+        [System.IO.File]::WriteAllBytes($f, [System.Text.Encoding]::ASCII.GetBytes('vhdxfile-rest-of-header'))
+        Test-StVaultContainer -Path $f | Should -BeTrue
+    }
+
+    It 'rejects an arbitrary file without the magic' {
+        $f = Join-Path $script:Dir 'random.vhdx'
+        Set-Content -LiteralPath $f -Value 'not a vault at all'
+        Test-StVaultContainer -Path $f | Should -BeFalse
+    }
+
+    It 'rejects a directory' {
+        Test-StVaultContainer -Path $script:Dir | Should -BeFalse
+    }
+
+    It 'rejects a truncated (<8 bytes) file' {
+        $f = Join-Path $script:Dir 'tiny.vhdx'
+        [System.IO.File]::WriteAllBytes($f, [System.Text.Encoding]::ASCII.GetBytes('vhdx'))
+        Test-StVaultContainer -Path $f | Should -BeFalse
+    }
+
+    It 'accepts a veracrypt-backend file regardless of content (random bytes by design)' {
+        $f = Join-Path $script:Dir 'vc.hc'
+        Set-Content -LiteralPath $f -Value 'opaque-random-bytes'
+        Set-Content -LiteralPath "$f.backend" -Value 'veracrypt' -NoNewline
+        Test-StVaultContainer -Path $f | Should -BeTrue
+    }
+
+    It 'rejects a missing path' {
+        Test-StVaultContainer -Path (Join-Path $script:Dir 'nope.vhdx') | Should -BeFalse
     }
 }
 

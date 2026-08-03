@@ -192,6 +192,9 @@ Flags:
     'en:vault_no_container' = 'No container: {0}'
     'ru:vault_no_container' = 'Нет контейнера: {0}'
 
+    'en:vault_bad_container' = 'Not a valid vault container (expected an encrypted container file): {0}'
+    'ru:vault_bad_container' = 'Невалидный контейнер (ожидается файл зашифрованного контейнера): {0}'
+
     'en:vault_destroy_confirm' = 'DESTROY the container and everything inside ({0})?'
     'ru:vault_destroy_confirm' = 'УНИЧТОЖИТЬ контейнер и всё внутри ({0})?'
 
@@ -357,10 +360,11 @@ function Get-StVeraCryptPath {
 
 # --- input validation (#3: защита от diskpart-инъекций) ---
 
-# Проверить размер: только цифры (МБ для diskpart). Иначе — честная ошибка.
+# Проверить размер: только цифры (МБ для diskpart), ноль запрещён — `reset 0` прошёл бы
+# валидацию, уничтожил сейф и упал на recreate (Codex review AUDIT_2026-08-03 P0-1).
 function Assert-StValidSize {
     param([string]$Size)
-    if ($Size -notmatch '^\d+$') { Write-StErr (T 'bad_size' $Size); Stop-StCommand }
+    if ($Size -notmatch '^\d+$' -or [int64]$Size -eq 0) { Write-StErr (T 'bad_size' $Size); Stop-StCommand }
 }
 
 # Проверить букву диска: ровно одна A-Z.
@@ -515,6 +519,34 @@ function Read-StVaultBackend {
     $bp = Get-StBackendPath $VaultPath
     if (Test-Path -LiteralPath $bp) { return (Get-Content -LiteralPath $bp -Raw).Trim() }
     return $null
+}
+
+# Похоже ли на валидный контейнер (а не произвольный путь)? Зеркало bash
+# _is_sparsebundle: destroy/reset не должны уничтожать то, что мы не создавали
+# (например, ST_VAULT_PATH указал на каталог или чужой файл). VHDX начинается
+# с magic 'vhdxfile'; VeraCrypt-контейнер — неотличимые случайные байты, для
+# него остаётся только структурная проверка (файл, не каталог).
+function Test-StVaultContainer {
+    param([string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if (-not $item -or $item.PSIsContainer) { return $false }
+    if ((Read-StVaultBackend -VaultPath $Path) -eq 'veracrypt') { return $true }
+    try {
+        # FileShare ReadWrite|Delete: смонтированный VHDX держит virtual-disk stack —
+        # обычный OpenRead упал бы и легитимный destroy получил бы ложный bad_container.
+        $fs = [System.IO.FileStream]::new($item.FullName,
+            [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+        try {
+            $buf = New-Object byte[] 8
+            if ($fs.Read($buf, 0, 8) -lt 8) { return $false }
+            return ([System.Text.Encoding]::ASCII.GetString($buf) -eq 'vhdxfile')
+        } finally { $fs.Dispose() }
+    } catch {
+        # Файл есть, но не читается (залочен смонтированным стеком) — опровергнуть не можем,
+        # пропускаем: сам destroy остаётся fail-closed по состоянию (Get-StVaultState).
+        return $true
+    }
 }
 
 # --- vault lifecycle hooks (точка интеграции экосистемы; зеркало bash ST_HOOK_DIR) ---
@@ -928,7 +960,10 @@ function Invoke-StVault {
             }
         }
         'destroy' {
+            # Проверяем ДО confirm-промпта: не спрашивать про несуществующий/чужой путь
+            # (зеркало bash _vault_assert_destroyable).
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container' $vaultPath); Stop-StCommand }
+            if (-not (Test-StVaultContainer -Path $vaultPath)) { Write-StErr (T 'vault_bad_container' $vaultPath); Stop-StCommand }
             if (-not (Confirm-StAction (T 'vault_destroy_confirm' $vaultPath))) {
                 Write-StWarn (T 'cancelled'); Stop-StCommand
             }
@@ -939,11 +974,15 @@ function Invoke-StVault {
             # — best-effort (тот же ключ продолжает расшифровывать остаточные блоки). Честный
             # путь — crypto-shred контейнера (выкинуть ключ) + создать новый пустой (новый ключ
             # → старое мертво). Один confirm на всю операцию.
+            # Размер валидируем ДО destroy: опечатка в размере не должна успеть уничтожить
+            # старый сейф (зеркало bash, AUDIT_2026-07-03 P2-2 / AUDIT_2026-08-03 P0-1).
+            $resetSize = if ($VaultArgs.Count -ge 2) { $VaultArgs[1] } else { '1024' }
+            Assert-StValidSize -Size $resetSize
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container' $vaultPath); Stop-StCommand }
+            if (-not (Test-StVaultContainer -Path $vaultPath)) { Write-StErr (T 'vault_bad_container' $vaultPath); Stop-StCommand }
             if (-not (Confirm-StAction (T 'vault_reset_confirm' $vaultPath))) {
                 Write-StWarn (T 'cancelled'); Stop-StCommand
             }
-            $resetSize = if ($VaultArgs.Count -ge 2) { $VaultArgs[1] } else { '1024' }
             Invoke-StVaultDestroyNow
             Invoke-StVaultCreateNow -Size $resetSize
             Write-StInfo (T 'vault_reset_done')

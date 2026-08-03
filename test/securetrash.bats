@@ -239,6 +239,20 @@ setup() {
   rm -rf "$tmp"
 }
 
+@test "vault reset with size 0 refuses and keeps the old container" {
+  # 0 проходит формат-regex, но create на нём падает → сейф был бы уничтожен зря
+  # (Codex review AUDIT_2026-08-03 P0-1; паритет с ps1).
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  echo OLD > "$tmp/SecureVault.sparsebundle/bands/marker"
+  run env HOME="$tmp" ST_ASSUME_YES=1 ST_VAULT_PASS=test1234 \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault reset "0"
+  [ "$status" -ne 0 ]
+  [ -e "$tmp/SecureVault.sparsebundle/bands/marker" ]
+  rm -rf "$tmp"
+}
+
 @test "vault create with an invalid size refuses before touching hdiutil" {
   tmp="$(mktemp -d)"
   run env HOME="$tmp" ST_VAULT_PASS=test1234 \
