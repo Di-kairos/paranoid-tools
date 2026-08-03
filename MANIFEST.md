@@ -87,8 +87,9 @@ hide it under threat, distribute it, destroy it:
 | hide under threat | [`panic`](https://github.com/Di-kairos/panic) | one command — everything off the screen, vaults locked, instantly |
 | distribute | [`seedsplit`](https://github.com/Di-kairos/seedsplit) | split a secret into Shamir shares — any T reconstruct, fewer reveal nothing |
 
-Each is pure Bash: a single file, zero dependencies, MIT-licensed, with its own
-honest *Scope & limitations*. They're built the way a good tool should be — to do
+Each is a single auditable file — Bash on macOS, with a PowerShell port on Windows —
+zero runtime dependencies (two opt-in exceptions, named in the tool READMEs),
+MIT-licensed, with its own honest *Scope & limitations*. They're built the way a good tool should be — to do
 exactly one thing, do it well, and say plainly where it stops.
 
 ## For everyone, everywhere

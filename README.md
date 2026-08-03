@@ -18,8 +18,8 @@
 
 </div>
 
-> **Don't trust, verify.** Ed25519-signed releases · zero runtime dependencies · one
-> auditable file per tool · shellcheck-clean. Every limitation is stated plainly — see each
+> **Don't trust, verify.** Ed25519-signed releases · zero runtime dependencies (two
+> opt-in exceptions, named in the install notes) · one auditable file per tool · shellcheck-clean. Every limitation is stated plainly — see each
 > tool's *Scope &amp; limitations*. No third-party audit is claimed; the code is small enough
 > to read yourself.
 
@@ -69,8 +69,18 @@ the installer checks the Ed25519 signature over `SHA256SUMS`, then the checksum 
 tool's own `install.sh`, and only then runs it — which in turn verifies the binary before
 installing. So every artifact pulled from the network — a tool's own `install.sh` and its
 binary — is verified before it runs (you launch the top-level `bash install.sh` yourself,
-after reading it). Pin a version with, e.g., `PT_PANIC_VERSION=0.1.7`; change the target dir
+after reading it). Pin a version with, e.g., `PT_PANIC_VERSION=0.1.8`; change the target dir
 with `PT_DEST=/usr/local/bin`.
+
+Honest switches and edges, named before you find them: `ALLOW_UNSIGNED_LEGACY=1`
+deliberately downgrades verification to hash-only — it exists for pre-signing releases;
+`PT_ALLOW_PARTIAL=1` lets a run finish when some tools failed to install. On a maintainer
+layout (tool directories present in the clone) `install.sh` copies those working-copy
+files instead of downloading signed releases — and says so in its output. The Windows
+installers carry the same idea under a different name: `PT_ALLOW_HASH_ONLY=1`. The
+zero-dependency claim has two opt-in exceptions: `panic hotkey` needs `skhd`,
+`seedsplit -p` needs `openssl` (both stated in the tool READMEs) — and on Windows the
+port itself runs on PowerShell 7, the one platform prerequisite.
 
 Prefer to install just one tool, or inspect each step by hand? Every tool's README carries a
 standalone verify-then-run snippet plus a one-line quick form. See [the tools](#the-tools).
