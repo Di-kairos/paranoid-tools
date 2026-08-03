@@ -32,7 +32,9 @@ $script:SS_LOCALE = if ($env:ST_LOCALE) { $env:ST_LOCALE } else { Get-SsLocale }
 
 # --- output helpers: ошибки/предупреждения в stderr, данные — через Write-Output у вызывающего ---
 function Write-SsWarn { param([string]$Msg) [Console]::Error.WriteLine("[!] $Msg") }
-function Write-SsErr  { param([string]$Msg) [Console]::Error.WriteLine("[x] $Msg") }
+# SS_QUIET_ERR: глушилка для внутреннего self-check'а split (зеркало bash `2>/dev/null`) —
+# диагностика combine-путей не должна утекать в stderr при проверке СГЕНЕРИРОВАННЫХ долей.
+function Write-SsErr  { param([string]$Msg) if ($script:SS_QUIET_ERR) { return }; [Console]::Error.WriteLine("[x] $Msg") }
 
 # --- exit через исключение (Pester-safe: не убивает host-сессию) ---
 class SsExit : System.Exception {
@@ -64,6 +66,8 @@ function T {
         'ru:split_n_max'          { return 'split: -n не может превышать 255 (точки оценки GF(256))' }
         'en:split_secret_big'     { return 'split: secret too large (>65535 bytes)' }
         'ru:split_secret_big'     { return 'split: секрет слишком большой (>65535 байт)' }
+        'en:split_selfcheck_fail' { return 'split: internal self-check FAILED — the generated shares do not reconstruct the secret. Nothing was printed; do NOT rely on any partial output. Please re-run and report this.' }
+        'ru:split_selfcheck_fail' { return 'split: внутренняя self-проверка НЕ ПРОШЛА — сгенерированные доли не собирают секрет. Ничего не напечатано; НЕ полагайся на частичный вывод. Перезапусти и сообщи об этом.' }
         'en:combine_not_sss2'     { return "combine: line does not look like an SSS2 share: $A" }
         'ru:combine_not_sss2'     { return "combine: строка не похожа на долю формата SSS2: $A" }
         'en:combine_corrupt'      { return "combine: share corrupted (checksum mismatch): x=$A" }
@@ -297,11 +301,26 @@ function Invoke-SsSplit {
         }
 
         # Доля: SSS2-<setid>-<T>-<x>-<hexY>-<chk4>. chk = sha256(body)[:4]; ловит опечатку в доле.
+        $shares = New-Object 'System.Collections.Generic.List[string]'
         for ($x = 1; $x -le $n; $x++) {
             $body = "SSS2-$setidHex-$t-$x-$($Y[$x])"
             $chk = (Get-SsSha256Hex ([System.Text.Encoding]::ASCII.GetBytes($body))).Substring(0, 4)
-            Write-Output "$body-$chk"
+            $shares.Add("$body-$chk")
         }
+
+        # Round-trip self-check ДО печати (зеркало bash seedsplit): собрать секрет ровно тем же
+        # путём, что combine, из первых T долей и сверить с исходным. Ловит любую поломку
+        # генерации/GF-математики РАНЬШЕ, чем юзер раздаст доли и сотрёт оригинал сида
+        # (AUDIT_2026-08-03 P0-2).
+        $scOk = $false
+        $script:SS_QUIET_ERR = $true
+        try {
+            $rec = Get-SsRecoveredSecret -Raw (($shares | Select-Object -First $t) -join "`n")
+            $scOk = ((ConvertTo-SsHex $rec) -eq (ConvertTo-SsHex $secret))
+        } catch { $scOk = $false } finally { $script:SS_QUIET_ERR = $false }
+        if (-not $scOk) { Write-SsErr (T 'split_selfcheck_fail'); Stop-SsCommand 1 }
+
+        foreach ($s in $shares) { Write-Output $s }
     } finally { $rng.Dispose() }
 }
 

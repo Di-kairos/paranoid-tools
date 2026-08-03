@@ -106,6 +106,23 @@ Describe 'split/combine round-trip' {
         FromUtf8 (Get-SsRecoveredSecret (($a[0], $a[1]) -join "`n")) | Should -Be $secret
         FromUtf8 (Get-SsRecoveredSecret (($b[0], $b[1]) -join "`n")) | Should -Be $secret
     }
+
+    # AUDIT_2026-08-03 P0-2: round-trip self-check ДО печати долей (зеркало bash).
+    # Сломанная реконструкция не должна выдать ни одной доли наружу — ни в stdout, ни частично.
+    It 'self-check: prints NOTHING when reconstruction returns wrong bytes' {
+        Mock Get-SsRecoveredSecret { [System.Text.Encoding]::UTF8.GetBytes('WRONG') }
+        $out = @(); $threw = $false
+        try { $out = @(Split-ToShares (Utf8 'real secret') 3 2) } catch { $threw = $true }
+        $threw | Should -BeTrue
+        @($out).Count | Should -Be 0
+    }
+    It 'self-check: prints NOTHING when reconstruction throws' {
+        Mock Get-SsRecoveredSecret { throw 'gf-math-broken' }
+        $out = @(); $threw = $false
+        try { $out = @(Split-ToShares (Utf8 'real secret') 3 2) } catch { $threw = $true }
+        $threw | Should -BeTrue
+        @($out).Count | Should -Be 0
+    }
 }
 
 Describe 'failure taxonomy (no secret leak)' {
