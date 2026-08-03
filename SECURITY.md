@@ -61,8 +61,10 @@ older tags are not maintained.
 
 Releases ship a `SHA256SUMS` (integrity) and, once release signing is enabled, a
 `SHA256SUMS.sig` (authenticity) produced with a dedicated Ed25519 key shared across
-Paranoid Tools. The `install.sh` installer verifies the signature automatically when
-present — you don't have to do anything. To verify by hand:
+Paranoid Tools. The `install.sh` installer verifies the signature and refuses to
+install when it cannot (missing `.sig` or no usable `ssh-keygen`) — fail-closed.
+`ALLOW_UNSIGNED_LEGACY=1` is the explicit, deliberate downgrade for pre-signing
+releases only (integrity check stays). To verify by hand:
 
 ```sh
 base=https://github.com/Di-kairos/seedsplit/releases/latest/download

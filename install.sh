@@ -53,21 +53,28 @@ fi
 
 # --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
 # Релизы подписаны выделенным ed25519-ключом экосистемы (ssh-keygen -Y). Pubkey вшит ниже.
-# Поведение: нет ssh-keygen → громкое предупреждение (аутентичность не проверена, только
-# целостность); у релиза нет .sig → жёсткий отказ (legacy-обход через ALLOW_UNSIGNED_LEGACY=1);
+# Поведение: нет ssh-keygen → отказ, fail-closed (обход: ALLOW_UNSIGNED_LEGACY=1);
+# у релиза нет .sig → жёсткий отказ (legacy-обход через ALLOW_UNSIGNED_LEGACY=1);
 # .sig есть и НЕ сошёлся → жёсткий отказ (явный признак подмены).
 RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
 SIGN_PRINCIPAL="releases@paranoid-tools"
-# pubkey задан, но ssh-keygen недоступен → НЕ молчим: аутентичность не проверена (только целостность).
-if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && ! command -v ssh-keygen >/dev/null 2>&1; then
-  echo "! ssh-keygen недоступен — подпись релиза НЕ проверена (только целостность по SHA256)." >&2
-  echo "  Установи openssh для проверки аутентичности или сверь подпись вручную (см. SECURITY.md)." >&2
+# pubkey задан, но ssh-keygen недоступен → fail-closed: молчаливая деградация до hash-only
+# маскировала бы подмену; на macOS ssh-keygen идёт в комплекте, его отсутствие аномально
+# (паритет с umbrella install.sh и windows/install.ps1; AUDIT_2026-08-03 P1-1).
+SSH_KEYGEN="$(type -P ssh-keygen || true)"   # только внешний бинарь: exported-функция не годится в верификаторы
+if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && [[ -z "$SSH_KEYGEN" ]]; then
+  if [[ "${ALLOW_UNSIGNED_LEGACY:-0}" != "1" ]]; then
+    echo "✗ ssh-keygen недоступен — подпись проверить нечем; установка прервана." >&2
+    echo "  Установи openssh, либо осознанно (только целостность): ALLOW_UNSIGNED_LEGACY=1 bash install.sh" >&2
+    exit 1
+  fi
+  echo "! ssh-keygen недоступен — подпись релиза НЕ проверена (ALLOW_UNSIGNED_LEGACY=1, только SHA256)." >&2
 fi
-if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && command -v ssh-keygen >/dev/null 2>&1; then
+if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && [[ -n "$SSH_KEYGEN" ]]; then
   if curl -fsSL "${BASE_URL}/SHA256SUMS.sig" -o "${TMP}/SHA256SUMS.sig" 2>/dev/null; then
     printf '%s namespaces="file" %s\n' "$SIGN_PRINCIPAL" "$RELEASE_SIGNING_PUBKEY" > "${TMP}/allowed_signers"
     echo "Проверяю подпись релиза..."
-    if ( cd "$TMP" && ssh-keygen -Y verify -f allowed_signers -I "$SIGN_PRINCIPAL" \
+    if ( cd "$TMP" && "$SSH_KEYGEN" -Y verify -f allowed_signers -I "$SIGN_PRINCIPAL" \
                         -n file -s SHA256SUMS.sig < SHA256SUMS >/dev/null 2>&1 ); then
       echo "✓ Подпись релиза верна (аутентичность подтверждена)."
     else
