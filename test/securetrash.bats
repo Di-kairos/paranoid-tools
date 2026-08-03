@@ -439,6 +439,67 @@ setup() {
   rm -rf "$tmp"
 }
 
+# --- destroy-old: штатный способ убрать контейнер, отставленный прерванным reset ---
+
+@test "vault destroy-old crypto-shreds the set-aside container" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  mkdir -p "$tmp/SecureVault.sparsebundle.old/bands"; echo OLD > "$tmp/SecureVault.sparsebundle.old/Info.plist"
+  run env HOME="$tmp" ST_ASSUME_YES=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault destroy-old
+  [ "$status" -eq 0 ]
+  [ ! -e "$tmp/SecureVault.sparsebundle.old" ]
+  # активный сейф не тронут — это разные цели
+  [ -e "$tmp/SecureVault.sparsebundle/Info.plist" ]
+  rm -rf "$tmp"
+}
+
+@test "vault destroy-old refuses when nothing is set aside" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  run env HOME="$tmp" ST_ASSUME_YES=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault destroy-old
+  [ "$status" -ne 0 ]
+  [ -e "$tmp/SecureVault.sparsebundle/Info.plist" ]
+  rm -rf "$tmp"
+}
+
+@test "vault destroy-old refuses a path that is not a sparsebundle (keeps it)" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  touch "$tmp/SecureVault.sparsebundle.old"
+  run env HOME="$tmp" ST_ASSUME_YES=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault destroy-old
+  [ "$status" -ne 0 ]
+  [ -e "$tmp/SecureVault.sparsebundle.old" ]
+  rm -rf "$tmp"
+}
+
+@test "vault destroy-old refuses while the set-aside container is mounted" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  mkdir -p "$tmp/SecureVault.sparsebundle.old"; echo x > "$tmp/SecureVault.sparsebundle.old/Info.plist"
+  run env HOME="$tmp" ST_ASSUME_YES=1 ST_MOCK_OLD_ATTACHED=1 \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault destroy-old
+  [ "$status" -ne 0 ]
+  # живой расшифрованный том не уничтожаем — контейнер на месте
+  [ -e "$tmp/SecureVault.sparsebundle.old/Info.plist" ]
+  rm -rf "$tmp"
+}
+
+@test "the leftover .old notice names the command that removes it" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  mkdir -p "$tmp/SecureVault.sparsebundle.old"; echo x > "$tmp/SecureVault.sparsebundle.old/Info.plist"
+  run env HOME="$tmp" PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault status
+  [[ "$output" == *"destroy-old"* ]]
+  # и как забрать данные обратно
+  [[ "$output" == *"hdiutil attach"* ]]
+  rm -rf "$tmp"
+}
+
 @test "shred refuses a protected system path (/)" {
   run env ST_ASSUME_YES=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" shred /

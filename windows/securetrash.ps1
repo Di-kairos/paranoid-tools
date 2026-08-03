@@ -213,14 +213,20 @@ Flags:
     'en:vault_unavailable'  = 'Vault unavailable — enable BitLocker or install VeraCrypt. No silent fake encryption.'
     'ru:vault_unavailable'  = 'Vault недоступен — включи BitLocker или поставь VeraCrypt. Никакого молчаливого "как будто зашифровали".'
 
-    'en:vault_usage'        = 'vault: provide create|open|close|reset|destroy'
-    'ru:vault_usage'        = 'vault: укажи create|open|close|reset|destroy'
+    'en:vault_usage'        = 'vault: provide create|open|close|reset|destroy|destroy-old'
+    'ru:vault_usage'        = 'vault: укажи create|open|close|reset|destroy|destroy-old'
+    'en:vault_old_none'     = 'Nothing is set aside: {0} does not exist.'
+    'ru:vault_old_none'     = 'Отставленного контейнера нет: {0} не существует.'
+    'en:vault_old_confirm'  = 'DESTROY the set-aside container and everything inside ({0})?'
+    'ru:vault_old_confirm'  = 'УНИЧТОЖИТЬ отставленный контейнер и всё внутри ({0})?'
+    'en:vault_old_destroyed' = 'Set-aside container removed (crypto-shred): {0}.'
+    'ru:vault_old_destroyed' = 'Отставленный контейнер удалён (crypto-shred): {0}.'
     'en:vault_create_fail'  = 'Could not create the container ({0}).'
     'ru:vault_create_fail'  = 'Не удалось создать контейнер ({0}).'
     'en:vault_aside_exists' = 'A previous container is still set aside at {0} — an interrupted reset, or your own backup. It holds real data, so it will not be removed automatically. Move or delete it yourself, then run reset again.'
     'ru:vault_aside_exists' = 'Рядом лежит отставленный контейнер {0} — прерванный reset или твой бэкап. В нём реальные данные, автоматически он не удаляется. Убери или удали его сам, затем повтори reset.'
-    'en:vault_aside_notice' = 'Note: {0} is on disk — a container set aside by an interrupted reset. Your older data is in there, not in the active vault.'
-    'ru:vault_aside_notice' = 'Внимание: на диске лежит {0} — контейнер, отставленный прерванным reset. Прежние данные там, а не в активном сейфе.'
+    'en:vault_aside_notice' = 'Note: {0} is on disk — a container set aside by an interrupted reset. Your older data is in there, not in the active vault. Destroy it for good: securetrash vault destroy-old.'
+    'ru:vault_aside_notice' = 'Внимание: на диске лежит {0} — контейнер, отставленный прерванным reset. Прежние данные там, а не в активном сейфе. Уничтожить насовсем: securetrash vault destroy-old.'
     'en:vault_reset_rolled_back' = 'Reset rolled back: the previous vault is back in place ({0}). Nothing was destroyed.'
     'ru:vault_reset_rolled_back' = 'Reset откачен: прежний сейф вернулся на место ({0}). Ничего не уничтожено.'
     'en:vault_restore_fail' = 'Could not move the vault back. Your data is NOT lost — it is at {0}. Move it to {1} manually.'
@@ -509,7 +515,17 @@ function Remove-StVaultContainer {
 # reset обязан пережить падение create: старый сейф уезжает в <vault>.old, новый
 # создаётся на штатном месте, и только после успеха старый крипто-шредится.
 # Зеркало bash (_vault_aside_path / mv). Обёртки — чтобы Pester мог их мокать.
-function Get-StAsidePath { param([string]$VaultPath) return "$VaultPath.old" }
+# ВАЖНО: .old вставляется ПЕРЕД расширением, а не в конец. Get-DiskImage принимает
+# только .vhd/.vhdx/.iso — при имени `SecureVault.vhdx.old` любая проверка состояния
+# отвечала бы ошибкой, вечным 'unknown' и fail-closed отказом, то есть отставленный
+# контейнер было бы нечем ни проверить, ни удалить.
+function Get-StAsidePath {
+    param([string]$VaultPath)
+    $ext = [System.IO.Path]::GetExtension($VaultPath)
+    if ([string]::IsNullOrEmpty($ext)) { return "$VaultPath.old" }
+    $base = $VaultPath.Substring(0, $VaultPath.Length - $ext.Length)
+    return "$base.old$ext"
+}
 
 # Есть ли отставленный контейнер. Намеренно через .NET, а не Test-Path: проверка идёт
 # на КАЖДОЙ vault-команде, а Test-Path в тестах замокан узкими -ParameterFilter —
@@ -723,7 +739,8 @@ function Get-StSnapshotCount {
     # посчитать это за «копий нет» значило бы соврать в самую опасную сторону.
     if (-not (Test-StElevated)) { return 'unknown' }
     try {
-        $shadows = @(Get-CimInstance -ClassName Win32_ShadowCopy -ErrorAction Stop)
+        # Зависший провайдер VSS/WMI иначе подвесил бы каждый shred.
+        $shadows = @(Get-CimInstance -ClassName Win32_ShadowCopy -OperationTimeoutSec 10 -ErrorAction Stop)
         return $shadows.Count
     } catch {
         return 'unknown'
@@ -1153,6 +1170,33 @@ function Invoke-StVault {
             Remove-StVaultMount -VaultPath $vaultPath
             Write-StInfo (T 'vault_destroyed')
             Write-StInfo (T 'vault_reset_done')
+        }
+        'destroy-old' {
+            # Штатный способ убрать контейнер, отставленный прерванным reset.
+            # Отдельная команда, а не часть destroy: цели разные, и смешивать их
+            # в одном подтверждении — прямой путь к промаху.
+            $oldPath = Get-StAsidePath $vaultPath
+            if (-not (Test-StAsidePresent -VaultPath $vaultPath)) {
+                Write-StErr (T 'vault_old_none' $oldPath); Stop-StCommand
+            }
+            if (-not (Test-StVaultContainer -Path $oldPath)) {
+                Write-StErr (T 'vault_bad_container' $oldPath); Stop-StCommand
+            }
+            # Ранняя проверка — чтобы не спрашивать про заведомо занятый том.
+            if ((Get-StVaultState -Path $oldPath) -ne 'unmounted') {
+                Write-StErr (T 'vault_aside_busy' $oldPath); Stop-StCommand
+            }
+            if (-not (Confirm-StAction (T 'vault_old_confirm' $oldPath))) {
+                Write-StWarn (T 'cancelled'); Stop-StCommand
+            }
+            # И ПОВТОРНО перед удалением: подтверждение ждёт ввода сколько угодно,
+            # за это время контейнер можно смонтировать. Backing store живого
+            # расшифрованного тома сносить нельзя.
+            if ((Get-StVaultState -Path $oldPath) -ne 'unmounted') {
+                Write-StErr (T 'vault_aside_busy' $oldPath); Stop-StCommand
+            }
+            Remove-StVaultContainer -Path $oldPath
+            Write-StInfo (T 'vault_old_destroyed' $oldPath)
         }
         default {
             Write-StErr (T 'vault_usage'); Stop-StCommand

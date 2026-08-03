@@ -123,7 +123,7 @@ Drop-folder workflow — for everyday deletion:
 
 ```bash
 securetrash setup          # creates ~/SecureTrash, the sectrash alias, checks FileVault
-securetrash check          # honest audit: FileVault + drive type + verdict
+securetrash check          # honest audit: FileVault + drive type + snapshots + verdict
 # drag the files you want gone into ~/SecureTrash
 securetrash empty          # empty the folder (overwrite on HDD; on SSD see below)
 ```
@@ -143,12 +143,13 @@ securetrash vault destroy   # destroy the container + key (crypto-shred, irrever
 
 | Command | What it does |
 |---|---|
-| `securetrash check` | Audits FileVault and drive type, gives an honest verdict on guarantees |
+| `securetrash check` | Audits FileVault, drive type and local snapshots, gives an honest verdict on guarantees |
 | `securetrash setup` | Creates `~/SecureTrash`, installs the `sectrash` alias, warns if FileVault is off |
 | `securetrash empty` | Empties `~/SecureTrash` (best-effort overwrite; on SSD **not** a guarantee) |
 | `securetrash shred <path>...` | Deletes a file or folder (best-effort; on SSD **not** a guarantee — see `check`) |
 | `securetrash vault create\|open\|close\|destroy\|status` | Encrypted container (AES-256) for crypto-shred |
 | `securetrash vault reset [size]` | Empty the vault for real: crypto-shred its contents, then recreate it empty (keeps the container) |
+| `securetrash vault destroy-old` | Crypto-shreds a container left set aside by an interrupted `reset` |
 | `securetrash version` | Prints the version |
 
 ## How it works

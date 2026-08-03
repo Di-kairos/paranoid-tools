@@ -117,7 +117,7 @@ irm https://github.com/Di-kairos/securetrash/releases/latest/download/install.ps
 
 ```bash
 securetrash setup          # создаёт ~/SecureTrash, alias sectrash, проверяет FileVault
-securetrash check          # честный аудит: FileVault + тип диска + вердикт
+securetrash check          # честный аудит: FileVault + тип диска + снимки + вердикт
 # перетащи ненужные файлы в ~/SecureTrash
 securetrash empty          # опустошить папку (на HDD — перезапись, на SSD — см. ниже)
 ```
@@ -137,12 +137,13 @@ securetrash vault destroy   # уничтожить контейнер + ключ
 
 | Команда | Что делает |
 |---|---|
-| `securetrash check` | Аудит FileVault и типа диска, честный вердикт о гарантиях |
+| `securetrash check` | Аудит FileVault, типа диска и локальных снимков, честный вердикт о гарантиях |
 | `securetrash setup` | Создаёт `~/SecureTrash`, ставит alias `sectrash`, предупреждает если FileVault выключен |
 | `securetrash empty` | Опустошает `~/SecureTrash` (best-effort перезапись; на SSD **не** гарантия) |
 | `securetrash shred <path>...` | Удаляет файл или папку (best-effort; на SSD **не** гарантия — см. `check`) |
 | `securetrash vault create\|open\|close\|destroy\|status` | Зашифрованный контейнер (AES-256) для crypto-shred |
 | `securetrash vault reset [size]` | По-настоящему очистить сейф: crypto-shred содержимого + пересоздание пустого (сам сейф остаётся) |
+| `securetrash vault destroy-old` | Crypto-shred контейнера, отставленного прерванным `reset` |
 | `securetrash version` | Показывает версию |
 
 ## Как это работает

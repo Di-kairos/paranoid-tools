@@ -19,7 +19,30 @@ case "$1" in
     [[ "${ST_MOCK_INFO_FAIL:-0}" == "1" ]] && exit 1
     # `info -plist`: ST_MOCK_VAULT_ATTACHED=1 И не было detach → образ примонтирован.
     if [[ "${2:-}" == "-plist" ]]; then
-      if [[ "${ST_MOCK_VAULT_ATTACHED:-0}" == "1" && ! -e "${HOME}/.st_detached" ]]; then
+      # ST_MOCK_OLD_ATTACHED=1 — примонтирован именно отставленный контейнер .old.
+      if [[ "${ST_MOCK_OLD_ATTACHED:-0}" == "1" ]]; then
+        cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>images</key>
+  <array>
+    <dict>
+      <key>image-path</key><string>${HOME}/SecureVault.sparsebundle.old</string>
+      <key>system-entities</key>
+      <array>
+        <dict>
+          <key>dev-entry</key><string>/dev/disk98</string>
+          <key>mount-point</key><string>/Volumes/OldVault</string>
+        </dict>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>
+EOF
+      elif [[ "${ST_MOCK_VAULT_ATTACHED:-0}" == "1" && ! -e "${HOME}/.st_detached" ]]; then
         cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

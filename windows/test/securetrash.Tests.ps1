@@ -714,7 +714,7 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
         Mock Test-StAsidePresent { $true }
         Mock Write-StWarn { }
         { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
-        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -like '*.vhdx.old*' }
+        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -like '*.old.vhdx*' }
     }
 
     It 'sets the old container aside BEFORE creating the new one' {
@@ -727,7 +727,7 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
     It 'crypto-shreds the aside copy, not the live path, on success' {
         Mock Get-StVaultState { 'unmounted' }
         Invoke-StVault -VaultArgs @('reset') 6>&1 | Out-Null
-        Should -Invoke Remove-StVaultContainer -Times 1 -Exactly -ParameterFilter { $Path -like '*.vhdx.old' }
+        Should -Invoke Remove-StVaultContainer -Times 1 -Exactly -ParameterFilter { $Path -like '*.old.vhdx' }
     }
 
     It 'fail-closed: unmounted state is asserted before the container is moved aside' {
@@ -1000,15 +1000,15 @@ Describe 'vault reset: aside/restore on a real filesystem' {
     It 'moves the container aside and leaves the live path empty' {
         Move-StVaultAside -VaultPath $script:vault
         Test-Path -LiteralPath $script:vault | Should -BeFalse
-        (Get-Content -LiteralPath "$($script:vault).old" -Raw) | Should -Be 'REAL-VAULT-BYTES'
+        (Get-Content -LiteralPath (Get-StAsidePath $script:vault) -Raw) | Should -Be 'REAL-VAULT-BYTES'
     }
 
     It 'refuses instead of nesting the vault inside an existing .old directory' {
-        New-Item -ItemType Directory -Path "$($script:vault).old" | Out-Null
+        New-Item -ItemType Directory -Path (Get-StAsidePath $script:vault) | Out-Null
         { Move-StVaultAside -VaultPath $script:vault 6>$null } | Should -Throw
         # контейнер остался на месте и НЕ уехал внутрь каталога .old
         Test-Path -LiteralPath $script:vault | Should -BeTrue
-        Test-Path -LiteralPath (Join-Path "$($script:vault).old" 'SecureVault.vhdx') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path (Get-StAsidePath $script:vault) 'SecureVault.vhdx') | Should -BeFalse
     }
 
     It 'restores the container byte-for-byte, clearing a partially created new one' {
@@ -1016,7 +1016,7 @@ Describe 'vault reset: aside/restore on a real filesystem' {
         Set-Content -LiteralPath $script:vault -Value 'HALF-BAKED' -NoNewline   # недоделанный новый
         Restore-StVaultAside -VaultPath $script:vault
         (Get-Content -LiteralPath $script:vault -Raw) | Should -Be 'REAL-VAULT-BYTES'
-        Test-Path -LiteralPath "$($script:vault).old" | Should -BeFalse
+        Test-Path -LiteralPath (Get-StAsidePath $script:vault) | Should -BeFalse
     }
 
     It 'restore is a no-op when there is nothing set aside' {
@@ -1071,5 +1071,67 @@ Describe 'shadow copies (snapshot honesty)' {
         Mock Get-StBitLockerOn { $true }
         $out = (Write-StHonestDiskNote 6>&1) -join "`n"
         $out | Should -Match 'Volume Shadow Copies: 2'
+    }
+}
+
+# destroy-old: убрать контейнер, отставленный прерванным reset. Отдельная цель,
+# отдельное подтверждение — путать её с активным сейфом нельзя.
+Describe 'vault destroy-old' {
+
+    BeforeEach {
+        $env:ST_ASSUME_YES = '1'
+        $script:ST_LOCALE = 'en'
+        Mock Test-StAsidePresent { $true }
+        Mock Test-StVaultContainer { $true }
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Remove-StVaultContainer { }
+        Mock Read-StVaultBackend { 'bitlocker' }
+    }
+
+    AfterEach { Remove-Item Env:\ST_ASSUME_YES -ErrorAction SilentlyContinue }
+
+    It 'crypto-shreds the set-aside container, not the live one' {
+        Invoke-StVault -VaultArgs @('destroy-old') 6>&1 | Out-Null
+        Should -Invoke Remove-StVaultContainer -Times 1 -Exactly -ParameterFilter { $Path -like '*.old.vhdx' }
+    }
+
+    It 'refuses when nothing is set aside' {
+        Mock Test-StAsidePresent { $false }
+        { Invoke-StVault -VaultArgs @('destroy-old') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
+    It 'refuses a path that is not our container' {
+        Mock Test-StVaultContainer { $false }
+        { Invoke-StVault -VaultArgs @('destroy-old') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
+    It 'fail-closed: refuses while the set-aside container looks mounted' {
+        Mock Get-StVaultState { 'mounted' }
+        { Invoke-StVault -VaultArgs @('destroy-old') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
+    It 're-checks the mounted state after the confirmation prompt' {
+        # Между проверкой и удалением стоит интерактивный confirm — за это время
+        # контейнер можно смонтировать; вторая проверка обязана это поймать.
+        $script:oldStates = [System.Collections.Queue]::new()
+        $script:oldStates.Enqueue('unmounted')   # до confirm
+        $script:oldStates.Enqueue('mounted')     # после confirm
+        Mock Get-StVaultState { if ($script:oldStates.Count -gt 0) { $script:oldStates.Dequeue() } else { 'mounted' } }
+        { Invoke-StVault -VaultArgs @('destroy-old') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
+    It 'puts .old before the extension so Get-DiskImage can still read it' {
+        Get-StAsidePath 'C:\Users\x\SecureVault.vhdx' | Should -Be 'C:\Users\x\SecureVault.old.vhdx'
+        Get-StAsidePath 'C:\Users\x\novault'          | Should -Be 'C:\Users\x\novault.old'
+    }
+
+    It 'the leftover notice names the command that removes it' {
+        Mock Write-StWarn { }
+        Invoke-StVault -VaultArgs @('destroy-old') 6>&1 | Out-Null
+        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -like '*destroy-old*' }
     }
 }
