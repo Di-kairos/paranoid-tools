@@ -95,9 +95,12 @@ bash install.sh
 ### Windows (beta)
 
 PowerShell-порт лежит в [`windows/`](windows/README.md). Та же честная логика на
-**BitLocker** (аналог FileVault) и crypto-shred через BitLocker-VHDX, с **VeraCrypt**
-как fallback на редакциях без BitLocker. Установщик проверяет `securetrash.ps1` по
-`SHA256SUMS` с релизного тега до установки.
+**BitLocker** (аналог FileVault) и crypto-shred через BitLocker-VHDX. На редакциях
+без BitLocker `vault` находит установленный **VeraCrypt** и отправляет в его
+собственный GUI: управлять VeraCrypt из CLI сознательно не автоматизировано — его
+командная строка принимает пароль в argv, где его прочитает любой процесс. То есть
+VeraCrypt здесь ручной fallback, а не автоматический. Установщик проверяет
+`securetrash.ps1` по `SHA256SUMS` с релизного тега до установки.
 
 ```powershell
 irm https://github.com/Di-kairos/securetrash/releases/latest/download/install.ps1 | iex

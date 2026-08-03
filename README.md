@@ -101,8 +101,11 @@ bash install.sh
 
 A PowerShell port now exists in [`windows/`](windows/README.md). It mirrors the same
 honest approach using **BitLocker** (the FileVault equivalent) and crypto-shred via
-a BitLocker-encrypted VHDX, with **VeraCrypt** as a fallback on editions without
-BitLocker. The installer verifies `securetrash.ps1` against `SHA256SUMS` from the
+a BitLocker-encrypted VHDX. On editions without BitLocker, `vault` detects an
+installed **VeraCrypt** and tells you to use its own GUI: driving VeraCrypt from the
+CLI is deliberately not automated, because its command line takes the password on
+argv, where any other process can read it. So VeraCrypt is a manual fallback, not an
+automated one. The installer verifies `securetrash.ps1` against `SHA256SUMS` from the
 release tag before installing.
 
 ```powershell
