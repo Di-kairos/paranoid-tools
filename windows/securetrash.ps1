@@ -505,21 +505,30 @@ function Remove-StVaultContainer {
 # Зеркало bash (_vault_aside_path / mv). Обёртки — чтобы Pester мог их мокать.
 function Get-StAsidePath { param([string]$VaultPath) return "$VaultPath.old" }
 
+# Есть ли отставленный контейнер. Намеренно через .NET, а не Test-Path: проверка идёт
+# на КАЖДОЙ vault-команде, а Test-Path в тестах замокан узкими -ParameterFilter —
+# лишний вызов ронял бы чужие тесты («no mock matched the call»).
+function Test-StAsidePresent {
+    param([string]$VaultPath)
+    $p = Get-StAsidePath $VaultPath
+    return ([System.IO.File]::Exists($p) -or [System.IO.Directory]::Exists($p))
+}
+
 function Move-StVaultAside {
     param([string]$VaultPath)
     $aside = Get-StAsidePath $VaultPath
     # Существующий .old — ДАННЫЕ пользователя, удалять его здесь нельзя. Вызывающий
     # обязан отказаться заранее; проверка продублирована, потому что Move-Item -Force
     # при существующем КАТАЛОГЕ .old положил бы контейнер ВНУТРЬ него и промолчал.
-    if (Test-Path -LiteralPath $aside) { Write-StErr (T 'vault_aside_exists' $aside); Stop-StCommand }
+    if (Test-StAsidePresent -VaultPath $VaultPath) { Write-StErr (T 'vault_aside_exists' $aside); Stop-StCommand }
     Move-Item -LiteralPath $VaultPath -Destination $aside -ErrorAction Stop
 }
 
 function Restore-StVaultAside {
     param([string]$VaultPath)
     $aside = Get-StAsidePath $VaultPath
-    if (-not (Test-Path -LiteralPath $aside)) { return }
-    if (Test-Path -LiteralPath $VaultPath) {
+    if (-not (Test-StAsidePresent -VaultPath $VaultPath)) { return }
+    if ([System.IO.File]::Exists($VaultPath) -or [System.IO.Directory]::Exists($VaultPath)) {
         # Самый вероятный провал create — Enable-BitLocker уже ПОСЛЕ того, как diskpart
         # прицепил vhdx. Такой файл залочен: без detach его не удалить и откат не пройдёт.
         try { Dismount-StVault -Path $VaultPath } catch { }
@@ -527,7 +536,7 @@ function Restore-StVaultAside {
     }
     # Move-Item -Force в существующий КАТАЛОГ кладёт источник ВНУТРЬ него и молчит,
     # поэтому цель обязана быть свободна: честнее упасть, чем «успешно» закопать сейф.
-    if (Test-Path -LiteralPath $VaultPath) { throw "restore target still present: $VaultPath" }
+    if ([System.IO.File]::Exists($VaultPath) -or [System.IO.Directory]::Exists($VaultPath)) { throw "restore target still present: $VaultPath" }
     Move-Item -LiteralPath $aside -Destination $VaultPath -ErrorAction Stop
 }
 
@@ -957,7 +966,7 @@ function Invoke-StVault {
     $vaultPath = Get-StVaultPath
     # Уцелевший .old — след прерванного reset. Пользователь должен узнать, ГДЕ его
     # данные: status иначе покажет «сейф закрыт», а сейф-то другой (зеркало bash).
-    if (Test-Path -LiteralPath (Get-StAsidePath $vaultPath)) {
+    if (Test-StAsidePresent -VaultPath $vaultPath) {
         Write-StWarn (T 'vault_aside_notice' (Get-StAsidePath $vaultPath))
     }
 
@@ -1066,7 +1075,7 @@ function Invoke-StVault {
             $aside = Get-StAsidePath $vaultPath
             # Уцелевший .old — прерванный reset или ручной бэкап пользователя. Молча
             # снести его = уничтожить единственную копию данных. Отказываемся.
-            if (Test-Path -LiteralPath $aside) { Write-StErr (T 'vault_aside_exists' $aside); Stop-StCommand }
+            if (Test-StAsidePresent -VaultPath $vaultPath) { Write-StErr (T 'vault_aside_exists' $aside); Stop-StCommand }
             Assert-StVaultUnmounted -VaultPath $vaultPath   # переименовать можно только отцепленный vhdx
             Move-StVaultAside -VaultPath $vaultPath
             # finally, а не catch: откат обязан отработать и при отмене/StExit изнутри

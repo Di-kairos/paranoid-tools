@@ -597,6 +597,7 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
         # create-then-swap: старый контейнер уезжает в .old и шредится только после успеха
         Mock Move-StVaultAside { }
         Mock Restore-StVaultAside { }
+        Mock Test-StAsidePresent { $false }   # по умолчанию отставленного контейнера нет
     }
 
     AfterEach {
@@ -698,7 +699,7 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
 
     It 'refuses when a .old container is already there (keeps it, creates nothing)' {
         Mock Get-StVaultState { 'unmounted' }
-        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.old' }
+        Mock Test-StAsidePresent { $true }
         { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
         Should -Invoke Move-StVaultAside -Times 0 -Exactly
         Should -Invoke New-StBitLockerVault -Times 0 -Exactly
@@ -710,7 +711,7 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
     # понадобились бы свои моки.
     It 'warns about a leftover .old so the user knows where the data is' {
         Mock Get-StVaultState { 'unmounted' }
-        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.old' }
+        Mock Test-StAsidePresent { $true }
         Mock Write-StWarn { }
         { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
         Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -like '*.vhdx.old*' }
