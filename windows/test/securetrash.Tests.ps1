@@ -594,6 +594,9 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
         Mock Set-StPrivateAcl { }
         Mock Write-StVaultBackend { }
         Mock New-StBitLockerVault { }
+        # create-then-swap: старый контейнер уезжает в .old и шредится только после успеха
+        Mock Move-StVaultAside { }
+        Mock Restore-StVaultAside { }
     }
 
     AfterEach {
@@ -667,6 +670,69 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
         Mock Test-StVaultContainer { $false }
         { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
         Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+        Should -Invoke New-StBitLockerVault -Times 0 -Exactly
+    }
+
+    # Окно потери данных: падение create после destroy оставляло пользователя без сейфа.
+    # Теперь старый контейнер отставлен в .old и возвращается на место при любом провале.
+    It 'restores the old container when the recreate step fails' {
+        Mock Get-StVaultState { 'unmounted' }
+        Mock New-StBitLockerVault { throw 'diskpart exploded' }
+        { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
+        Should -Invoke Move-StVaultAside -Times 1 -Exactly
+        Should -Invoke Restore-StVaultAside -Times 1 -Exactly
+        # старый сейф НЕ уничтожен: crypto-shred идёт только после успешного create
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
+    # Отмена внутри create (Stop-StCommand → StExit) — не исключение общего вида,
+    # и раньше её проглотил бы catch. finally обязан откатить и здесь.
+    It 'rolls back when the recreate step aborts via Stop-StCommand' {
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Get-StBitLockerCapable { $false }
+        Mock Get-StVeraCryptPath { $null }          # → vault_unavailable → Stop-StCommand
+        { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
+        Should -Invoke Restore-StVaultAside -Times 1 -Exactly
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
+    It 'refuses when a .old container is already there (keeps it, creates nothing)' {
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.old' }
+        { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
+        Should -Invoke Move-StVaultAside -Times 0 -Exactly
+        Should -Invoke New-StBitLockerVault -Times 0 -Exactly
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
+    # Предупреждение печатается до switch, поэтому ловим сам факт вызова: у ps1-порта
+    # ещё нет `vault status` (разрыв паритета P2-8), и любой другой сабкоманде
+    # понадобились бы свои моки.
+    It 'warns about a leftover .old so the user knows where the data is' {
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.old' }
+        Mock Write-StWarn { }
+        { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
+        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -like '*.vhdx.old*' }
+    }
+
+    It 'sets the old container aside BEFORE creating the new one' {
+        Mock Get-StVaultState { 'unmounted' }
+        Invoke-StVault -VaultArgs @('reset') 6>&1 | Out-Null
+        Should -Invoke Move-StVaultAside -Times 1 -Exactly
+        Should -Invoke Restore-StVaultAside -Times 0 -Exactly
+    }
+
+    It 'crypto-shreds the aside copy, not the live path, on success' {
+        Mock Get-StVaultState { 'unmounted' }
+        Invoke-StVault -VaultArgs @('reset') 6>&1 | Out-Null
+        Should -Invoke Remove-StVaultContainer -Times 1 -Exactly -ParameterFilter { $Path -like '*.vhdx.old' }
+    }
+
+    It 'fail-closed: unmounted state is asserted before the container is moved aside' {
+        Mock Get-StVaultState { 'unknown' }
+        { Invoke-StVault -VaultArgs @('reset') 6>$null } | Should -Throw
+        Should -Invoke Move-StVaultAside -Times 0 -Exactly
         Should -Invoke New-StBitLockerVault -Times 0 -Exactly
     }
 }
@@ -911,5 +977,49 @@ Describe 'vault open idempotency (P2-5)' {
         Mock Get-StVaultState { 'unmounted' }
         Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
         Should -Invoke Invoke-StDiskpart -Times 1 -Exactly
+    }
+}
+
+# Настоящие файловые операции, без Mock: моки скрывают именно те ошибки, ради
+# которых эти функции существуют (Move-Item -Force в существующий КАТАЛОГ кладёт
+# контейнер внутрь него и молчит).
+Describe 'vault reset: aside/restore on a real filesystem' {
+
+    BeforeEach {
+        $script:tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("st-aside-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:tmp | Out-Null
+        $script:vault = Join-Path $script:tmp 'SecureVault.vhdx'
+        Set-Content -LiteralPath $script:vault -Value 'REAL-VAULT-BYTES' -NoNewline
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'moves the container aside and leaves the live path empty' {
+        Move-StVaultAside -VaultPath $script:vault
+        Test-Path -LiteralPath $script:vault | Should -BeFalse
+        (Get-Content -LiteralPath "$($script:vault).old" -Raw) | Should -Be 'REAL-VAULT-BYTES'
+    }
+
+    It 'refuses instead of nesting the vault inside an existing .old directory' {
+        New-Item -ItemType Directory -Path "$($script:vault).old" | Out-Null
+        { Move-StVaultAside -VaultPath $script:vault 6>$null } | Should -Throw
+        # контейнер остался на месте и НЕ уехал внутрь каталога .old
+        Test-Path -LiteralPath $script:vault | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path "$($script:vault).old" 'SecureVault.vhdx') | Should -BeFalse
+    }
+
+    It 'restores the container byte-for-byte, clearing a partially created new one' {
+        Move-StVaultAside -VaultPath $script:vault
+        Set-Content -LiteralPath $script:vault -Value 'HALF-BAKED' -NoNewline   # недоделанный новый
+        Restore-StVaultAside -VaultPath $script:vault
+        (Get-Content -LiteralPath $script:vault -Raw) | Should -Be 'REAL-VAULT-BYTES'
+        Test-Path -LiteralPath "$($script:vault).old" | Should -BeFalse
+    }
+
+    It 'restore is a no-op when there is nothing set aside' {
+        { Restore-StVaultAside -VaultPath $script:vault } | Should -Not -Throw
+        (Get-Content -LiteralPath $script:vault -Raw) | Should -Be 'REAL-VAULT-BYTES'
     }
 }

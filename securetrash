@@ -183,6 +183,27 @@ EOF
     en:vault_bad_size) printf 'Invalid size: %s (use e.g. 500m, 1g, 2t)' "$1" ;;
     ru:vault_bad_size) printf 'Неверный размер: %s (например 500m, 1g, 2t)' "$1" ;;
 
+    en:vault_create_fail) printf 'Could not create the container (%s).' "$1" ;;
+    ru:vault_create_fail) printf 'Не удалось создать контейнер (%s).' "$1" ;;
+
+    en:vault_aside_exists) printf 'A previous container is still set aside at %s — an interrupted reset, or your own backup. It holds real data, so it will not be removed automatically. Move or delete it yourself, then run reset again.' "$1" ;;
+    ru:vault_aside_exists) printf 'Рядом лежит отставленный контейнер %s — прерванный reset или твой бэкап. В нём реальные данные, автоматически он не удаляется. Убери или удали его сам, затем повтори reset.' "$1" ;;
+
+    en:vault_aside_notice) printf 'Note: %s is on disk — a container set aside by an interrupted reset. Your older data is in there, not in the active vault.' "$1" ;;
+    ru:vault_aside_notice) printf 'Внимание: на диске лежит %s — контейнер, отставленный прерванным reset. Прежние данные там, а не в активном сейфе.' "$1" ;;
+
+    en:vault_reset_rolled_back) printf 'Reset rolled back: the previous vault is back in place (%s). Nothing was destroyed.' "$1" ;;
+    ru:vault_reset_rolled_back) printf 'Reset откачен: прежний сейф вернулся на место (%s). Ничего не уничтожено.' "$1" ;;
+
+    en:vault_restore_fail) printf 'Could not move the vault back. Your data is NOT lost — it is at %s. Move it to %s manually.' "$1" "$2" ;;
+    ru:vault_restore_fail) printf 'Не удалось вернуть сейф на место. Данные НЕ потеряны — они в %s. Перенеси их в %s вручную.' "$1" "$2" ;;
+
+    en:vault_aside_busy) printf 'The old container at %s appears to be MOUNTED — refusing to crypto-shred a live decrypted volume. Eject it, then delete %s yourself. The new vault is already in place.' "$1" "$1" ;;
+    ru:vault_aside_busy) printf 'Старый контейнер %s выглядит СМОНТИРОВАННЫМ — не уничтожаю живой расшифрованный том. Извлеки его и удали %s сам. Новый сейф уже на месте.' "$1" "$1" ;;
+
+    en:vault_aside_left) printf 'The new vault was created, but the old container could NOT be removed: %s is still on disk and is still decryptable with the old password. Delete it yourself — until then the crypto-shred promise does not hold.' "$1" ;;
+    ru:vault_aside_left) printf 'Новый сейф создан, но старый контейнер удалить НЕ удалось: %s остался на диске и по-прежнему расшифровывается старым паролем. Удали его сам — до этого обещание crypto-shred не выполнено.' "$1" ;;
+
     en:vault_destroy_confirm) printf 'DESTROY the container and everything inside (%s)?' "$1" ;;
     ru:vault_destroy_confirm) printf 'УНИЧТОЖИТЬ контейнер и всё внутри (%s)?' "$1" ;;
 
@@ -501,8 +522,11 @@ _vault_pass() {
 # Это критично для destroy: при "unknown" нельзя удалять вслепую (fail-closed),
 # иначе непределённое состояние трактовалось бы как «не смонтирован» → rm.
 _vault_state() {
-  local plist tmp want path pc i dev
-  want="$(_abspath "$VAULT_PATH" 2>/dev/null || printf '%s' "$VAULT_PATH")"
+  local plist tmp want path pc i dev target
+  # Путь по умолчанию — боевой контейнер; reset проверяет ещё и отставленный .old,
+  # иначе смонтированный из .old том остался бы незамеченным перед crypto-shred.
+  target="${1:-$VAULT_PATH}"
+  want="$(_abspath "$target" 2>/dev/null || printf '%s' "$target")"
   plist="$(hdiutil info -plist 2>/dev/null)" || { echo unknown; return; }
   [[ -n "$plist" ]] || { echo unknown; return; }
   tmp="$(mktemp)" || { echo unknown; return; }
@@ -514,7 +538,7 @@ _vault_state() {
   while path="$(/usr/libexec/PlistBuddy -c "Print :images:$i:image-path" "$tmp" 2>/dev/null)"; do
     # Сравниваем и raw, и канонизированный путь (симлинки в $HOME).
     pc="$(_abspath "$path" 2>/dev/null || printf '%s' "$path")"
-    if [[ "$path" == "$VAULT_PATH" || "$pc" == "$want" ]]; then
+    if [[ "$path" == "$target" || "$pc" == "$want" ]]; then
       dev="$(/usr/libexec/PlistBuddy -c "Print :images:$i:system-entities:0:dev-entry" "$tmp" 2>/dev/null)" || dev=""
       if [[ -n "$dev" ]]; then printf 'mounted\t%s\n' "$dev"; return; fi
       echo unknown; return   # образ найден, но без dev-entry — странно → fail-closed
@@ -559,12 +583,50 @@ _assert_valid_size() {
 }
 
 # --- общие низкоуровневые операции (переиспользуются create/destroy/reset) ---
-# Создать контейнер. БЕЗ проверки существования — её делает вызывающий (create проверяет;
-# reset вызывает уже после destroy, когда контейнера заведомо нет).
-_vault_create_now() {
+# Путь «отставленного» старого контейнера. `${VAULT_PATH:?}` — страховка от пустого
+# ST_VAULT_PATH, иначе путь выродился бы в ".old" в текущем каталоге.
+_vault_aside_path() { printf '%s.old' "${VAULT_PATH:?}"; }
+
+# Откат reset'а: вернуть отставленный сейф на штатное место. Идемпотентен —
+# ST_RESET_ASIDE гасится, так что повторный вызов (INT → exit → EXIT) не сработает.
+ST_RESET_ASIDE=""
+_vault_reset_rollback() {
+  local rc=$? aside="${ST_RESET_ASIDE:-}"
+  [[ -n "$aside" ]] || return $rc
+  ST_RESET_ASIDE=""
+  # Флаг взводится ДО mv, поэтому «отставленного» контейнера может ещё не быть —
+  # тогда откатывать нечего и сейф всё это время лежал на штатном месте.
+  [[ -e "$aside" ]] || return $rc
+  rm -rf -- "$VAULT_PATH" 2>/dev/null || true   # недоделанный новый контейнер
+  # Если убрать недоделанный контейнер не вышло (залоченный band, AV, chflags uchg),
+  # `mv` положил бы старый сейф ВНУТРЬ него и вернул 0 — молчаливая потеря данных
+  # (следующий destroy снёс бы всё дерево). Путь обязан быть свободен.
+  if [[ ! -e "$VAULT_PATH" ]] && mv -- "$aside" "$VAULT_PATH" 2>/dev/null; then
+    warn "$(t vault_reset_rolled_back "$VAULT_PATH")"
+  else
+    # Худший случай: вернуть не смогли. Обязаны назвать точный путь, иначе
+    # пользователь считает сейф пропавшим, а он лежит рядом под другим именем.
+    err "$(t vault_restore_fail "$aside" "$VAULT_PATH")"
+  fi
+  return $rc
+}
+
+# Попытка создать контейнер. Возвращает код возврата hdiutil, НЕ выходит из скрипта:
+# вызывающий (reset) должен успеть откатить отставленный старый сейф.
+_vault_create_try() {
   local size="${1:-1g}"
   _vault_pass | hdiutil create -size "$size" -type SPARSEBUNDLE -fs APFS \
     -encryption AES-256 -stdinpass -volname SecretVault "$VAULT_PATH"
+}
+
+# Создать контейнер. БЕЗ проверки существования — её делает вызывающий (create проверяет;
+# reset вызывает после того, как старый контейнер отставлен в сторону).
+_vault_create_now() {
+  local size="${1:-1g}"
+  if ! _vault_create_try "$size"; then
+    err "$(t vault_create_fail "$VAULT_PATH")"
+    exit 1
+  fi
   info "$(t vault_created "$VAULT_PATH" "$size")"
   warn "$(t vault_preventive)"
 }
@@ -579,7 +641,7 @@ _vault_assert_destroyable() {
 # знаем, что том не смонтирован: mounted → отцепить по точному dev-node; unknown →
 # fail-closed (abort). Перед rm повторно требуем достоверный unmounted (закрывает
 # detach-verify и почти всю TOCTOU-гонку).
-_vault_destroy_now() {
+_vault_unmount_or_die() {
   local st dev
   st="$(_vault_state)"
   case "$st" in
@@ -591,6 +653,10 @@ _vault_destroy_now() {
     *) err "$(t vault_destroy_busy)"; exit 1 ;;
   esac
   [[ "$(_vault_state)" == unmounted ]] || { err "$(t vault_destroy_busy)"; exit 1; }
+}
+
+_vault_destroy_now() {
+  _vault_unmount_or_die
   rm -rfP -- "$VAULT_PATH"
   info "$(t vault_destroyed)"
 }
@@ -598,6 +664,9 @@ _vault_destroy_now() {
 # Управление зашифрованным контейнером: create|open|close|reset|destroy|status.
 cmd_vault() {
   require_macos
+  # Уцелевший .old — след прерванного reset. Пользователь должен узнать, ГДЕ его
+  # данные, а не гадать: status покажет «сейф закрыт», а сейф-то другой.
+  if [[ -e "$VAULT_PATH.old" ]]; then warn "$(t vault_aside_notice "$VAULT_PATH.old")"; fi
   local sub="${1:-}"; shift || true
   case "$sub" in
     create)
@@ -658,9 +727,44 @@ cmd_vault() {
       local reset_size="${1:-1g}"
       _assert_valid_size "$reset_size"   # ДО destroy: невалидный размер не должен губить сейф
       _vault_assert_destroyable
+      # Уцелевший .old — это ДАННЫЕ пользователя (прерванный reset или его ручной
+      # бэкап). Снести его молча нельзя. Отказ идёт ДО confirm: незачем спрашивать
+      # «уничтожить всё?», чтобы следом сказать «нет».
+      if [[ -e "$(_vault_aside_path)" ]]; then err "$(t vault_aside_exists "$(_vault_aside_path)")"; exit 1; fi
       if ! confirm "$(t vault_reset_confirm "$VAULT_PATH")"; then warn "$(t cancelled)"; exit 1; fi
-      _vault_destroy_now
-      _vault_create_now "$reset_size"
+      # Между «старого сейфа уже нет» и «новый готов» не должно быть окна: раньше
+      # destroy шёл первым, и падение create (нет места, отказ hdiutil, Ctrl-C на
+      # промпте пароля) оставляло пользователя вообще без сейфа. Теперь старый
+      # контейнер отставляется в .old, новый создаётся на его месте, и только после
+      # успеха старый крипто-шредится. Откат навешен trap'ом, а не только на ветку
+      # ошибки: Ctrl-C приходит именно на промпте пароля, уже ПОСЛЕ переноса.
+      local aside; aside="$(_vault_aside_path)"
+      _vault_unmount_or_die       # переименовывать можно только отцепленный том
+      # Взводим ДО mv: сигнал, пришедший между переносом и установкой trap'а, иначе
+      # оставил бы сейф в .old без отката. Rollback сам проверяет, что переносить.
+      ST_RESET_ASIDE="$aside"
+      trap '_vault_reset_rollback' EXIT
+      trap '_vault_reset_rollback; exit 130' INT TERM HUP QUIT
+      mv -- "$VAULT_PATH" "$aside" || { err "$(t vault_create_fail "$VAULT_PATH")"; exit 1; }
+      if ! _vault_create_try "$reset_size"; then
+        err "$(t vault_create_fail "$VAULT_PATH")"
+        exit 1                    # откат сделает EXIT-trap
+      fi
+      ST_RESET_ASIDE=""           # новый сейф на месте — откатывать больше нечего
+      trap - EXIT INT TERM HUP QUIT
+      # Пока шёл create, пользователь мог смонтировать том из .old (Finder видит файл).
+      # Шредить вслепую нельзя — это снесло бы backing store живого расшифрованного тома.
+      if [[ "$(_vault_state "$aside")" != unmounted ]]; then
+        err "$(t vault_aside_busy "$aside")"; exit 1
+      fi
+      if ! rm -rfP -- "$aside"; then
+        # Новый сейф уже создан, но старый НЕ уничтожен: молчать нельзя — обещание
+        # crypto-shred не выполнено, рядом лежит расшифровываемая копия.
+        err "$(t vault_aside_left "$aside")"; exit 1
+      fi
+      info "$(t vault_destroyed)"
+      info "$(t vault_created "$VAULT_PATH" "$reset_size")"
+      warn "$(t vault_preventive)"
       info "$(t vault_reset_done)"
       ;;
     *)

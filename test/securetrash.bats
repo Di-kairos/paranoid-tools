@@ -317,6 +317,84 @@ setup() {
   rm -rf "$tmp"
 }
 
+# --- reset: между «старого сейфа уже нет» и «новый готов» не должно быть окна ---
+# Раньше reset делал destroy → create подряд: падение create (нет места, отказ hdiutil,
+# Ctrl-C на промпте пароля) оставляло пользователя вообще без сейфа. Теперь старый
+# контейнер отставляется в .old и крипто-шредится только после успешного create.
+
+@test "vault reset restores the old container when create fails" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  echo OLD > "$tmp/SecureVault.sparsebundle/bands/marker"
+  run env HOME="$tmp" ST_ASSUME_YES=1 ST_VAULT_PASS=test1234 ST_MOCK_CREATE_FAIL=1 \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault reset
+  [ "$status" -ne 0 ]
+  # старый сейф вернулся на место вместе с содержимым, хвоста .old нет
+  [ -e "$tmp/SecureVault.sparsebundle/bands/marker" ]
+  [ ! -e "$tmp/SecureVault.sparsebundle.old" ]
+  # и пользователю сказано, что откат произошёл
+  [[ "$output" == *"rolled back"* ]] || [[ "$output" == *"откачен"* ]]
+  rm -rf "$tmp"
+}
+
+@test "vault reset leaves no aside copy of the old container on success" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  echo OLD > "$tmp/SecureVault.sparsebundle/bands/marker"
+  run env HOME="$tmp" ST_ASSUME_YES=1 ST_VAULT_PASS=test1234 \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault reset
+  [ "$status" -eq 0 ]
+  # новый контейнер реально на месте и имеет форму sparsebundle
+  [ -d "$tmp/SecureVault.sparsebundle" ]
+  [ -e "$tmp/SecureVault.sparsebundle/Info.plist" ]
+  # старое содержимое не пережило reset ни на месте, ни в .old
+  [ ! -e "$tmp/SecureVault.sparsebundle.old" ]
+  [ ! -e "$tmp/SecureVault.sparsebundle/bands/marker" ]
+  rm -rf "$tmp"
+}
+
+# Уцелевший .old — это данные пользователя (прерванный reset или его ручной бэкап).
+# Снести его молча = потерять единственную копию. reset обязан отказаться.
+@test "vault reset refuses when a .old container is already there and keeps it" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  mkdir -p "$tmp/SecureVault.sparsebundle.old/bands"; echo PRECIOUS > "$tmp/SecureVault.sparsebundle.old/bands/junk"
+  run env HOME="$tmp" ST_ASSUME_YES=1 ST_VAULT_PASS=test1234 \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault reset
+  [ "$status" -ne 0 ]
+  # обе копии целы, ничего не создавалось
+  [ -e "$tmp/SecureVault.sparsebundle.old/bands/junk" ]
+  [ -e "$tmp/SecureVault.sparsebundle/bands" ]
+  [ ! -f "$tmp/hdiutil_calls.log" ] || ! grep -q "create" "$tmp/hdiutil_calls.log"
+  rm -rf "$tmp"
+}
+
+@test "vault commands point at a leftover .old so the user knows where the data is" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  mkdir -p "$tmp/SecureVault.sparsebundle.old"; echo x > "$tmp/SecureVault.sparsebundle.old/Info.plist"
+  run env HOME="$tmp" PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault status
+  [[ "$output" == *"SecureVault.sparsebundle.old"* ]]
+  rm -rf "$tmp"
+}
+
+@test "vault create reports failure instead of claiming success" {
+  # Утверждаем только то, что гарантирует код: ненулевой выход и явное сообщение.
+  # Уборку частичного контейнера после падения hdiutil securetrash НЕ делает —
+  # заявлять это тестом (мок падает до записи) значило бы проверять мок, а не код.
+  tmp="$(mktemp -d)"
+  run env HOME="$tmp" ST_VAULT_PASS=test1234 ST_MOCK_CREATE_FAIL=1 \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault create
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Could not create the container"* ]] || [[ "$output" == *"Не удалось создать контейнер"* ]]
+  rm -rf "$tmp"
+}
+
 @test "shred refuses a protected system path (/)" {
   run env ST_ASSUME_YES=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" shred /

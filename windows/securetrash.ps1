@@ -209,6 +209,20 @@ Flags:
 
     'en:vault_usage'        = 'vault: provide create|open|close|reset|destroy'
     'ru:vault_usage'        = 'vault: укажи create|open|close|reset|destroy'
+    'en:vault_create_fail'  = 'Could not create the container ({0}).'
+    'ru:vault_create_fail'  = 'Не удалось создать контейнер ({0}).'
+    'en:vault_aside_exists' = 'A previous container is still set aside at {0} — an interrupted reset, or your own backup. It holds real data, so it will not be removed automatically. Move or delete it yourself, then run reset again.'
+    'ru:vault_aside_exists' = 'Рядом лежит отставленный контейнер {0} — прерванный reset или твой бэкап. В нём реальные данные, автоматически он не удаляется. Убери или удали его сам, затем повтори reset.'
+    'en:vault_aside_notice' = 'Note: {0} is on disk — a container set aside by an interrupted reset. Your older data is in there, not in the active vault.'
+    'ru:vault_aside_notice' = 'Внимание: на диске лежит {0} — контейнер, отставленный прерванным reset. Прежние данные там, а не в активном сейфе.'
+    'en:vault_reset_rolled_back' = 'Reset rolled back: the previous vault is back in place ({0}). Nothing was destroyed.'
+    'ru:vault_reset_rolled_back' = 'Reset откачен: прежний сейф вернулся на место ({0}). Ничего не уничтожено.'
+    'en:vault_restore_fail' = 'Could not move the vault back. Your data is NOT lost — it is at {0}. Move it to {1} manually.'
+    'ru:vault_restore_fail' = 'Не удалось вернуть сейф на место. Данные НЕ потеряны — они в {0}. Перенеси их в {1} вручную.'
+    'en:vault_aside_busy'  = 'The old container at {0} appears to be MOUNTED — refusing to crypto-shred a live decrypted volume. Eject it, then delete it yourself. The new vault is already in place.'
+    'ru:vault_aside_busy'  = 'Старый контейнер {0} выглядит СМОНТИРОВАННЫМ — не уничтожаю живой расшифрованный том. Извлеки его и удали сам. Новый сейф уже на месте.'
+    'en:vault_aside_left'   = 'The new vault was created, but the old container could NOT be removed: {0} is still on disk and is still decryptable with the old password. Delete it yourself — until then the crypto-shred promise does not hold.'
+    'ru:vault_aside_left'   = 'Новый сейф создан, но старый контейнер удалить НЕ удалось: {0} остался на диске и по-прежнему расшифровывается старым паролем. Удали его сам — до этого обещание crypto-shred не выполнено.'
     'en:vault_reset_confirm' = 'RESET the vault — destroy {0} and EVERYTHING inside, then create a fresh empty one?'
     'ru:vault_reset_confirm' = 'СБРОСИТЬ сейф — уничтожить {0} и ВСЁ внутри, затем создать новый пустой?'
     'en:vault_reset_done'   = 'Vault reset — old container crypto-shredded, fresh empty vault created. (Old contents are unrecoverable only if your password was strong and no copies/backups/snapshots (VSS, File History, cloud) remain.)'
@@ -483,6 +497,38 @@ detach vdisk
 function Remove-StVaultContainer {
     param([string]$Path)
     Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+}
+
+# --- «отставить старый контейнер в сторону» (reset без окна потери данных) ---
+# reset обязан пережить падение create: старый сейф уезжает в <vault>.old, новый
+# создаётся на штатном месте, и только после успеха старый крипто-шредится.
+# Зеркало bash (_vault_aside_path / mv). Обёртки — чтобы Pester мог их мокать.
+function Get-StAsidePath { param([string]$VaultPath) return "$VaultPath.old" }
+
+function Move-StVaultAside {
+    param([string]$VaultPath)
+    $aside = Get-StAsidePath $VaultPath
+    # Существующий .old — ДАННЫЕ пользователя, удалять его здесь нельзя. Вызывающий
+    # обязан отказаться заранее; проверка продублирована, потому что Move-Item -Force
+    # при существующем КАТАЛОГЕ .old положил бы контейнер ВНУТРЬ него и промолчал.
+    if (Test-Path -LiteralPath $aside) { Write-StErr (T 'vault_aside_exists' $aside); Stop-StCommand }
+    Move-Item -LiteralPath $VaultPath -Destination $aside -ErrorAction Stop
+}
+
+function Restore-StVaultAside {
+    param([string]$VaultPath)
+    $aside = Get-StAsidePath $VaultPath
+    if (-not (Test-Path -LiteralPath $aside)) { return }
+    if (Test-Path -LiteralPath $VaultPath) {
+        # Самый вероятный провал create — Enable-BitLocker уже ПОСЛЕ того, как diskpart
+        # прицепил vhdx. Такой файл залочен: без detach его не удалить и откат не пройдёт.
+        try { Dismount-StVault -Path $VaultPath } catch { }
+        Remove-Item -LiteralPath $VaultPath -Force -Recurse -ErrorAction SilentlyContinue
+    }
+    # Move-Item -Force в существующий КАТАЛОГ кладёт источник ВНУТРЬ него и молчит,
+    # поэтому цель обязана быть свободна: честнее упасть, чем «успешно» закопать сейф.
+    if (Test-Path -LiteralPath $VaultPath) { throw "restore target still present: $VaultPath" }
+    Move-Item -LiteralPath $aside -Destination $VaultPath -ErrorAction Stop
 }
 
 # Ограничить ACL объекта текущим пользователем + SYSTEM/Administrators (#15).
@@ -873,15 +919,15 @@ function Invoke-StVaultCreateNow {
 # достоверном 'unmounted' (mounted → размонтировать и перепроверить; unknown → отказ).
 # VeraCrypt: состояние через Get-DiskImage не определить — Remove с -ErrorAction Stop
 # сам упадёт, если файл занят (тоже fail-closed). Подчищает sidecar'ы backend+mount.
-function Invoke-StVaultDestroyNow {
-    $vaultPath = Get-StVaultPath
-    $backend = Read-StVaultBackend -VaultPath $vaultPath
+function Assert-StVaultUnmounted {
+    param([string]$VaultPath)
+    $backend = Read-StVaultBackend -VaultPath $VaultPath
     if ($backend -ne 'veracrypt') {
-        $state = Get-StVaultState -Path $vaultPath
+        $state = Get-StVaultState -Path $VaultPath
         switch ($state) {
             'mounted' {
-                Dismount-StVault -Path $vaultPath
-                if ((Get-StVaultState -Path $vaultPath) -ne 'unmounted') {
+                Dismount-StVault -Path $VaultPath
+                if ((Get-StVaultState -Path $VaultPath) -ne 'unmounted') {
                     Write-StErr (T 'vault_destroy_busy'); Stop-StCommand
                 }
             }
@@ -889,6 +935,11 @@ function Invoke-StVaultDestroyNow {
             default { Write-StErr (T 'vault_destroy_busy'); Stop-StCommand }  # unknown → fail-closed
         }
     }
+}
+
+function Invoke-StVaultDestroyNow {
+    $vaultPath = Get-StVaultPath
+    Assert-StVaultUnmounted -VaultPath $vaultPath
     Remove-StVaultContainer -Path $vaultPath
     $bp = Get-StBackendPath $vaultPath
     if (Test-Path -LiteralPath $bp) { Remove-Item -LiteralPath $bp -Force -ErrorAction SilentlyContinue }
@@ -904,6 +955,11 @@ function Invoke-StVault {
     param([string[]]$VaultArgs)
     $sub = if ($VaultArgs -and $VaultArgs.Count -ge 1) { $VaultArgs[0] } else { '' }
     $vaultPath = Get-StVaultPath
+    # Уцелевший .old — след прерванного reset. Пользователь должен узнать, ГДЕ его
+    # данные: status иначе покажет «сейф закрыт», а сейф-то другой (зеркало bash).
+    if (Test-Path -LiteralPath (Get-StAsidePath $vaultPath)) {
+        Write-StWarn (T 'vault_aside_notice' (Get-StAsidePath $vaultPath))
+    }
 
     switch ($sub) {
         'create' {
@@ -1002,8 +1058,47 @@ function Invoke-StVault {
             if (-not (Confirm-StAction (T 'vault_reset_confirm' $vaultPath))) {
                 Write-StWarn (T 'cancelled'); Stop-StCommand
             }
-            Invoke-StVaultDestroyNow
-            Invoke-StVaultCreateNow -Size $resetSize
+            # Между «старого сейфа уже нет» и «новый готов» не должно быть окна: раньше
+            # destroy шёл первым, и падение create (нет места, отказ diskpart/BitLocker,
+            # отмена на промпте пароля) оставляло пользователя вообще без сейфа. Теперь
+            # старый контейнер отставляется в <vault>.old, новый создаётся на штатном
+            # месте, и только после успеха старый крипто-шредится. Зеркало bash.
+            $aside = Get-StAsidePath $vaultPath
+            # Уцелевший .old — прерванный reset или ручной бэкап пользователя. Молча
+            # снести его = уничтожить единственную копию данных. Отказываемся.
+            if (Test-Path -LiteralPath $aside) { Write-StErr (T 'vault_aside_exists' $aside); Stop-StCommand }
+            Assert-StVaultUnmounted -VaultPath $vaultPath   # переименовать можно только отцепленный vhdx
+            Move-StVaultAside -VaultPath $vaultPath
+            # finally, а не catch: откат обязан отработать и при отмене/StExit изнутри
+            # create, и исходная ошибка при этом не должна быть проглочена.
+            $stCreated = $false
+            try {
+                Invoke-StVaultCreateNow -Size $resetSize
+                $stCreated = $true
+            } finally {
+                if (-not $stCreated) {
+                    try {
+                        Restore-StVaultAside -VaultPath $vaultPath
+                        Write-StWarn (T 'vault_reset_rolled_back' $vaultPath)
+                    } catch {
+                        Write-StErr (T 'vault_restore_fail' $aside $vaultPath)
+                    }
+                }
+            }
+            # Пока шёл create, том мог быть смонтирован из .old — шредить вслепую
+            # нельзя, это снесло бы backing store живого расшифрованного тома (зеркало bash).
+            if ((Get-StVaultState -Path $aside) -ne 'unmounted') {
+                Write-StErr (T 'vault_aside_busy' $aside); Stop-StCommand
+            }
+            # Старый контейнер уничтожаем только теперь. Провал здесь — не мелочь:
+            # рядом с новым сейфом остаётся копия, расшифровываемая старым паролем.
+            try {
+                Remove-StVaultContainer -Path $aside
+            } catch {
+                Write-StErr (T 'vault_aside_left' $aside); Stop-StCommand
+            }
+            Remove-StVaultMount -VaultPath $vaultPath
+            Write-StInfo (T 'vault_destroyed')
             Write-StInfo (T 'vault_reset_done')
         }
         default {
