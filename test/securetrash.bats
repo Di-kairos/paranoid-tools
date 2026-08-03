@@ -395,6 +395,50 @@ setup() {
   rm -rf "$tmp"
 }
 
+# --- снимки: главный канал, по которому «стёртый» файл выживает ---
+# shred и crypto-shred про снимки ничего не знают, поэтому инструмент обязан
+# сказать о них сам — пользователь иначе считает, что удалил файл насовсем.
+
+@test "check reports Time Machine snapshots when they exist" {
+  run env ST_MOCK_SNAPSHOTS=3 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"snapshots: 3"* ]] || [[ "$output" == *"снимков APFS: 3"* ]]
+}
+
+@test "check does not count installer rollback snapshots as document history" {
+  run env ST_MOCK_SNAPSHOTS=0 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" check
+  [ "$status" -eq 0 ]
+  # в моке всегда есть com.apple.os.update-* — он не должен считаться снимком TM
+  [[ "$output" == *"none right now"* ]] || [[ "$output" == *"снимков APFS сейчас нет"* ]]
+}
+
+@test "check counts third-party snapshots too, not just Time Machine ones" {
+  # CCC/Arq держат ровно такую же полную копию — allowlist по com.apple.TimeMachine.*
+  # выдал бы бодрое «снимков нет» там, где копия есть.
+  run env ST_MOCK_SNAPSHOTS=0 ST_MOCK_SNAPSHOTS_CCC=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"snapshots: 1"* ]] || [[ "$output" == *"снимков APFS: 1"* ]]
+}
+
+@test "check stays honest when tmutil cannot be read" {
+  run env ST_MOCK_TMUTIL_FAIL=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not read local snapshots"* ]] || [[ "$output" == *"Не удалось прочитать локальные снимки"* ]]
+}
+
+@test "shred warns about snapshots holding a full copy" {
+  tmp="$(mktemp -d)"; echo secret > "$tmp/file.txt"
+  run env ST_ASSUME_YES=1 ST_MOCK_SNAPSHOTS=2 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" shred "$tmp/file.txt"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"FULL copy"* ]] || [[ "$output" == *"ПОЛНУЮ копию"* ]]
+  rm -rf "$tmp"
+}
+
 @test "shred refuses a protected system path (/)" {
   run env ST_ASSUME_YES=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" shred /

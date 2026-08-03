@@ -106,6 +106,12 @@ Flags:
     'en:check_verdict'      = "Verdict: for secrets, use 'securetrash vault' (preventively)."
     'ru:check_verdict'      = "Итог: для секретов используй 'securetrash vault' (превентивно)."
 
+    'en:snap_present'       = 'Volume Shadow Copies: {0}. A shadow copy taken while the file was still outside the vault holds a FULL copy of it, and neither shred nor cipher /w can reach into one. List them with `vssadmin list shadows`, delete with `vssadmin delete shadows /for=C: /oldest` (both need an elevated prompt). Files kept inside the vault are safe from this: a shadow copy captures the container as ciphertext.'
+    'ru:snap_present'       = 'Теневых копий (VSS): {0}. Копия, снятая пока файл ещё лежал вне сейфа, хранит его ПОЛНУЮ копию — ни shred, ни cipher /w туда не дотянутся. Посмотреть: `vssadmin list shadows`, удалить: `vssadmin delete shadows /for=C: /oldest` (то и другое — из консоли администратора). На то, что лежит В СЕЙФЕ, это не действует: копия захватывает контейнер шифротекстом.'
+    'en:snap_none'          = 'Volume Shadow Copies: none right now. System Protection creates them on its own, so a file left outside the vault can end up inside one later. (File History does not leave shadow copies behind — it keeps its own file copies, a separate channel.) Files created inside the vault are unaffected.'
+    'ru:snap_none'          = 'Теневых копий (VSS) сейчас нет. «Защита системы» создаёт их сама, поэтому файл вне сейфа может попасть в копию позже. («История файлов» теневых копий не оставляет — она хранит собственные копии файлов, это отдельный канал.) На созданное внутри сейфа это не влияет.'
+    'en:snap_unknown'       = 'Volume Shadow Copies: unknown — reading them needs an elevated prompt. Assume one may hold a copy of anything that was outside the vault.'
+    'ru:snap_unknown'       = 'Теневые копии (VSS): неизвестно — чтобы их прочитать, нужна консоль администратора. Считай, что копия того, что лежало вне сейфа, может быть в одной из них.'
     'en:ssd_note'           = 'SSD: overwriting is not a guarantee. Real protection is BitLocker.'
     'ru:ssd_note'           = 'SSD: перезапись не гарантия. Реальная защита — BitLocker.'
 
@@ -698,6 +704,39 @@ function Invoke-StVersion {
 }
 
 # Аудит окружения: честный вердикт о гарантиях удаления.
+# Запущены ли мы с правами администратора (обёртка для Mock).
+function Test-StElevated {
+    try {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object System.Security.Principal.WindowsPrincipal($id)
+        return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
+# Сколько теневых копий (VSS) держит система — Windows-аналог локальных снимков APFS.
+# Копия, снятая пока файл ещё лежал вне сейфа, хранит его ЦЕЛИКОМ: ни shred, ни
+# `cipher /w` туда не дотянутся. Обёртка для Mock; недоступность CIM → 'unknown'.
+function Get-StSnapshotCount {
+    # Без прав администратора провайдер VSS отдаёт ПУСТОЙ список, а не ошибку —
+    # посчитать это за «копий нет» значило бы соврать в самую опасную сторону.
+    if (-not (Test-StElevated)) { return 'unknown' }
+    try {
+        $shadows = @(Get-CimInstance -ClassName Win32_ShadowCopy -ErrorAction Stop)
+        return $shadows.Count
+    } catch {
+        return 'unknown'
+    }
+}
+
+function Write-StSnapshotNote {
+    $n = Get-StSnapshotCount
+    if ($n -eq 'unknown') { Write-StWarn (T 'snap_unknown') }
+    elseif ($n -eq 0)     { Write-StInfo (T 'snap_none') }
+    else                  { Write-StWarn (T 'snap_present' $n) }
+}
+
 function Invoke-StCheck {
     Write-Host (T 'beta_banner')
     Write-Host (T 'check_header')
@@ -733,6 +772,8 @@ function Invoke-StCheck {
         Write-StWarn (T 'vault_none')
     }
 
+    Write-StSnapshotNote
+
     Write-Host ''
     Write-Host (T 'check_verdict')
 }
@@ -762,6 +803,8 @@ function Get-StDriveRootForPath {
 }
 
 # Честное примечание о гарантиях по типу диска.
+# Заметка после shred: тип диска + теневые копии. Снимки бьют мимо типа диска —
+# даже там, где перезапись честная, копия в теневой копии переживает удаление.
 function Write-StHonestDiskNote {
     $kind = Get-StDiskKind
     if ($kind -eq 'ssd') {
@@ -772,6 +815,7 @@ function Write-StHonestDiskNote {
     } else {
         Write-StInfo (T 'hdd_note')
     }
+    Write-StSnapshotNote
 }
 
 # Best-effort перезаписать свободное место на корнях затронутых дисков (#1a).

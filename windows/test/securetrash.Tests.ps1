@@ -1024,3 +1024,52 @@ Describe 'vault reset: aside/restore on a real filesystem' {
         (Get-Content -LiteralPath $script:vault -Raw) | Should -Be 'REAL-VAULT-BYTES'
     }
 }
+
+# Теневые копии VSS — Windows-аналог локальных снимков APFS: главный канал, по
+# которому «стёртый» файл выживает. Инструмент обязан говорить о них сам.
+Describe 'shadow copies (snapshot honesty)' {
+
+    BeforeEach {
+        $script:ST_LOCALE = 'en'
+        Mock Get-StBitLockerState { 'on' }
+        Mock Get-StBitLockerCapable { $true }
+        Mock Get-StVeraCryptPath { $null }
+        Mock Get-StDiskKind { 'ssd' }
+        Mock Test-StElevated { $true }
+    }
+
+    It 'check reports shadow copies when they exist' {
+        Mock Get-StSnapshotCount { 3 }
+        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out | Should -Match 'Volume Shadow Copies: 3'
+        $out | Should -Match 'FULL copy'
+    }
+
+    It 'check says none when there are no shadow copies' {
+        Mock Get-StSnapshotCount { 0 }
+        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out | Should -Match 'none right now'
+    }
+
+    It 'check stays honest when shadow copies cannot be read' {
+        Mock Get-StSnapshotCount { 'unknown' }
+        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out | Should -Match 'Volume Shadow Copies: unknown'
+    }
+
+    # Без прав администратора VSS отдаёт пустой список, а не ошибку: посчитать это
+    # за «копий нет» — соврать в самую опасную сторону.
+    It 'reports unknown rather than zero when not elevated' {
+        # Get-CimInstance нет на macOS-раннере, поэтому мокать его нельзя; проверяем,
+        # что до него дело вообще не доходит — возвращается 'unknown'.
+        Mock Test-StElevated { $false }
+        Get-StSnapshotCount | Should -Be 'unknown'
+    }
+
+    It 'the post-shred note warns about shadow copies too' {
+        Mock Get-StSnapshotCount { 2 }
+        Mock Get-StBitLockerOn { $true }
+        $out = (Write-StHonestDiskNote 6>&1) -join "`n"
+        $out | Should -Match 'Volume Shadow Copies: 2'
+    }
+}

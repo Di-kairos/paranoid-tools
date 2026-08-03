@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Мок tmutil: ST_MOCK_SNAPSHOTS=N — столько снимков Time Machine;
+# ST_MOCK_TMUTIL_FAIL=1 — tmutil отказал (состояние «unknown»).
+[[ "${ST_MOCK_TMUTIL_FAIL:-0}" == "1" ]] && exit 1
+echo "Snapshots for volume group containing disk /:"
+# Откатные точки установщика есть почти всегда и историей документов НЕ являются.
+echo "com.apple.os.update-DEADBEEF"
+# ST_MOCK_SNAPSHOTS_CCC=1 — снимок сторонней утилиты (Carbon Copy Cloner).
+[[ "${ST_MOCK_SNAPSHOTS_CCC:-0}" == "1" ]] && echo "com.bombich.ccc.7A1B.2026-08-03-120000"
+i=0
+while [ "$i" -lt "${ST_MOCK_SNAPSHOTS:-0}" ]; do
+  echo "com.apple.TimeMachine.2026-08-03-12000${i}.local"
+  i=$((i+1))
+done
+exit 0

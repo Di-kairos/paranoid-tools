@@ -109,6 +109,13 @@ EOF
     en:check_verdict)    echo "Verdict: for secrets, use 'securetrash vault' (preventively)." ;;
     ru:check_verdict)    echo "Итог: для секретов используй 'securetrash vault' (превентивно)." ;;
 
+    en:snap_present)     printf 'Local APFS snapshots: %s. A snapshot taken while the file was still outside the vault holds a FULL copy of it, and shred cannot reach into one. A single file cannot be removed from a snapshot — only the whole snapshot: sudo tmutil deletelocalsnapshots <date>, where <date> is the YYYY-MM-DD-HHMMSS part of the name from tmutil listlocalsnapshots /. Files kept inside the vault are safe from this: a snapshot captures the container as ciphertext.' "$1" ;;
+    ru:snap_present)     printf 'Локальных снимков APFS: %s. Снимок, сделанный пока файл ещё лежал вне сейфа, хранит его ПОЛНУЮ копию, и shred туда не дотянется. Убрать из снимка один файл нельзя — только снимок целиком: sudo tmutil deletelocalsnapshots <дата>, где <дата> — часть YYYY-MM-DD-HHMMSS из имени в tmutil listlocalsnapshots /. На то, что лежит В СЕЙФЕ, это не действует: снимок захватывает контейнер шифротекстом.' "$1" ;;
+    en:snap_none)        echo "Local APFS snapshots: none right now. They appear on their own once Time Machine (or a backup tool like CCC/Arq) runs, so a file left outside the vault can end up inside one later. Files created inside the vault are unaffected." ;;
+    ru:snap_none)        echo "Локальных снимков APFS сейчас нет. Они появляются сами, как только отработает Time Machine (или бэкап-утилита вроде CCC/Arq), — файл вне сейфа может попасть в снимок позже. На созданное внутри сейфа это не влияет." ;;
+    en:snap_unknown)     echo "Could not read local snapshots (tmutil unavailable) — assume a snapshot may hold a copy of anything that was outside the vault." ;;
+    ru:snap_unknown)     echo "Не удалось прочитать локальные снимки (tmutil недоступен) — считай, что копия того, что лежало вне сейфа, может быть в снимке." ;;
+
     en:ssd_note)         echo "SSD: overwriting is not a guarantee. Real protection is FileVault." ;;
     ru:ssd_note)         echo "SSD: перезапись не гарантия. Реальная защита — FileVault." ;;
 
@@ -381,6 +388,8 @@ cmd_check() {
       ;;
   esac
 
+  _snapshot_note
+
   echo
   t check_verdict
 }
@@ -392,6 +401,33 @@ _shred_path() {
   chmod -R u+w -- "$target" 2>/dev/null || true
   # -P: на HDD перезапись (best-effort); на SSD безвреден, но не гарантия.
   rm -rfP -- "$target"
+}
+
+# Сколько локальных снимков Time Machine держит система. Снимок, застигший файл ДО
+# удаления, хранит его ЦЕЛИКОМ — никакой shred туда не дотянется, а удалить из снимка
+# один файл нельзя, только снимок целиком. Считаем только `com.apple.TimeMachine.*`:
+# `com.apple.os.update-*` — откатные точки установщика, не история документов.
+# Печатает число или "unknown", если tmutil недоступен/отказал (fail-closed по смыслу).
+_snapshot_count() {
+  local out n
+  out="$(tmutil listlocalsnapshots / 2>/dev/null)" || { printf 'unknown'; return; }
+  # Считаем ВСЕ снимки, кроме заголовка и откатных точек установщика. Списком
+  # `com.apple.TimeMachine.*` считать нельзя: снимки Carbon Copy Cloner, Arq и
+  # прочих держат ровно такую же полную копию, а allowlist их бы не заметил и
+  # выдал бы бодрое «снимков нет» — fail-open ровно там, где нельзя.
+  n="$(printf '%s\n' "$out" | grep -c '^com\.apple\.os\.update-\|^Snapshots for' || true)"
+  local total; total="$(printf '%s\n' "$out" | grep -c '[^[:space:]]' || true)"
+  printf '%s' "$(( ${total:-0} - ${n:-0} ))"
+}
+
+# Честное примечание про снимки: главный канал, по которому «стёртый» файл выживает.
+_snapshot_note() {
+  local n; n="$(_snapshot_count)"
+  case "$n" in
+    unknown) warn "$(t snap_unknown)" ;;
+    0)       info "$(t snap_none)" ;;
+    *)       warn "$(t snap_present "$n")" ;;
+  esac
 }
 
 # Честное примечание о гарантиях по типу диска под конкретным путём.
@@ -411,6 +447,9 @@ _honest_disk_note() {
       if ! filevault_on; then err "$(t ssd_fv_off_note)"; fi
       ;;
   esac
+  # Снимки бьют мимо типа диска: даже на HDD с честной перезаписью копия в снимке
+  # переживает shred. Поэтому предупреждение идёт после вердикта по диску, не вместо.
+  _snapshot_note
 }
 
 # Физический канонический путь: режет trailing-slash, резолвит .. и симлинки,
