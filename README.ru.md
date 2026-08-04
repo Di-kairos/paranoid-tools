@@ -77,6 +77,15 @@ vaultwatch version                              # показать версию
 **ровно то, что менял** `start` (если Spotlight был уже выключен или vault уже исключён
 из Time Machine до сессии — `stop` это не трогает), и печатает отчёт сессии.
 
+**Unmount-guard (macOS).** Если вытолкнуть vault из Finder (или размонтировать мимо
+`vaultwatch stop` / post-close-хука securetrash), исключения иначе висели бы до следующего
+явного `stop`. Поэтому `start` ставит ещё и launchd-агент с `WatchPaths` на точке монтирования
+(`com.vaultwatch.guard.*.plist`): когда том исчезает, срабатывает `vaultwatch _guard_fire` и
+восстанавливает всё — **только если том действительно пропал** (срабатывание `WatchPaths` от
+записи внутри всё ещё смонтированного vault остаётся no-op). `stop` снимает guard. На Windows
+аналог сделан **опросной задачей планировщика** (задержка ~1 мин, не событийно) — см.
+`windows/README.md`.
+
 Хуки кладутся в `${ST_HOOK_DIR:-~/.securetrash/hooks}` — тот же каталог, который читает
 `securetrash`. Чужие (не-managed) хуки `vaultwatch` не трогает.
 
