@@ -11,6 +11,29 @@ setup() {
   [[ "$output" =~ [0-9]+\.[0-9]+\.[0-9]+ ]]
 }
 
+@test "--yes is accepted anywhere in the args and does not become a command" {
+  # Контракт securetrash: флаг вырезается, остальные аргументы сохраняют порядок.
+  run bash "$SCRIPT" --yes version
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vaultwatch"* ]]
+  run bash "$SCRIPT" version --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vaultwatch"* ]]
+}
+
+@test "--yes alone is not treated as a command (usage, non-zero)" {
+  run bash "$SCRIPT" --yes
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [[ "$output" != *"Unknown command"* ]]
+}
+
+@test "usage documents the --yes flag" {
+  run bash "$SCRIPT" help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--yes"* ]]
+}
+
 @test "--version flag prints version" {
   run bash "$SCRIPT" --version
   [ "$status" -eq 0 ]

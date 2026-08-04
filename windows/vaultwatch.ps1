@@ -174,6 +174,9 @@ Commands:
   uninstall-hooks     Remove vaultwatch hooks (only those it manages)
   version             Show the version
 
+Flags:
+  --yes               Skip confirmation prompts (same as ST_ASSUME_YES=1)
+
 start/stop are normally invoked by the securetrash vault open/close hooks.
 '@
 }
@@ -553,7 +556,13 @@ function Invoke-VwStop {
     Write-Output (T 'rep_swap')
 
     if ($restoreOk) { Remove-Item -LiteralPath $sf -Force -ErrorAction SilentlyContinue }
-    else { Write-VwWarn (T 'restore_incomplete' $mount) }
+    else {
+        # Ненулевой код обязателен: stop, не восстановивший исключения, — не успех.
+        # Иначе post-close хук securetrash и планировщик считали бы сессию закрытой,
+        # хотя индексация тома всё ещё выключена, а state-файл жив (зеркало bash).
+        Write-VwWarn (T 'restore_incomplete' $mount)
+        Stop-VwCommand 1
+    }
 }
 
 # Внутренняя команда: срабатывает по истечении --ttl (из задачи Task Scheduler).
@@ -633,6 +642,18 @@ function Invoke-VwMain {
     try {
         Assert-VwPs7
         $self = $PSCommandPath
+        # --yes где угодно в аргументах == ST_ASSUME_YES=1 (контракт securetrash).
+        # После `--` аргументы литеральные: `stop -- --yes` — это точка монтирования
+        # с таким именем, а не флаг (зеркало bash).
+        if ($Argv -and ($Argv -contains '--yes')) {
+            $kept = @(); $literal = $false
+            foreach ($a in $Argv) {
+                if (-not $literal -and $a -eq '--yes') { $env:ST_ASSUME_YES = '1'; continue }
+                if ($a -eq '--') { $literal = $true }
+                $kept += $a
+            }
+            $Argv = $kept
+        }
         $cmd = if ($Argv -and $Argv.Count -ge 1) { $Argv[0] } else { '' }
         if (-not $cmd) { Write-Output (Get-VwUsage); exit 1 }
         $rest = @(if ($Argv.Count -ge 2) { $Argv[1..($Argv.Count - 1)] } else { @() })

@@ -140,6 +140,9 @@ Commands:
   uninstall-hooks     Remove vaultwatch hooks (only those it manages)
   version             Show the version
 
+Flags:
+  --yes               Skip confirmation prompts (same as ST_ASSUME_YES=1)
+
 start/stop are normally invoked by the securetrash vault open/close hooks.
 Hooks live in ${ST_HOOK_DIR:-~/.securetrash/hooks} and are invoked by securetrash.
 EOF
@@ -158,6 +161,9 @@ Commands:
   install-hooks       Подключить vaultwatch к securetrash vault open/close
   uninstall-hooks     Удалить хуки vaultwatch (только свои, managed)
   version             Показать версию
+
+Флаги:
+  --yes               Не спрашивать подтверждений (то же, что ST_ASSUME_YES=1)
 
 start/stop обычно вызываются хуками securetrash vault open/close.
 Хуки лежат в ${ST_HOOK_DIR:-~/.securetrash/hooks} и вызываются securetrash.
@@ -654,6 +660,10 @@ cmd_stop() {
     rm -f "$sf"
   else
     warn "$(t restore_incomplete "$mount")"
+    # Ненулевой код обязателен: stop, не восстановивший исключения, — это не успех.
+    # Иначе post-close хук securetrash и launchd-таймер считали бы сессию закрытой,
+    # хотя Spotlight по-прежнему не индексирует том, а state-файл ещё жив.
+    return 1
   fi
 }
 
@@ -738,6 +748,21 @@ cmd_status() {
 cmd_version() { echo "vaultwatch $VERSION"; }
 
 main() {
+  # --yes где угодно в аргументах == ST_ASSUME_YES=1 (тот же контракт, что у securetrash:
+  # раньше подтверждение --ttl --force обходилось только через env). Флаг вырезаем,
+  # порядок остальных аргументов сохраняем.
+  # После `--` аргументы литеральные: `start -- --yes` — это mountpoint с таким именем,
+  # а не флаг (escape, который cmd_start уже поддерживает).
+  local args=() a literal=0
+  for a in "$@"; do
+    if [[ "$literal" == 0 && "$a" == "--yes" ]]; then ST_ASSUME_YES=1; continue; fi
+    [[ "$a" == "--" ]] && literal=1
+    args+=("$a")
+  done
+  set -- "${args[@]:-}"
+  # Пустой массив разворачивается в одну пустую строку — нормализуем к «нет аргументов».
+  if [[ $# -eq 1 && -z "${1:-}" ]]; then set --; fi
+
   local cmd="${1:-}"
   if [[ -z "$cmd" ]]; then usage; exit 1; fi
   shift || true

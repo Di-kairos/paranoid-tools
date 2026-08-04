@@ -162,6 +162,16 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
 
 # --- stop: cleanup ---
 
+@test "a mountpoint literally named --yes survives the -- escape (Codex review)" {
+  # Глобальный strip флага не должен съедать operand после `--`.
+  mkdir -p "$TMP/--yes"
+  literal="$(cd "$TMP/--yes" && pwd -P)"
+  run_vw start -- "$literal"
+  [ "$status" -eq 0 ]
+  run_vw stop -- "$literal"
+  [ "$status" -eq 0 ]
+}
+
 @test "stop removes the session state file" {
   bash "$SCRIPT" start "$MOUNT" >/dev/null
   run_vw stop "$MOUNT"
@@ -169,10 +179,12 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]
 }
 
-@test "stop warns and keeps state when Spotlight restore fails" {
+@test "stop warns, keeps state AND exits non-zero when Spotlight restore fails" {
+  # Ненулевой код здесь несёт смысл: post-close хук securetrash и launchd-таймер
+  # узнают, что исключения НЕ восстановлены, а не считают stop успешным.
   STUB_SPOTLIGHT=enabled bash "$SCRIPT" start "$MOUNT" >/dev/null
   STUB_MDUTIL_FAIL=1 run_vw stop "$MOUNT"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
   [[ "$output" == *"restore"* ]] || [[ "$output" == *"восстан"* ]]
   [ -n "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]
 }

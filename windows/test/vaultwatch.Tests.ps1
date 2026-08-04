@@ -124,6 +124,17 @@ Describe 'stop — restores and reports' {
         { Invoke-VwStop -ArgList @($script:Mount) } | Should -Not -Throw
     }
 
+    # AUDIT_2026-08-03 P2-12: stop, не восстановивший индексацию, не должен выглядеть успешным —
+    # иначе post-close хук securetrash считает сессию закрытой, а том остаётся неиндексируемым.
+    It 'failed restore keeps the state file AND fails loudly (P2-12)' {
+        Mock Enable-VwSearchIndex { $false }
+        $resolved = (Resolve-Path $script:Mount).Path
+        $sf = Get-VwStateFile -Mount $resolved
+        Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        { Invoke-VwStop -ArgList @($resolved) 6>$null } | Should -Throw -ExceptionType ([VwExit])
+        (Test-Path -LiteralPath $sf) | Should -BeTrue
+    }
+
     It 'removes an orphaned guard task even when there is no session file (LOW-2)' {
         # session-файла нет, но guard-задача могла осиротеть (провал Unregister) → stop всё равно чистит
         Invoke-VwStop -ArgList @($script:Mount) | Out-Null
@@ -340,5 +351,16 @@ Describe 'i18n + CLI' {
     It 'exits non-zero on an unknown command (child pwsh)' {
         & pwsh -NoProfile -File $script:ScriptPath bogus *> $null
         $LASTEXITCODE | Should -Not -Be 0
+    }
+    It 'accepts --yes anywhere in the args instead of treating it as a command (P2-12)' {
+        $out = & pwsh -NoProfile -File $script:ScriptPath --yes version
+        $LASTEXITCODE | Should -Be 0
+        ($out -join "`n") | Should -Match 'vaultwatch \d+\.\d+\.\d+'
+        $out = & pwsh -NoProfile -File $script:ScriptPath version --yes
+        $LASTEXITCODE | Should -Be 0
+        ($out -join "`n") | Should -Match 'vaultwatch \d+\.\d+\.\d+'
+    }
+    It 'usage documents the --yes flag' {
+        (Get-VwUsage) | Should -Match '--yes'
     }
 }
