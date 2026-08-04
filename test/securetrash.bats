@@ -67,6 +67,18 @@ setup() {
   [[ "$output" == *"ВКЛЮЧЕН"* ]]
 }
 
+@test "pre-set ST_LOCALE is respected (host override, no re-detection)" {
+  run env ST_LOCALE=ru PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" bash "$SCRIPT" check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ВКЛЮЧЕН"* ]]
+}
+
+@test "explicit ST_LANG wins over the ambient system locale" {
+  run env ST_LANG=ru LANG=en_US.UTF-8 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" bash "$SCRIPT" check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ВКЛЮЧЕН"* ]]
+}
+
 @test "setup creates the trash dir and is idempotent" {
   tmp="$(mktemp -d)"
   run env HOME="$tmp" PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \

@@ -8,6 +8,7 @@ $VERSION = '0.5.0'
 # --- language detection ---
 # Выбор языка вывода. По умолчанию английский. Русский — если ST_LANG начинается
 # с 'ru' ИЛИ $PSUICulture начинается с 'ru'. Результат фиксируется один раз.
+# Заранее выставленный ST_LOCALE уважается (хост — лаунчер/GUI — может переопределить).
 function Get-StLocale {
     $want = $env:ST_LANG
     if ($want) {
@@ -16,7 +17,7 @@ function Get-StLocale {
     if ($PSUICulture -and ($PSUICulture -match '^(?i)ru')) { return 'ru' }
     return 'en'
 }
-$script:ST_LOCALE = Get-StLocale
+$script:ST_LOCALE = if ($env:ST_LOCALE) { $env:ST_LOCALE } else { Get-StLocale }
 
 # --- i18n strings ---
 # Хэш-таблица сообщений, ключ "<locale>:<key>". Динамические значения — через -f в T().

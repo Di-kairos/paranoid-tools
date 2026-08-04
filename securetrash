@@ -8,6 +8,7 @@ VERSION="0.5.0"
 # Выбор языка вывода. По умолчанию английский (en); русский — opt-in.
 # Приоритет: ST_LANG=ru* → ru. Иначе автодетект по $LANG/$LC_ALL (ru* → ru).
 # Иначе — en. Результат фиксируется один раз в глобальной ST_LOCALE.
+# Заранее выставленный ST_LOCALE уважается (хост — лаунчер/GUI — может переопределить).
 _detect_locale() {
   local want="${ST_LANG:-}"
   if [[ -n "$want" ]]; then
@@ -16,7 +17,7 @@ _detect_locale() {
   local sys="${LC_ALL:-${LANG:-}}"
   case "$sys" in ru*) echo "ru" ;; *) echo "en" ;; esac
 }
-ST_LOCALE="$(_detect_locale)"
+ST_LOCALE="${ST_LOCALE:-$(_detect_locale)}"
 
 # t — локализованные строки. Ключ → строка по $ST_LOCALE.
 # Динамические части подставляются через printf из позиционных аргументов.

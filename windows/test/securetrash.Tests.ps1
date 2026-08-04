@@ -144,6 +144,14 @@ Describe 'check' {
         $script:ST_LOCALE = 'en'
     }
 
+    It 'i18n: pre-set ST_LOCALE is respected by the script itself (subprocess)' {
+        $out = & pwsh -NoProfile -Command @"
+`$env:ST_NO_MAIN='1'; `$env:ST_LOCALE='ru'; . '$script:ScriptPath'
+Write-Output `$script:ST_LOCALE
+"@ 2>&1
+        ($out -join "`n").Trim() | Should -Be 'ru'
+    }
+
     It 'unknown disk type -> honest "could not be determined", not an HDD claim' {
         Mock Get-StDiskKind { 'unknown' }
         Mock Get-StBitLockerState { 'on' }
