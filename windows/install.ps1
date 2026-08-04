@@ -70,9 +70,23 @@ function Invoke-VwVerifier {
     # Обёртка над `ssh-keygen -Y verify` — вынесена, чтобы её можно было замокать в тестах.
     # Windows OpenSSH ssh-keygen читает подписанные данные из stdin; возвращаем exit-код.
     param([string]$AllowedSigners, [string]$Principal, [string]$SigFile, [string]$SumsFile)
-    Get-Content -LiteralPath $SumsFile -Raw |
-        & ssh-keygen -Y verify -f $AllowedSigners -I $Principal -n file -s $SigFile 2>&1 | Out-Null
-    return $LASTEXITCODE
+    # Байты SHA256SUMS передаём КАК ЕСТЬ: пайп PowerShell перекодирует текст (BOM, CRLF),
+    # и валидная подпись отвалилась бы как «incorrect signature» (зеркало ghostdraft).
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = (Get-VwVerifier)
+    foreach ($a in @('-Y','verify','-f',$AllowedSigners,'-I',$Principal,'-n','file','-s',$SigFile)) {
+        $psi.ArgumentList.Add($a)
+    }
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute        = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $fs = [System.IO.File]::OpenRead($SumsFile)
+    try { $fs.CopyTo($proc.StandardInput.BaseStream) } finally { $fs.Close() }
+    $proc.StandardInput.Close()
+    $proc.WaitForExit()
+    return $proc.ExitCode
 }
 
 function Assert-VwSignature {
