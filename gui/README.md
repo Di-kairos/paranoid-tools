@@ -8,7 +8,9 @@ This is the optional *convenience* layer — Phase A is the cross-platform `para
 
 The GUI **holds no secrets and adds no crypto**. It only:
 - shows read-only status (vault open/closed, FileVault/BitLocker) in the menu bar / tray, and
-- launches the **same signed CLIs** (`securetrash`, `panic`, `paranoid`) — every destructive op
+- launches the **same CLIs you installed** (`securetrash`, `panic`, `paranoid`) — resolved
+  through `PATH` at runtime, not re-verified per launch (signatures are checked at install
+  time; see the launcher note in the root README) — and every destructive op
   and every password prompt happens **in the CLI** (a terminal/console window opens with the
   tool's real output); secrets never pass through the GUI.
 
@@ -73,23 +75,13 @@ account; the pipeline mechanics are exercised by the ad-hoc path.
 pwsh -File windows/paranoid-tray.ps1   # a Shield icon appears in the tray; right-click for the menu
 ```
 
-## Distribution readiness (what the maintainer must obtain)
+## Signing and distribution
 
-The macOS pipeline (`build.sh --sign --notarize`) is ready; it only needs credentials:
-
-| Need | What / where | Cost | Unblocks |
-|------|--------------|------|----------|
-| **Apple Developer Program** | developer.apple.com/programs — enroll the Di-kairos Apple ID | **$99/yr** | Developer ID cert + notarization |
-| **Developer ID Application cert** | Xcode/Keychain or developer.apple.com → Certificates | included | `codesign` that passes Gatekeeper |
-| **notarytool keychain profile** | `xcrun notarytool store-credentials <profile> --apple-id … --team-id … --password <app-specific>` | included | `--notarize <profile>` |
-| **xcodebuild / real Mac** | this machine has Command Line Tools only (`codesign`/`notarytool`/`stapler` present) — full `.app` sign+notarize best run on the **home machine** | — | end-to-end release |
-
-> App-specific password: appleid.apple.com → Sign-In & Security → App-Specific Passwords.
-> One `store-credentials` per machine; then release is a single `build.sh --sign … --notarize …`.
-
-**Windows tray** (`.ps1`, not a compiled exe) → Authenticode-sign the script with a code-signing
-cert (`Set-AuthenticodeSignature`) or ship a signed launch shim. Needs a Windows code-signing cert
-(OV ~$100–400/yr, or EV for instant SmartScreen trust) — separate pack, not yet scripted.
+The macOS pipeline (`build.sh --sign --notarize`) is written and works; what is missing is a
+Developer ID certificate and a notarization credential, so the current build is unsigned and
+Gatekeeper will say so. The Windows tray ships as a `.ps1`, which would need Authenticode
+signing. Until that lands, run the GUI from this repo — the CLIs it drives are signed and
+verified at install time regardless.
 
 ## Not done yet (honest scope — the rest of Phase B)
 
@@ -97,10 +89,12 @@ cert (`Set-AuthenticodeSignature`) or ship a signed launch shim. Needs a Windows
   notarization (macOS), and a Windows code-signing cert for Authenticode-signing the `.ps1`
   (see the readiness table above). The pipelines are built and ready; only the credentials/cert
   are missing.
-- **Open-core packaging** (the convenience layer is the paid tier per the project's monetization
-  direction; the CLIs stay free + fully usable without the GUI).
+- **Packaging** — a signed `.app` / `.dmg` and a signed Windows launch shim, so the GUI can be
+  installed like anything else instead of run from a clone.
 
 UX polish is done: hotkey, notifications, onboarding, RU/EN, and the settings pane (vault-volume
 override, poll interval, language, hotkey preset — see the table above) all shipped in Phase B.
-What remains is distribution (signing/notarization/code-signing) and the open-core packaging
-decision — not UX.
+What remains is distribution (signing/notarization/code-signing) — not UX.
+
+The GUI is free, like the CLIs, and stays that way: no paid tier, no feature held back for one.
+If it is useful to you, the project takes donations — nothing else is being sold.

@@ -205,9 +205,13 @@ grouped into submenus — **Vault** (open/close · empty · destroy · watch), *
 **Empty** crypto-shreds the vault's contents and hands you a fresh empty one (a real
 guarantee, unlike wiping files in place on an SSD).
 
-It holds no secrets and adds no crypto of its own: it runs the same signed tools
-and shows their output — *Scope & limitations* and `check` verdicts included —
-unaltered. Run it with no arguments:
+It holds no secrets and adds no crypto of its own: it runs the tools you installed and shows
+their output — *Scope & limitations* and `check` verdicts included — unaltered. To be precise
+about what "signed" covers: signatures are verified **at install time**. At runtime the launcher
+and the GUI simply call `securetrash`, `panic` and the rest by name, i.e. whatever your `PATH`
+resolves them to — they do not re-verify on every launch. Anyone who can write to a directory
+earlier in your `PATH` can put something else there, and no tool here would notice. Run it with
+no arguments:
 
 ```bash
 paranoid          # opens the dashboard + menu
@@ -248,8 +252,9 @@ your shell rc to keep it on.
 
 Paranoid Tools is free and open-source (MIT). If it saved you from a leak — or you just
 want the work to continue — you can support it via **[GitHub Sponsors](https://github.com/sponsors/Di-kairos)**.
-No paywalls, no telemetry, no upsell: the tools stay fully usable without paying. Sponsorship
-funds maintenance and the optional convenience layer (the native menu-bar / tray, Phase B).
+No paywalls, no telemetry, no upsell — and that covers the GUI too: the native menu-bar / tray
+layer is free and stays free, like everything else here. Sponsorship funds maintenance, nothing
+is sold.
 
 ## License
 

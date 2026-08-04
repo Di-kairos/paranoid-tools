@@ -13,6 +13,10 @@ graphify-out/
 .gstack/
 .superpowers/
 docs/sessions/
+# Внутренние аудиты и отчёты о живых тестах — рабочее состояние, живёт на X10.
+# Публично проект отвечает за THREAT-MODEL.md и SECURITY.md, а не за черновики самокритики.
+AUDIT_*.md
+USER_TRIAL_REPORT_*.md
 tri-mozga-out/
 
 # GUI Фаза B — build-артефакты (исходники в gui/, бинарь/бандл собираются локально)
