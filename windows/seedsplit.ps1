@@ -49,7 +49,7 @@ function T {
     $loc = $script:SS_LOCALE
     switch ("${loc}:${Key}") {
         'en:unknown_cmd'          { return "Unknown command: $A" }
-        'ru:unknown_cmd'          { return "Unknown command: $A" }
+        'ru:unknown_cmd'          { return "Неизвестная команда: $A" }
         'en:split_bad_arg'        { return "split: unknown argument: $A" }
         'ru:split_bad_arg'        { return "split: неизвестный аргумент: $A" }
         'en:split_file_unreadable'{ return "split: file not readable: $A" }

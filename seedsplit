@@ -176,7 +176,7 @@ seedsplit ПОКА не совместим со SLIP-39 / аппаратными
 EOF
       ;;
     en:unknown_cmd) printf 'Unknown command: %s' "$1" ;;
-    ru:unknown_cmd) printf 'Unknown command: %s' "$1" ;;
+    ru:unknown_cmd) printf 'Неизвестная команда: %s' "$1" ;;
 
     # --- split errors ---
     en:split_bad_arg)       printf 'split: unknown argument: %s' "$1" ;;
