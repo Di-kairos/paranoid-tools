@@ -198,7 +198,7 @@ oversell. So here are the honest limits:
   integrity tag, plus known-answer tests: FIPS-197 GF vectors and a frozen share-set).
 - The shared core (`lib/common.sh`) is **vendored** inline from securetrash, pinned to a
   git ref; `tools/vendor-common.sh --check` catches drift in CI. See
-  `paranoid-tools/README.md`.
+  [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
 
 ## Windows (beta)
 

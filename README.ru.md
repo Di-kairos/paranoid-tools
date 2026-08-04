@@ -177,7 +177,7 @@ tag** из sha256), поэтому `combine` возвращает **либо т�
   tag целостности, плюс known-answer тесты: GF-векторы FIPS-197 и замороженный набор
   долей).
 - Общее ядро (`lib/common.sh`) **вендорится** из securetrash inline, пиннуто к git-ref;
-  `tools/vendor-common.sh --check` ловит дрейф в CI. См. `paranoid-tools/README.md`.
+  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
 
 ## Windows (beta)
 
