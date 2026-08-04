@@ -36,14 +36,25 @@ done
 head "2. seedsplit (Shamir split/combine/verify)"
 secret="smoke-secret-$$"
 shares="$(printf '%s' "$secret" | tool seedsplit split -n 3 -t 2 2>/dev/null)"
-if [[ "$(printf '%s\n' "$shares" | grep -c '^SSS2-')" -eq 3 ]]; then ok "split → 3 доли"; else bad "split не дал 3 доли"; fi
+# Формат зависит от УСТАНОВЛЕННОЙ версии (SSS3 с 0.5.0, SSS2 раньше) — считаем доли, не префикс.
+if [[ "$(printf '%s\n' "$shares" | grep -c '^SSS[23]-')" -eq 3 ]]; then ok "split → 3 доли"; else bad "split не дал 3 доли"; fi
 rec="$(printf '%s\n' "$shares" | sed -n '1p;3p' | tool seedsplit combine 2>/dev/null)"
 if [[ "$rec" == "$secret" ]]; then ok "combine(1,3) восстановил секрет"; else bad "combine не восстановил секрет"; fi
 if printf '%s\n' "$shares" | sed -n '2p;3p' | tool seedsplit verify >/dev/null 2>&1; then ok "verify подтвердил восстановимость"; else bad "verify не прошёл"; fi
-# подмена одной доли → combine должен отказать (а не молча вернуть мусор)
+# подмена доли (символ 'X' вне hex-алфавита) → combine обязан отказать, а не вернуть мусор
 badshare="$(printf '%s\n' "$shares" | sed -n '1p' | sed 's/-\([0-9a-f]\)/-X/2')"
 if printf '%s\n%s\n' "$badshare" "$(printf '%s\n' "$shares" | sed -n '2p')" | tool seedsplit combine >/dev/null 2>&1; then
   bad "подмена доли НЕ была отвергнута"; else ok "подмена доли отвергнута (fail-closed)"; fi
+# Одна опечатка в теле доли → parity чинит её (только для SSS3; на старой установке пропускаем).
+one="$(printf '%s\n' "$shares" | sed -n '1p')"
+if [[ "$one" == SSS3-* ]]; then
+  ch="${one:40:1}"; if [[ "$ch" == "a" ]]; then alt=b; else alt=a; fi
+  typo="${one:0:40}${alt}${one:41}"
+  rec2="$(printf '%s\n%s\n' "$typo" "$(printf '%s\n' "$shares" | sed -n '2p')" | tool seedsplit combine 2>/dev/null)"
+  if [[ "$rec2" == "$secret" ]]; then ok "опечатка в доле исправлена по parity"; else bad "parity не починила опечатку"; fi
+else
+  skip "коррекция опечаток (установлен seedsplit до 0.5.0, формат SSS2)"
+fi
 
 # --- 3. ghostdraft: pipe (без записи на диск) + new в temp-каталоге ---
 head "3. ghostdraft (pipe + ephemeral draft)"

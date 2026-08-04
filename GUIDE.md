@@ -205,6 +205,13 @@ point of failure again). Store them in separate places: home, a bank cell, a tru
 person. `seedsplit combine` puts them back together. The vault is your working copy;
 the shares are the disaster copy.
 
+Copying a share back by hand is where this usually goes wrong, so each share carries a
+parity field: `combine` repairs **up to two mistyped bytes per share** and says so once the
+secret has verified. Past two bytes it may still fail rather than repair — what guarantees you
+never get a *wrong* secret is the per-share checksum plus a 128-bit tag over the payload, not
+the repair itself. A typo in the short head of the line (`setid`/`T`/`x`), or a dropped
+character that shifts the rest, cannot be repaired at all: re-copy that share from the paper.
+
 That's the whole loop: **check → vault → vaultwatch → panic → seedsplit**.
 Close the vault (`securetrash vault close`) when you're done; open it the next time you
 actually need the secret — which, for a good seed phrase, should be almost never.
