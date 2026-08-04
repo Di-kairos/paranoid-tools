@@ -20,8 +20,8 @@
 
 > **Не доверяй — проверяй.** Релизы подписаны Ed25519 · ноль зависимостей (два opt-in
 > исключения — названы в заметках к установке) · один читаемый файл на инструмент · shellcheck-clean. Каждое ограничение названо прямо — см. *Scope &amp;
-> limitations* у каждого инструмента. Сторонний аудит мы не заявляем: код мал настолько,
-> что его можно прочитать самому.
+> limitations* у каждого инструмента. Сторонний аудит мы не заявляем — но здесь всего
+> ~3 900 строк шелла в шести скриптах: прочитать самому — это вечер, а не проект.
 
 **Не менеджер паролей.** Маленький, проверяемый, локальный набор для тех немногих
 секретов, утечку которых не отменить, — без облака, без телеметрии, без обещаний,
@@ -39,9 +39,9 @@
 | # | Инструмент | Шаг жизни секрета | Платформа | Версия |
 |---|------------|-------------------|-----------|--------|
 | 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | хранить в зашифрованном сейфе (`vault`), очистить или уничтожить | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/securetrash?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/securetrash/releases/latest) |
-| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый сейф | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
+| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | сторожить открытый сейф — **ранняя версия, в работе** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
 | 3 | [`panic`](https://github.com/Di-kairos/panic)             | мгновенно закрыть сейфы, отмонтировать тома, очистить буфер и запереть экран | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть текст, не оставляя копий в обычных местах | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | написать или просмотреть текст, не оставляя копий в обычных местах  — **ранняя версия** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
 | 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | разбить секрет на доли (Шамир) + парольная фраза на macOS | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
 
 > **Windows.** У всех пяти инструментов есть PowerShell-порты (beta, покрыты Pester на CI;
@@ -86,7 +86,17 @@ README инструментов), а Windows-порт работает на Powe
 платформенное требование.
 
 Нужен только один инструмент или хочется пройти каждый шаг руками? В README каждого
-инструмента есть отдельный пример установки с проверкой и однострочная быстрая форма. См. [состав](#состав).
+инструмента есть отдельный пример установки с проверкой и однострочная быстрая форма. Учти: те
+установщики по умолчанию кладут бинарь в `/usr/local/bin` (и просят sudo), а этот — в
+`~/.local/bin`; если пользоваться обоими, получится две копии, и какая запустится, решит `PATH`.
+Держи их в одном месте через `PT_DEST` или переменную назначения самого инструмента.
+См. [состав](#состав).
+
+**Linux.** `install.sh` там отказывается работать, и это решение, а не недосмотр: securetrash,
+vaultwatch, panic и ghostdraft построены на macOS-примитивах (`hdiutil`, `fdesetup`, `mdutil`,
+`tmutil`, `launchd`), у которых нет линуксовых аналогов с той же честностью насчёт гарантий.
+Порт на LUKS/systemd — это другой инструмент, а не флаг. Исключение — `seedsplit`: чистая
+арифметика поверх POSIX-утилит, клонируй и запускай.
 
 **Проверь релизы сам.** `bash verify-releases.sh` скачивает опубликованный релиз каждого
 инструмента и сверяет Ed25519-подпись и контрольную сумму с ключом, вшитым в этот репозиторий:
@@ -255,6 +265,7 @@ Paranoid Tools — свободный и open-source (MIT). Если он убе
 
 ## Лицензия
 
-[MIT](LICENSE). В этом репозитории лежит [`SECURITY.md`](SECURITY.md) — про лаунчер и
-установщик; у каждого репозитория-инструмента своя MIT `LICENSE`, плюс `SECURITY.md`
-(как приватно сообщить об уязвимости) и `CONTRIBUTING.md`.
+[MIT](LICENSE). В этом репозитории лежат [`SECURITY.md`](SECURITY.md) и
+[`CONTRIBUTING.md`](CONTRIBUTING.md) — про лаунчер, установщик и GUI; у каждого
+репозитория-инструмента своя MIT `LICENSE`, плюс `SECURITY.md` (как приватно сообщить об
+уязвимости) и `CONTRIBUTING.md`.

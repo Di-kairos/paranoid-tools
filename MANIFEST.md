@@ -2,7 +2,7 @@
 
 **English** · [Русский](MANIFEST.ru.md)
 
-*A small movement for honest privacy in a world that no longer logs off.*
+*A small toolkit for honest privacy in a world that no longer logs off.*
 
 ---
 

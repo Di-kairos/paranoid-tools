@@ -20,8 +20,8 @@
 
 > **Don't trust, verify.** Ed25519-signed releases · zero runtime dependencies (two
 > opt-in exceptions, named in the install notes) · one auditable file per tool · shellcheck-clean. Every limitation is stated plainly — see each
-> tool's *Scope &amp; limitations*. No third-party audit is claimed; the code is small enough
-> to read yourself.
+> tool's *Scope &amp; limitations*. No third-party audit is claimed — but the whole thing is
+> ~3,900 lines of shell across six scripts, so reading it yourself is an evening, not a project.
 
 **Not a password manager.** A small, auditable, local toolkit for the few secrets whose
 leak you can't undo — no cloud, no telemetry, no promises it can't keep. It closes the
@@ -39,9 +39,9 @@ runtime dependencies** — and is honest about the limits of what it can guarant
 | # | Tool | Step in a secret's life | Platform | Latest |
 |---|------|-------------------------|----------|--------|
 | 1 | [`securetrash`](https://github.com/Di-kairos/securetrash) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/securetrash?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/securetrash/releases/latest) |
-| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
+| 2 | [`vaultwatch`](https://github.com/Di-kairos/vaultwatch)   | guard a vault while it's open — **early, work in progress** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
 | 3 | [`panic`](https://github.com/Di-kairos/panic)             | close vaults, detach volumes, clear the clipboard, lock the screen — instantly | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
-| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text without leaving copies in the usual places | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
+| 4 | [`ghostdraft`](https://github.com/Di-kairos/ghostdraft)   | write/view text without leaving copies in the usual places — **early** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
 | 5 | [`seedsplit`](https://github.com/Di-kairos/seedsplit)     | split a secret into Shamir shares (+ passphrase on macOS) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
 
 > **Windows.** All five tools ship PowerShell ports (beta, Pester-tested in CI; seedsplit
@@ -87,8 +87,17 @@ zero-dependency claim has two opt-in exceptions: `panic hotkey` needs `skhd`,
 `seedsplit -p` needs `openssl` (both stated in the tool READMEs) — and on Windows the
 port itself runs on PowerShell 7, the one platform prerequisite.
 
+**Linux.** `install.sh` refuses to run there, and that is deliberate rather than an oversight:
+securetrash, vaultwatch, panic and ghostdraft are built on macOS primitives (`hdiutil`,
+`fdesetup`, `mdutil`, `tmutil`, `launchd`) with no Linux equivalents that would keep the same
+honesty about what is guaranteed. A LUKS/systemd port would be a different tool, not a flag.
+`seedsplit` is the exception — pure arithmetic over POSIX utilities; clone it and run it.
+
 Prefer to install just one tool, or inspect each step by hand? Every tool's README carries a
-standalone verify-then-run snippet plus a one-line quick form. See [the tools](#the-tools).
+standalone verify-then-run snippet plus a one-line quick form. Note those per-tool installers
+default to `/usr/local/bin` (and ask for sudo), while this one installs into `~/.local/bin` — if
+you use both, you end up with two copies and `PATH` decides which one runs. Set `PT_DEST` or the
+tool's own destination variable to keep them in one place. See [the tools](#the-tools).
 
 **Verify the releases yourself.** `bash verify-releases.sh` downloads the published release of
 every tool and checks each Ed25519 signature and checksum against the key pinned in this repo —
@@ -159,6 +168,9 @@ repo (`git clone https://github.com/Di-kairos/paranoid-tools`) and run
 > hardware — try them on non-critical data first before trusting them with real secrets.
 
 ### Release signing — honest scope
+
+**In short:** the signature protects the delivery channel, but one key covering all five repos
+is a shared point of risk.
 
 Releases are signed with a **single Ed25519 key** shared across all five tool repos. Be aware
 of the trade-off: compromise of that key (its GitHub Actions secret, or a malicious change to
@@ -258,6 +270,7 @@ is sold.
 
 ## License
 
-[MIT](LICENSE). This repo carries [`SECURITY.md`](SECURITY.md) for the launcher and
-installer; each tool repo carries its own MIT `LICENSE`, plus `SECURITY.md`
-(how to report a vulnerability privately) and `CONTRIBUTING.md`.
+[MIT](LICENSE). This repo carries [`SECURITY.md`](SECURITY.md) and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the launcher, the installer and the GUI; each tool
+repo carries its own MIT `LICENSE`, plus `SECURITY.md` (how to report a vulnerability
+privately) and `CONTRIBUTING.md`.
