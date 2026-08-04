@@ -48,10 +48,10 @@ _need_openssl() { command -v openssl >/dev/null 2>&1 || skip "openssl not on PAT
   [ "$out" = "$secret" ]
 }
 
-@test "-p shares carry the normal SSS2 wire format (passphrase sits below the Shamir layer)" {
+@test "-p shares carry the normal SSS3 wire format (passphrase sits below the Shamir layer)" {
   _need_openssl
   shares="$(printf '%s' "x" | SEEDSPLIT_PASSPHRASE=pw bash "$SCRIPT" split -p -n 3 -t 2)"
-  [ "$(printf '%s\n' "$shares" | grep -c '^SSS2-')" -eq 3 ]
+  [ "$(printf '%s\n' "$shares" | grep -c '^SSS3-')" -eq 3 ]
 }
 
 @test "split aborts with no output if the round-trip self-check fails (MED)" {

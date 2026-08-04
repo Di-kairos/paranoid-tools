@@ -79,7 +79,7 @@ _pty() {
   out="$( (sleep 0.4; printf 'correct horse battery staple\n'; sleep 0.4) \
           | _pty bash "$SCRIPT" split -n 2 -t 2 2>&1 )"
   [[ "$out" == *"Secret to split"* ]] || [[ "$out" == *"Секрет для разбиения"* ]]
-  [[ "$out" == *"SSS2-"* ]]                        # доли всё же выданы
+  [[ "$out" == *"SSS3-"* ]]                        # доли всё же выданы
   [[ "$out" != *"correct horse battery staple"* ]] # и секрет не отражён эхом
 }
 
@@ -90,7 +90,7 @@ _pty() {
   secret='  two spaces  and trailing  '
   out="$( (sleep 0.4; printf '%s\n' "$secret"; sleep 0.4) \
           | _pty bash "$SCRIPT" split -n 2 -t 2 2>&1 )"
-  shares="$(printf '%s\n' "$out" | tr -d '\r' | grep '^SSS2-')"
+  shares="$(printf '%s\n' "$out" | tr -d '\r' | grep '^SSS3-')"
   [ -n "$shares" ]
   back="$(printf '%s\n' "$shares" | bash "$SCRIPT" combine)"
   [ "$back" = "$secret" ]
@@ -99,7 +99,7 @@ _pty() {
 @test "piped stdin still works and shows no prompt (non-interactive path unchanged)" {
   run bash -c "printf 'correct horse battery staple' | bash '$SCRIPT' split -n 2 -t 2"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"SSS2-"* ]]
+  [[ "$output" == *"SSS3-"* ]]
   [[ "$output" != *"Secret to split"* ]]
 }
 
@@ -120,7 +120,7 @@ _pty() {
   # а ps1-порт такого гейта не имел вовсе. Гоняем БЕЗ uname-стаба, отдающего Darwin.
   secret='legal winner thank year wave'
   shares="$(printf '%s' "$secret" | env PATH="/usr/bin:/bin" bash "$SCRIPT" split -n 3 -t 2)"
-  [[ "$shares" == *"SSS2-"* ]]
+  [[ "$shares" == *"SSS3-"* ]]
   back="$(printf '%s\n' "$shares" | head -2 | env PATH="/usr/bin:/bin" bash "$SCRIPT" combine)"
   [ "$back" = "$secret" ]
 }

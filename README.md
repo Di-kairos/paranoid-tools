@@ -92,18 +92,35 @@ nothing):
 ```bash
 $ printf '%s' "legal winner thank year wave sausage worth useful legal winner thank yellow" \
     | seedsplit split -n 5 -t 3
-SSS2-32c54257-3-1-86ef3410a5785b83…-316d
-SSS2-32c54257-3-2-4e0f3aca2ce3ca06…-9fca
-SSS2-32c54257-3-3-9de045b6ecfcf0e9…-62ec
-SSS2-32c54257-3-4-cd1ba35892aa7d32…-701d
-SSS2-32c54257-3-5-1ef4dc2452b547dd…-16e8
+SSS3-32c54257-3-1-86ef3410a5785b83…-a6effc9d-316d
+SSS3-32c54257-3-2-4e0f3aca2ce3ca06…-4118ad84-9fca
+SSS3-32c54257-3-3-9de045b6ecfcf0e9…-1cbc6b7a-62ec
+SSS3-32c54257-3-4-cd1ba35892aa7d32…-9d21be40-701d
+SSS3-32c54257-3-5-1ef4dc2452b547dd…-3f0ac715-16e8
 ```
 
-Each line is a self-contained share in the form `SSS2-<setid>-<T>-<x>-<hexY>-<chk4>`:
-format version, a random **set-id** shared by all shares of one split (so `combine`
-deterministically refuses to mix shares from *different* splits), threshold, point index,
-body, and a 4-char checksum (catches a typo in that one share). Distribute the lines
-across different media/locations.
+Each line is a self-contained share in the form
+`SSS3-<setid>-<T>-<x>-<hexY>-<parity>-<chk4>`: format version, a random **set-id** shared by
+all shares of one split (so `combine` deterministically refuses to mix shares from *different*
+splits), threshold, point index, body, a Reed-Solomon **parity** field, and a 4-char checksum.
+Distribute the lines across different media/locations.
+
+**Typo correction (since 0.5.0).** Shares live on paper, and paper gets copied by hand. The
+parity field is Reed-Solomon over the same GF(256) the sharing itself uses: `combine` repairs
+**up to two mistyped bytes per share** — anywhere in the body or in the parity field itself —
+and says so after the secret has verified.
+
+Past two bytes, be precise about what happens: the code has distance 5, so a heavily damaged
+share can decode toward a *different* codeword instead of simply failing. That candidate is
+then rejected by the per-share checksum and, failing that, by the 128-bit payload tag, so
+`combine` still returns either the exact secret or an error — but the guarantee comes from
+those checks, not from the decoder refusing. What parity does *not* cover at all: the short
+structural head (`setid`, `T`, `x`), where a typo is detected by the checksum but cannot be
+repaired, and dropped or inserted characters, which shift everything after them. Re-copy such
+a share from the paper.
+
+Shares printed by 0.4.x (`SSS2-…`, no parity field) still combine — they just have nothing to
+repair with. There is no migration: if you want the parity, re-split the secret.
 
 Reconstruct the secret — feed **any T (or more) shares** on stdin, one per line:
 

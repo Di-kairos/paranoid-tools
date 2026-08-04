@@ -1,7 +1,7 @@
 # seedsplit.ps1 — распределить секрет на доли (Shamir Secret Sharing), Windows-порт (BETA).
 # Зеркало macOS-версии (bash). Baseline: Windows PowerShell 5.1 (без PS7-only синтаксиса).
 #
-# Совместимость с bash-версией — БАЙТ-В-БАЙТ: тот же формат доли SSS2, те же таблицы GF(256)
+# Совместимость с bash-версией — БАЙТ-В-БАЙТ: тот же формат доли SSS3, те же таблицы GF(256)
 # (генератор 0x03, редуцирующий многочлен 0x11b), та же обёртка целостности
 # (0x55 | len(2B BE) | secret | tag(16B = первые 16 байт sha256)). Доля, созданная на macOS,
 # собирается на Windows и наоборот — KAT-набор из bash-тестов проверяет это в Pester.
@@ -17,7 +17,7 @@
 # Вывод данных (доли, секрет, версия) идёт в stdout через Write-Output / raw-stream — чтобы
 # `seedsplit split > shares.txt` и пайпы работали (Write-Host в PS 5.1 не попадает в stdout).
 
-$VERSION = '0.4.2'
+$VERSION = '0.5.0'
 
 # --- locale: en по умолчанию; ru — если ST_LANG или системная UI-локаль начинаются с 'ru' ---
 function Get-SsLocale {
@@ -70,8 +70,14 @@ function T {
         'ru:split_secret_big'     { return 'split: секрет слишком большой (>65535 байт)' }
         'en:split_selfcheck_fail' { return 'split: internal self-check FAILED — the generated shares do not reconstruct the secret. Nothing was printed; do NOT rely on any partial output. Please re-run and report this.' }
         'ru:split_selfcheck_fail' { return 'split: внутренняя self-проверка НЕ ПРОШЛА — сгенерированные доли не собирают секрет. Ничего не напечатано; НЕ полагайся на частичный вывод. Перезапусти и сообщи об этом.' }
-        'en:combine_not_sss2'     { return "combine: line does not look like an SSS2 share: $A" }
-        'ru:combine_not_sss2'     { return "combine: строка не похожа на долю формата SSS2: $A" }
+        'en:combine_not_sss2'     { return "combine: line does not look like an SSS2/SSS3 share: $A" }
+        'ru:combine_not_sss2'     { return "combine: строка не похожа на долю формата SSS2/SSS3: $A" }
+        'en:combine_bad_parity'   { return "combine: share x=${A} has a parity field of the wrong length — the share is readable but cannot be repaired. Re-copy it from the paper." }
+        'ru:combine_bad_parity'   { return "combine: у доли x=${A} поле parity неверной длины — доля читается, но чинить её нечем. Перепиши её с бумаги заново." }
+        'en:combine_repaired'     { return "share x=${A}: ${B} mistyped byte(s) corrected from the parity field." }
+        'ru:combine_repaired'     { return "доля x=${A}: по parity исправлено байт с опечаткой: ${B}." }
+        'en:combine_unrepairable' { return "combine: share x=${A} is damaged beyond what the parity field can fix (SSS3 corrects up to 2 mistyped bytes per share). Re-copy it from the paper." }
+        'ru:combine_unrepairable' { return "combine: доля x=${A} повреждена сильнее, чем чинит parity (SSS3 исправляет до 2 байт с опечаткой на долю). Перепиши её с бумаги заново." }
         'en:combine_corrupt'      { return "combine: share corrupted (checksum mismatch): x=$A" }
         'ru:combine_corrupt'      { return "combine: доля повреждена (контрольная сумма не сошлась): x=$A" }
         'en:combine_bad_x'        { return "combine: invalid share index x=$A" }
@@ -214,6 +220,168 @@ function Get-SsGFInv {
     return $script:GF_EXP[(255 - $script:GF_LOG[$A]) % 255]
 }
 
+# === Reed-Solomon: коррекция опечаток в переписанной с бумаги доле (формат SSS3) ===
+# Зеркало bash-реализации БАЙТ-В-БАЙТ: тот же GF(256), тот же генераторный многочлен,
+# те же 4 байта parity на чанк <=251 байт. Исправляет до двух неверных байт в чанке;
+# опечатка в структурной части доли (setid/T/x) не корректируется — её ловит chk4.
+# Декодер — Питерсон для t<=2 + перебор корней (на четырёх синдромах эквивалентен BM).
+$script:RS_PARITY = 4
+$script:RS_CHUNK  = 251
+
+# Генераторный многочлен g(x) = (x+a^0)(x+a^1)(x+a^2)(x+a^3), убывающий порядок, G[0]=1.
+function Get-SsRsGen {
+    $g = @(1)
+    for ($i = 0; $i -lt $script:RS_PARITY; $i++) {
+        $ai = $script:GF_EXP[$i]
+        $ng = New-Object int[] ($g.Count + 1)
+        for ($j = 0; $j -lt $g.Count; $j++) {
+            $ng[$j]     = $ng[$j] -bxor $g[$j]                       # умножение на x
+            $ng[$j + 1] = $ng[$j + 1] -bxor (Get-SsGFMul $g[$j] $ai)
+        }
+        $g = $ng
+    }
+    return $g
+}
+
+# Parity для сообщения (байты, старший первым) — остаток от msg*x^4 по модулю g.
+function Get-SsRsParity {
+    param([int[]]$Msg)
+    $g = Get-SsRsGen
+    $k = $Msg.Count
+    $w = New-Object int[] ($k + $script:RS_PARITY)
+    for ($i = 0; $i -lt $k; $i++) { $w[$i] = $Msg[$i] }
+    for ($i = 0; $i -lt $k; $i++) {
+        $coef = $w[$i]
+        if ($coef -eq 0) { continue }
+        for ($j = 1; $j -le $script:RS_PARITY; $j++) {
+            $w[$i + $j] = $w[$i + $j] -bxor (Get-SsGFMul $g[$j] $coef)
+        }
+    }
+    $par = New-Object int[] $script:RS_PARITY
+    for ($i = 0; $i -lt $script:RS_PARITY; $i++) { $par[$i] = $w[$k + $i] }
+    return ,$par
+}
+
+# Синдромы кодового слова: S_i = CW(a^i). Все нули → ошибок нет.
+function Get-SsRsSyndromes {
+    param([int[]]$Cw)
+    $syn = New-Object int[] $script:RS_PARITY
+    for ($i = 0; $i -lt $script:RS_PARITY; $i++) {
+        $xi = $script:GF_EXP[$i]; $acc = 0
+        foreach ($c in $Cw) { $acc = (Get-SsGFMul $acc $xi) -bxor $c }   # схема Горнера
+        $syn[$i] = $acc
+    }
+    return ,$syn
+}
+
+# Исправить до двух байтовых ошибок. Возвращает @{ Ok = $true/$false; Cw = ...; Fixed = N }.
+# Ok=$false — не поддаётся (честный отказ; молча неверное слово не отдаём).
+function Repair-SsRsCodeword {
+    param([int[]]$Cw)
+    $cw = @($Cw)
+    $n = $cw.Count
+    $syn = Get-SsRsSyndromes $cw
+    $s0 = $syn[0]; $s1 = $syn[1]; $s2 = $syn[2]; $s3 = $syn[3]
+    if ($s0 -eq 0 -and $s1 -eq 0 -and $s2 -eq 0 -and $s3 -eq 0) {
+        return @{ Ok = $true; Cw = $cw; Fixed = 0 }
+    }
+
+    # --- одна ошибка: e = S0, X = S1/S0; сверяем по S2 и S3 ---
+    if ($s0 -ne 0) {
+        $X = Get-SsGFMul $s1 (Get-SsGFInv $s0)
+        $e = $s0; $ok = $true
+        if ((Get-SsGFMul $e $X) -ne $s1) { $ok = $false }
+        $x2 = Get-SsGFMul $X $X
+        if ((Get-SsGFMul $e $x2) -ne $s2) { $ok = $false }
+        $x3 = Get-SsGFMul $x2 $X
+        if ((Get-SsGFMul $e $x3) -ne $s3) { $ok = $false }
+        if ($ok -and $X -ne 0) {
+            $p = $n - 1 - $script:GF_LOG[$X]
+            if ($p -ge 0 -and $p -lt $n) {
+                $cw[$p] = $cw[$p] -bxor $e
+                $chk = Get-SsRsSyndromes $cw
+                if ($chk[0] -eq 0 -and $chk[1] -eq 0 -and $chk[2] -eq 0 -and $chk[3] -eq 0) {
+                    return @{ Ok = $true; Cw = $cw; Fixed = 1 }
+                }
+                return @{ Ok = $false; Cw = $cw; Fixed = 0 }
+            }
+        }
+    }
+
+    # --- две ошибки (Питерсон) ---
+    $d = (Get-SsGFMul $s1 $s1) -bxor (Get-SsGFMul $s0 $s2)
+    if ($d -eq 0) { return @{ Ok = $false; Cw = $cw; Fixed = 0 } }
+    $invd = Get-SsGFInv $d
+    $l1 = Get-SsGFMul (((Get-SsGFMul $s2 $s1) -bxor (Get-SsGFMul $s0 $s3))) $invd
+    $l2 = Get-SsGFMul (((Get-SsGFMul $s1 $s3) -bxor (Get-SsGFMul $s2 $s2))) $invd
+
+    $pos = New-Object 'System.Collections.Generic.List[int]'
+    $xv  = New-Object 'System.Collections.Generic.List[int]'
+    for ($p = 0; $p -lt $n; $p++) {
+        $Xp = $script:GF_EXP[($n - 1 - $p) % 255]
+        $z = Get-SsGFInv $Xp
+        $v = 1 -bxor (Get-SsGFMul $l1 $z)
+        $v = $v -bxor (Get-SsGFMul $l2 (Get-SsGFMul $z $z))
+        if ($v -eq 0) { $pos.Add($p); $xv.Add($Xp) }
+    }
+    if ($pos.Count -ne 2) { return @{ Ok = $false; Cw = $cw; Fixed = 0 } }
+
+    $X1 = $xv[0]; $X2 = $xv[1]
+    $den = $X1 -bxor $X2
+    if ($den -eq 0) { return @{ Ok = $false; Cw = $cw; Fixed = 0 } }
+    $e1 = Get-SsGFMul ($s1 -bxor (Get-SsGFMul $s0 $X2)) (Get-SsGFInv $den)
+    $e2 = $s0 -bxor $e1
+    if ($e1 -eq 0 -or $e2 -eq 0) { return @{ Ok = $false; Cw = $cw; Fixed = 0 } }
+    $cw[$pos[0]] = $cw[$pos[0]] -bxor $e1
+    $cw[$pos[1]] = $cw[$pos[1]] -bxor $e2
+    $chk2 = Get-SsRsSyndromes $cw
+    if ($chk2[0] -eq 0 -and $chk2[1] -eq 0 -and $chk2[2] -eq 0 -and $chk2[3] -eq 0) {
+        return @{ Ok = $true; Cw = $cw; Fixed = 2 }
+    }
+    return @{ Ok = $false; Cw = $cw; Fixed = 0 }
+}
+
+# hex полезной нагрузки → hex parity (чанками по RS_CHUNK байт).
+function Get-SsRsParityHex {
+    param([string]$Hex)
+    Initialize-SsGF
+    $total = [int]($Hex.Length / 2); $off = 0; $out = ''
+    while ($off -lt $total) {
+        $take = [Math]::Min($script:RS_CHUNK, $total - $off)
+        $msg = New-Object int[] $take
+        for ($i = 0; $i -lt $take; $i++) { $msg[$i] = [Convert]::ToInt32($Hex.Substring(($off + $i) * 2, 2), 16) }
+        foreach ($b in (Get-SsRsParity $msg)) { $out += '{0:x2}' -f $b }
+        $off += $take
+    }
+    return $out
+}
+
+# hex нагрузки + hex parity → @{ Ok; Hex; Par; Fixed }. Ok=$false — декодер не сошёлся.
+# Par возвращаем обязательно: опечатка могла попасть в само поле parity, и тогда чинить надо
+# его (иначе chk4 сверялся бы со всё ещё испорченным par и починка не засчитывалась).
+function Repair-SsRsHex {
+    param([string]$Hex, [string]$Par)
+    Initialize-SsGF
+    $total = [int]($Hex.Length / 2); $off = 0; $ci = 0; $out = ''; $outPar = ''; $fixed = 0
+    $chunks = [int][Math]::Ceiling($total / [double]$script:RS_CHUNK)
+    if ($Par.Length -ne $chunks * $script:RS_PARITY * 2) { return @{ Ok = $false; Hex = $Hex; Par = $Par; Fixed = 0 } }
+    while ($off -lt $total) {
+        $take = [Math]::Min($script:RS_CHUNK, $total - $off)
+        $cw = New-Object int[] ($take + $script:RS_PARITY)
+        for ($i = 0; $i -lt $take; $i++) { $cw[$i] = [Convert]::ToInt32($Hex.Substring(($off + $i) * 2, 2), 16) }
+        for ($i = 0; $i -lt $script:RS_PARITY; $i++) {
+            $cw[$take + $i] = [Convert]::ToInt32($Par.Substring(($ci * $script:RS_PARITY + $i) * 2, 2), 16)
+        }
+        $r = Repair-SsRsCodeword $cw
+        if (-not $r.Ok) { return @{ Ok = $false; Hex = $Hex; Par = $Par; Fixed = 0 } }
+        $fixed += $r.Fixed
+        for ($i = 0; $i -lt $take; $i++) { $out += '{0:x2}' -f $r.Cw[$i] }
+        for ($i = 0; $i -lt $script:RS_PARITY; $i++) { $outPar += '{0:x2}' -f $r.Cw[$take + $i] }
+        $off += $take; $ci++
+    }
+    return @{ Ok = $true; Hex = $out; Par = $outPar; Fixed = $fixed }
+}
+
 # === split ===
 function Invoke-SsSplit {
     param([string[]]$ArgList)
@@ -312,10 +480,12 @@ function Invoke-SsSplit {
             }
         }
 
-        # Доля: SSS2-<setid>-<T>-<x>-<hexY>-<chk4>. chk = sha256(body)[:4]; ловит опечатку в доле.
+        # Доля: SSS3-<setid>-<T>-<x>-<hexY>-<par>-<chk4>. par — RS-parity над байтами hexY
+        # (чинит до 2 опечаток), chk4 — быстрая проверка целостности всей строки. Зеркало bash.
         $shares = New-Object 'System.Collections.Generic.List[string]'
         for ($x = 1; $x -le $n; $x++) {
-            $body = "SSS2-$setidHex-$t-$x-$($Y[$x])"
+            $par = Get-SsRsParityHex $Y[$x]
+            $body = "SSS3-$setidHex-$t-$x-$($Y[$x])-$par"
             $chk = (Get-SsSha256Hex ([System.Text.Encoding]::ASCII.GetBytes($body))).Substring(0, 4)
             $shares.Add("$body-$chk")
         }
@@ -344,17 +514,57 @@ function Get-SsRecoveredSecret {
 
     $XS = New-Object 'System.Collections.Generic.List[int]'
     $YS = New-Object 'System.Collections.Generic.List[string]'
+    $notices = New-Object 'System.Collections.Generic.List[string]'
     $ylen = $null; $tDecl = $null; $setidSeen = $null; $cnt = 0
 
     foreach ($line in ($Raw -split "`r?`n")) {
         if ([string]::IsNullOrEmpty($line)) { continue }
-        if ($line -notmatch '^SSS2-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]{4})$') {
+        $par = ''
+        if ($line -match '^SSS3-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]+)-([0-9a-f]{4})$') {
+            $fmt = 'SSS3'
+            $sid = $Matches[1]; $Tstr = $Matches[2]; $xstr = $Matches[3]
+            $yh = $Matches[4]; $par = $Matches[5]; $chk = $Matches[6]
+        } elseif ($line -match '^SSS2-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]{4})$') {
+            $fmt = 'SSS2'
+            $sid = $Matches[1]; $Tstr = $Matches[2]; $xstr = $Matches[3]
+            $yh = $Matches[4]; $chk = $Matches[5]
+        } else {
             Write-SsErr (T 'combine_not_sss2' $line); Stop-SsCommand 1
         }
-        $sid = $Matches[1]; $Tstr = $Matches[2]; $xstr = $Matches[3]; $yh = $Matches[4]; $chk = $Matches[5]
-        $body = "SSS2-$sid-$Tstr-$xstr-$yh"
+        if ($fmt -eq 'SSS3') {
+            # Длина parity обязана соответствовать числу чанков: доля может выглядеть целой,
+            # но быть непочинимой — говорим об этом сразу (зеркало bash).
+            $chunks = [int][Math]::Ceiling(($yh.Length / 2) / [double]$script:RS_CHUNK)
+            if ($par.Length -ne $chunks * $script:RS_PARITY * 2) {
+                Write-SsErr (T 'combine_bad_parity' $xstr); Stop-SsCommand 1
+            }
+            $body = "SSS3-$sid-$Tstr-$xstr-$yh-$par"
+        } else { $body = "SSS2-$sid-$Tstr-$xstr-$yh" }
         $want = (Get-SsSha256Hex ([System.Text.Encoding]::ASCII.GetBytes($body))).Substring(0, 4)
-        if ($chk -ne $want) { Write-SsErr (T 'combine_corrupt' $xstr); Stop-SsCommand 1 }
+        if ($chk -ne $want) {
+            # Сумма не сошлась. У SSS3 есть parity — чиним самую длинную часть доли, но только
+            # если после правки сходится chk4: RS не покрывает setid/T/x, а неверный x дал бы
+            # неверную реконструкцию (зеркало bash).
+            $repaired = $false
+            if ($fmt -eq 'SSS3') {
+                $r = Repair-SsRsHex $yh $par
+                if ($r.Ok -and $r.Fixed -gt 0) {
+                    $tryBody = "SSS3-$sid-$Tstr-$xstr-$($r.Hex)-$($r.Par)"
+                    $tryWant = (Get-SsSha256Hex ([System.Text.Encoding]::ASCII.GetBytes($tryBody))).Substring(0, 4)
+                    if ($chk -eq $tryWant) {
+                        $yh = $r.Hex; $par = $r.Par; $repaired = $true
+                        # Копим, а не печатаем: «починил» уместно только после того, как сошёлся
+                        # 128-битный tag нагрузки (зеркало bash).
+                        [void]$notices.Add((T 'combine_repaired' $xstr $r.Fixed))
+                    }
+                }
+            }
+            if (-not $repaired) {
+                if ($fmt -eq 'SSS3') { Write-SsErr (T 'combine_unrepairable' $xstr) }
+                else { Write-SsErr (T 'combine_corrupt' $xstr) }
+                Stop-SsCommand 1
+            }
+        }
         $x = [int]$xstr
         if ($x -lt 1 -or $x -gt 255) { Write-SsErr (T 'combine_bad_x' $xstr); Stop-SsCommand 1 }
         if ($null -eq $setidSeen) { $setidSeen = $sid }
@@ -410,6 +620,9 @@ function Get-SsRecoveredSecret {
     $tagHave = (ConvertTo-SsHex $payload).Substring(($PL * 2) - 32, 32)
     $tagWant = (Get-SsSha256Hex $core).Substring(0, 32)
     if ($tagHave -ne $tagWant) { Write-SsErr $failMsg; Stop-SsCommand 1 }
+
+    # Целостность подтверждена — только теперь сообщаем о починенных долях.
+    foreach ($n in $notices) { Write-SsWarn $n }
 
     $secret = New-Object byte[] $len
     [Array]::Copy($payload, 3, $secret, 0, $len)

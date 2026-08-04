@@ -15,7 +15,7 @@
 # Ядро split/combine над GF(256) реализовано (pack 2). См. README «Scope & limitations».
 set -euo pipefail
 
-VERSION="0.4.2"
+VERSION="0.5.0"
 
 # === BEGIN vendored common (pin: 2e3d2dd5b36251bdcb1a8ffd348b63ece5fa7aab) ===
 # shellcheck shell=bash
@@ -203,8 +203,14 @@ EOF
     ru:split_selfcheck_fail) printf 'split: внутренняя self-проверка НЕ ПРОШЛА — сгенерированные доли не собирают секрет. Ничего не напечатано; НЕ полагайся на частичный вывод. Перезапусти и сообщи об этом.' ;;
 
     # --- combine errors (taxonomy) ---
-    en:combine_not_sss2)    printf 'combine: line does not look like an SSS2 share: %s' "$1" ;;
-    ru:combine_not_sss2)    printf 'combine: строка не похожа на долю формата SSS2: %s' "$1" ;;
+    en:combine_not_sss2)    printf 'combine: line does not look like an SSS2/SSS3 share: %s' "$1" ;;
+    ru:combine_not_sss2)    printf 'combine: строка не похожа на долю формата SSS2/SSS3: %s' "$1" ;;
+    en:combine_bad_parity)  printf 'combine: share x=%s has a parity field of the wrong length — the share is readable but cannot be repaired. Re-copy it from the paper.' "$1" ;;
+    ru:combine_bad_parity)  printf 'combine: у доли x=%s поле parity неверной длины — доля читается, но чинить её нечем. Перепиши её с бумаги заново.' "$1" ;;
+    en:combine_repaired)    printf 'share x=%s: %s mistyped byte(s) corrected from the parity field.' "$1" "$2" ;;
+    ru:combine_repaired)    printf 'доля x=%s: по parity исправлено байт с опечаткой: %s.' "$1" "$2" ;;
+    en:combine_unrepairable) printf 'combine: share x=%s is damaged beyond what the parity field can fix (SSS3 corrects up to 2 mistyped bytes per share). Re-copy it from the paper.' "$1" ;;
+    ru:combine_unrepairable) printf 'combine: доля x=%s повреждена сильнее, чем чинит parity (SSS3 исправляет до 2 байт с опечаткой на долю). Перепиши её с бумаги заново.' "$1" ;;
     en:combine_corrupt)     printf 'combine: share corrupted (checksum mismatch): x=%s' "$1" ;;
     ru:combine_corrupt)     printf 'combine: доля повреждена (контрольная сумма не сошлась): x=%s' "$1" ;;
     en:combine_bad_x)       printf 'combine: invalid share index x=%s' "$1" ;;
@@ -287,6 +293,187 @@ _gf_init() {
     if (( x & 0x80 )); then tt=$(( tt ^ 0x1b )); fi
     x=$(( tt ^ x ))                          # x*3 = xtime(x) XOR x
   done
+}
+
+# === Reed-Solomon: коррекция опечаток в переписанной с бумаги доле (формат SSS3) ===
+# Зачем: доли живут на бумаге, а бумагу переписывают руками. До SSS3 один неверный символ
+# убивал долю целиком — chk4 честно говорил «испорчена», но починить её было нечем.
+# RS(k+4, k) над ТЕМ ЖЕ GF(256): 4 байта parity на чанк ≤251 байт полезной нагрузки,
+# исправляется до ДВУХ неверных байт в чанке (две опечатки в разных байтах; две опечатки
+# в одном байте — тоже одна ошибка). Опечатка в структурной части доли (setid/T/x) НЕ
+# корректируется — её ловит chk4; так и написано в README, без вида, что RS чинит всё.
+# Декодер — Питерсон для t<=2 + перебор корней: на четырёх синдромах он делает ровно то же,
+# что Берлекамп-Мэсси, втрое меньшим кодом. Любая неудача коррекции = честный отказ:
+# 128-битный tag полезной нагрузки остаётся последним рубежом против «молча не тот секрет».
+RS_PARITY=4          # байт parity на чанк
+RS_CHUNK=251         # максимум байт сообщения в чанке (251 + 4 <= 255)
+
+# Умножение в GF(256) без subshell: результат в RES (форк на каждый умножение съел бы всё).
+_gf_mul() {
+  if (( $1 == 0 || $2 == 0 )); then RES=0
+  else RES=${GF_EXP[$(( (GF_LOG[$1]+GF_LOG[$2]) % 255 ))]}; fi
+}
+# Обратный элемент: inv(a) = g^(255 - log a).
+_gf_inv() {
+  if (( $1 == 0 )); then RES=0
+  else RES=${GF_EXP[$(( (255 - GF_LOG[$1]) % 255 ))]}; fi
+}
+
+# Генераторный многочлен g(x) = (x+a^0)(x+a^1)(x+a^2)(x+a^3) в убывающем порядке, RS_G[0]=1.
+_rs_gen_init() {
+  local i j d
+  RS_G=(1)
+  for ((i=0; i<RS_PARITY; i++)); do
+    local ai=${GF_EXP[i]}
+    d=${#RS_G[@]}
+    local -a NG=()
+    for ((j=0; j<=d; j++)); do NG[j]=0; done
+    for ((j=0; j<d; j++)); do
+      NG[j]=$(( NG[j] ^ RS_G[j] ))                       # старший сдвиг: умножение на x
+      _gf_mul "${RS_G[j]}" "$ai"; NG[j+1]=$(( NG[j+1] ^ RES ))
+    done
+    RS_G=("${NG[@]}")
+  done
+}
+
+# Parity для сообщения в RS_MSG[] (байты, старший первым) → RS_PAR[] из RS_PARITY байт.
+# Обычное деление многочленов: остаток от msg*x^4 по модулю g. Массивы передаём глобалями,
+# а не nameref'ами: `local -n` требует bash 4.3, а на macOS системный bash — 3.2.
+_rs_encode() {
+  local k=${#RS_MSG[@]} i j
+  local -a W=()
+  for ((i=0; i<k; i++)); do W[i]=${RS_MSG[i]}; done
+  for ((i=0; i<RS_PARITY; i++)); do W[k+i]=0; done
+  for ((i=0; i<k; i++)); do
+    local coef=${W[i]}
+    (( coef == 0 )) && continue
+    for ((j=1; j<=RS_PARITY; j++)); do
+      _gf_mul "${RS_G[j]}" "$coef"; W[i+j]=$(( W[i+j] ^ RES ))
+    done
+  done
+  RS_PAR=()
+  for ((i=0; i<RS_PARITY; i++)); do RS_PAR[i]=${W[k+i]}; done
+}
+
+# Синдромы кодового слова RS_CW[] (сообщение + parity): S_i = CW(a^i), i=0..RS_PARITY-1.
+# Все нули → ошибок нет.
+_rs_syndromes() {
+  local n=${#RS_CW[@]} i p
+  RS_SYN=()
+  for ((i=0; i<RS_PARITY; i++)); do
+    local xi=${GF_EXP[i]} acc=0
+    for ((p=0; p<n; p++)); do
+      _gf_mul "$acc" "$xi"; acc=$(( RES ^ RS_CW[p] ))    # схема Горнера
+    done
+    RS_SYN[i]=$acc
+  done
+}
+
+# Исправить до двух байтовых ошибок в кодовом слове (правится на месте).
+# RS_FIXED = число исправленных байт. Код возврата: 0 — слово чистое или починено
+# и синдромы обнулились; 1 — не поддаётся (fail-closed, молча неверного слова не отдаём).
+_rs_correct() {
+  local n=${#RS_CW[@]} i p
+  _rs_syndromes
+  RS_FIXED=0
+  local s0=${RS_SYN[0]} s1=${RS_SYN[1]} s2=${RS_SYN[2]} s3=${RS_SYN[3]}
+  (( s0 == 0 && s1 == 0 && s2 == 0 && s3 == 0 )) && return 0
+
+  # --- одна ошибка: e = S0, X = S1/S0; проверяем по S2 и S3 ---
+  if (( s0 != 0 )); then
+    _gf_inv "$s0"; local inv0=$RES
+    _gf_mul "$s1" "$inv0"; local X=$RES
+    local e=$s0 ok=1 chk
+    _gf_mul "$e" "$X"; (( RES == s1 )) || ok=0
+    _gf_mul "$X" "$X"; chk=$RES; _gf_mul "$e" "$chk"; (( RES == s2 )) || ok=0
+    _gf_mul "$chk" "$X"; chk=$RES; _gf_mul "$e" "$chk"; (( RES == s3 )) || ok=0
+    if (( ok )); then
+      # X = a^(n-1-p) → позиция p = n-1-log(X)
+      (( X != 0 )) || return 1
+      p=$(( n - 1 - GF_LOG[X] ))
+      (( p >= 0 && p < n )) || return 1
+      RS_CW[p]=$(( RS_CW[p] ^ e ))
+      RS_FIXED=1
+      _rs_syndromes
+      (( RS_SYN[0] == 0 && RS_SYN[1] == 0 && RS_SYN[2] == 0 && RS_SYN[3] == 0 )) || return 1
+      return 0
+    fi
+  fi
+
+  # --- две ошибки (Питерсон): l1*S1 + l2*S0 = S2 ; l1*S2 + l2*S1 = S3 ---
+  local d a b
+  _gf_mul "$s1" "$s1"; d=$RES; _gf_mul "$s0" "$s2"; d=$(( d ^ RES ))
+  (( d != 0 )) || return 1
+  _gf_inv "$d"; local invd=$RES
+  _gf_mul "$s2" "$s1"; a=$RES; _gf_mul "$s0" "$s3"; a=$(( a ^ RES ))
+  _gf_mul "$a" "$invd"; local l1=$RES
+  _gf_mul "$s1" "$s3"; b=$RES; _gf_mul "$s2" "$s2"; b=$(( b ^ RES ))
+  _gf_mul "$b" "$invd"; local l2=$RES
+
+  # Корни L(z) = 1 + l1*z + l2*z^2, где z = X^-1. Перебираем позиции — n <= 255.
+  local -a POS=() XV=()
+  for ((p=0; p<n; p++)); do
+    local Xp=${GF_EXP[$(( (n - 1 - p) % 255 ))]} z v t2
+    _gf_inv "$Xp"; z=$RES
+    _gf_mul "$l1" "$z"; v=$(( 1 ^ RES ))
+    _gf_mul "$z" "$z"; t2=$RES; _gf_mul "$l2" "$t2"; v=$(( v ^ RES ))
+    if (( v == 0 )); then POS+=("$p"); XV+=("$Xp"); fi
+  done
+  (( ${#POS[@]} == 2 )) || return 1
+
+  # Величины: e1 + e2 = S0 ; e1*X1 + e2*X2 = S1.
+  local X1=${XV[0]} X2=${XV[1]} den e1 e2
+  den=$(( X1 ^ X2 )); (( den != 0 )) || return 1
+  _gf_inv "$den"; local invden=$RES
+  _gf_mul "$s0" "$X2"; e1=$(( s1 ^ RES )); _gf_mul "$e1" "$invden"; e1=$RES
+  e2=$(( s0 ^ e1 ))
+  (( e1 != 0 && e2 != 0 )) || return 1
+  local p0=${POS[0]} p1=${POS[1]}
+  RS_CW[p0]=$(( RS_CW[p0] ^ e1 ))
+  RS_CW[p1]=$(( RS_CW[p1] ^ e2 ))
+  RS_FIXED=2
+  _rs_syndromes
+  (( RS_SYN[0] == 0 && RS_SYN[1] == 0 && RS_SYN[2] == 0 && RS_SYN[3] == 0 )) || return 1
+  return 0
+}
+
+# hex полезной нагрузки → hex parity (чанками по RS_CHUNK байт; для реальных сидов чанк один).
+_rs_parity_hex() {
+  local hex="$1" total=$(( ${#1} / 2 )) off=0 out="" i hb
+  _gf_init; _rs_gen_init
+  while (( off < total )); do
+    local take=$(( total - off )); (( take > RS_CHUNK )) && take=$RS_CHUNK
+    RS_MSG=()
+    for ((i=0; i<take; i++)); do RS_MSG[i]=$(( 16#${hex:(off+i)*2:2} )); done
+    _rs_encode
+    for ((i=0; i<RS_PARITY; i++)); do printf -v hb '%02x' "${RS_PAR[i]}"; out+="$hb"; done
+    off=$(( off + take ))
+  done
+  printf '%s' "$out"
+}
+
+# hex нагрузки + hex parity → исправленные RS_OUT_HEX и RS_OUT_PAR_HEX, число правок в
+# RS_FIXED_TOTAL. Код возврата 1 — декодер не сошёлся.
+# ВАЖНО: parity возвращаем тоже — опечатка могла попасть в него, и тогда исправлять надо его,
+# а не тело (иначе chk4 сверялся бы со всё ещё испорченным par и починка не засчитывалась).
+_rs_repair_hex() {
+  local hex="$1" par="$2" total=$(( ${#1} / 2 )) off=0 ci=0 i hb
+  _gf_init; _rs_gen_init
+  RS_OUT_HEX=""; RS_OUT_PAR_HEX=""; RS_FIXED_TOTAL=0
+  local want_par=$(( ( (total + RS_CHUNK - 1) / RS_CHUNK ) * RS_PARITY ))
+  (( ${#par} == want_par * 2 )) || return 1
+  while (( off < total )); do
+    local take=$(( total - off )); (( take > RS_CHUNK )) && take=$RS_CHUNK
+    RS_CW=()
+    for ((i=0; i<take; i++)); do RS_CW[i]=$(( 16#${hex:(off+i)*2:2} )); done
+    for ((i=0; i<RS_PARITY; i++)); do RS_CW[take+i]=$(( 16#${par:(ci*RS_PARITY+i)*2:2} )); done
+    _rs_correct || return 1
+    RS_FIXED_TOTAL=$(( RS_FIXED_TOTAL + RS_FIXED ))
+    for ((i=0; i<take; i++)); do printf -v hb '%02x' "${RS_CW[i]}"; RS_OUT_HEX+="$hb"; done
+    for ((i=0; i<RS_PARITY; i++)); do printf -v hb '%02x' "${RS_CW[take+i]}"; RS_OUT_PAR_HEX+="$hb"; done
+    off=$(( off + take )); ci=$(( ci + 1 ))
+  done
+  return 0
 }
 
 # === passphrase-слой (opt-in) ===
@@ -422,11 +609,15 @@ cmd_split() {
     done
   done
 
-  # Доля: SSS2-<setid>-<T>-<x>-<hexY>-<chk4>. chk ловит опечатку в конкретной доле;
-  # setid — смешивание долей из разных сплитов. Формат SSS2 НЕсовместим со старым SSS1.
-  local -a SHARES=(); local chk body
+  # Доля: SSS3-<setid>-<T>-<x>-<hexY>-<par>-<chk4>.
+  #   par  — RS-parity над байтами hexY: чинит до 2 опечаток в самой длинной части доли;
+  #   chk4 — быстрая проверка «эта строка вообще целая» (включая setid/T/x, которые RS не кроет);
+  #   setid — детерминированный отказ при смешивании долей из разных сплитов.
+  # SSS2 (без parity) остаётся читаемым для combine — старые распечатки не превращаются в мусор.
+  local -a SHARES=(); local chk body par
   for ((x=1; x<=n; x++)); do
-    body="SSS2-${setid_hex}-${t}-${x}-${Y[x]}"
+    par="$(_rs_parity_hex "${Y[x]}")"
+    body="SSS3-${setid_hex}-${t}-${x}-${Y[x]}-${par}"
     chk="$(printf '%s' "$body" | _sha256_hex)"; chk="${chk:0:4}"
     SHARES+=("${body}-${chk}")
   done
@@ -452,18 +643,54 @@ cmd_split() {
 # (set-id) / расходящийся порог T / ниже порога / провал целостности payload.
 _recover_secret_hex() {
   local raw="$1"
+  RS_NOTICES=()
   _gf_init
   local -a XS=() YS=()
   local line ylen="" t_decl="" setid_seen="" cnt=0
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    if [[ ! "$line" =~ ^SSS2-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]{4})$ ]]; then
+    local sid T x yh chk par="" fmt
+    if [[ "$line" =~ ^SSS3-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]+)-([0-9a-f]{4})$ ]]; then
+      fmt=SSS3
+      sid="${BASH_REMATCH[1]}"; T="${BASH_REMATCH[2]}"; x="${BASH_REMATCH[3]}"
+      yh="${BASH_REMATCH[4]}"; par="${BASH_REMATCH[5]}"; chk="${BASH_REMATCH[6]}"
+    elif [[ "$line" =~ ^SSS2-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]{4})$ ]]; then
+      fmt=SSS2
+      sid="${BASH_REMATCH[1]}"; T="${BASH_REMATCH[2]}"; x="${BASH_REMATCH[3]}"
+      yh="${BASH_REMATCH[4]}"; chk="${BASH_REMATCH[5]}"
+    else
       err "$(t combine_not_sss2 "$line")"; return 1
     fi
-    local sid="${BASH_REMATCH[1]}" T="${BASH_REMATCH[2]}" x="${BASH_REMATCH[3]}" yh="${BASH_REMATCH[4]}" chk="${BASH_REMATCH[5]}"
-    local body="SSS2-${sid}-${T}-${x}-${yh}" want
+    local body want
+    if [[ "$fmt" == SSS3 ]]; then
+      # Длина parity обязана соответствовать числу чанков: иначе доля выглядит целой,
+      # но чинить её нечем — а узнать об этом хочется сразу, а не в момент опечатки.
+      local chunks=$(( ( (${#yh} / 2) + RS_CHUNK - 1 ) / RS_CHUNK ))
+      (( ${#par} == chunks * RS_PARITY * 2 )) || { err "$(t combine_bad_parity "$x")"; return 1; }
+      body="SSS3-${sid}-${T}-${x}-${yh}-${par}"
+    else body="SSS2-${sid}-${T}-${x}-${yh}"; fi
     want="$(printf '%s' "$body" | _sha256_hex)"; want="${want:0:4}"
-    [[ "$chk" == "$want" ]] || { err "$(t combine_corrupt "$x")"; return 1; }
+    if [[ "$chk" != "$want" ]]; then
+      # Сумма не сошлась. У SSS3 есть parity — пробуем починить самую длинную (и самую
+      # вероятную для опечатки) часть доли. Чиним ТОЛЬКО если после правки сходится chk4:
+      # RS не покрывает setid/T/x, а неверный x дал бы неверную реконструкцию.
+      local repaired=0
+      if [[ "$fmt" == SSS3 ]] && _rs_repair_hex "$yh" "$par" && (( RS_FIXED_TOTAL > 0 )); then
+        local try_body="SSS3-${sid}-${T}-${x}-${RS_OUT_HEX}-${RS_OUT_PAR_HEX}" try_want
+        try_want="$(printf '%s' "$try_body" | _sha256_hex)"; try_want="${try_want:0:4}"
+        if [[ "$chk" == "$try_want" ]]; then
+          yh="$RS_OUT_HEX"; par="$RS_OUT_PAR_HEX"; repaired=1
+          # Сообщение копим, а не печатаем сразу: «починил» имеет смысл говорить только после
+          # того, как сошёлся 128-битный tag нагрузки. Иначе пользователь читал бы «починено»
+          # у набора, который следом честно отвергнут.
+          RS_NOTICES+=("$(t combine_repaired "$x" "$RS_FIXED_TOTAL")")
+        fi
+      fi
+      if (( ! repaired )); then
+        if [[ "$fmt" == SSS3 ]]; then err "$(t combine_unrepairable "$x")"; else err "$(t combine_corrupt "$x")"; fi
+        return 1
+      fi
+    fi
     (( x >= 1 && x <= 255 )) || { err "$(t combine_bad_x "$x")"; return 1; }
     # set-id: все доли набора обязаны совпадать (детерминированный отказ при смешивании сплитов).
     if [[ -z "$setid_seen" ]]; then setid_seen="$sid"
@@ -524,6 +751,10 @@ _recover_secret_hex() {
   local core_hex="${payload_hex:0:$(( (len+3)*2 ))}" tag_have="${payload_hex: -32}" tag_want
   tag_want="$(_from_hex "$core_hex" | _sha256_hex)"; tag_want="${tag_want:0:32}"
   [[ "$tag_have" == "$tag_want" ]] || { err "$fail"; return 1; }
+
+  # Целостность подтверждена — только теперь честно сообщаем о починенных долях.
+  local note
+  for note in "${RS_NOTICES[@]:-}"; do [[ -n "$note" ]] && warn "$note"; done
 
   printf '%s' "${payload_hex:6:$(( len*2 ))}"
 }

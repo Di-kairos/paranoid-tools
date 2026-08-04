@@ -1,4 +1,4 @@
-# Тесты ядра Shamir над GF(256): split/combine/verify, формат SSS2.
+# Тесты ядра Shamir над GF(256): split/combine/verify, формат SSS3 (+ совместимость с SSS2).
 # Спека корректности: round-trip всех подмножеств порога; отказ при <T долей;
 # таксономия отказов (порча CRC / разные сплиты set-id / расходящийся T / целостность
 # 16-байтного tag); бинарные секреты; границы N/T; KAT-векторы (GF + замороженный набор).
@@ -18,12 +18,12 @@ _split() { # $1=secret $2=N $3=T
 @test "split outputs exactly N share lines" {
   run _split "topsecret" 5 3
   [ "$status" -eq 0 ]
-  [ "$(printf '%s\n' "$output" | grep -c '^SSS2-')" -eq 5 ]
+  [ "$(printf '%s\n' "$output" | grep -c '^SSS3-')" -eq 5 ]
 }
 
-@test "share lines carry the SSS2 wire format" {
+@test "share lines carry the SSS3 wire format" {
   run _split "topsecret" 3 2
-  [[ "$output" == SSS2-* ]]
+  [[ "$output" == SSS3-* ]]
 }
 
 @test "round-trip 2-of-3: every pair reconstructs the secret" {
@@ -54,7 +54,7 @@ _split() { # $1=secret $2=N $3=T
 @test "default params (no -n/-t) round-trip" {
   secret="default-params-secret"
   shares="$(printf '%s' "$secret" | bash "$SCRIPT" split)"
-  n="$(printf '%s\n' "$shares" | grep -c '^SSS2-')"
+  n="$(printf '%s\n' "$shares" | grep -c '^SSS3-')"
   [ "$n" -ge 2 ]
   out="$(printf '%s\n' "$shares" | bash "$SCRIPT" combine)"
   [ "$out" = "$secret" ]
@@ -75,14 +75,17 @@ _split() { # $1=secret $2=N $3=T
   shares="$(_split "$secret" 3 2)"
   first="$(printf '%s\n' "$shares" | sed -n '1p')"
   second="$(printf '%s\n' "$shares" | sed -n '2p')"
-  # Поля SSS2: SSS2-setid-T-x-Y-chk. Флипаем первый hex Y, chk оставляем старый → per-share CRC падает.
+  # Поля SSS3: SSS3-setid-T-x-Y-par-chk. Портим сразу много байт Y — больше, чем чинит parity,
+  # поэтому доля обязана быть отвергнута, а не «починена».
   sid="$(cut -d- -f2 <<<"$first")"; T="$(cut -d- -f3 <<<"$first")"
-  x="$(cut -d- -f4 <<<"$first")"; Y="$(cut -d- -f5 <<<"$first")"; chk="$(cut -d- -f6 <<<"$first")"
-  c="${Y:0:1}"; if [ "$c" = "0" ]; then nc="1"; else nc="0"; fi
-  corrupt="SSS2-${sid}-${T}-${x}-${nc}${Y:1}-${chk}"
+  x="$(cut -d- -f4 <<<"$first")"; Y="$(cut -d- -f5 <<<"$first")"
+  par="$(cut -d- -f6 <<<"$first")"; chk="$(cut -d- -f7 <<<"$first")"
+  # Восемь испорченных hex-пар — вчетверо больше, чем чинит parity.
+  badY="ffffffffffffffff${Y:16}"
+  corrupt="SSS3-${sid}-${T}-${x}-${badY}-${par}-${chk}"
   run bash -c "printf '%s\n%s\n' '$corrupt' '$second' | bash '$SCRIPT' combine"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"corrupted"* ]]
+  [[ "$output" == *"damaged"* ]] || [[ "$output" == *"повреждена"* ]]
   [[ "$output" != *"$secret"* ]]
 }
 
@@ -223,4 +226,195 @@ _split() { # $1=secret $2=N $3=T
   [ "$(printf '%s\n%s\n' "$s1" "$s2" | bash "$SCRIPT" combine)" = "KAT-seedsplit-v030" ]
   [ "$(printf '%s\n%s\n' "$s1" "$s3" | bash "$SCRIPT" combine)" = "KAT-seedsplit-v030" ]
   [ "$(printf '%s\n%s\n' "$s2" "$s3" | bash "$SCRIPT" combine)" = "KAT-seedsplit-v030" ]
+}
+
+# --- SSS3: RS-коррекция опечаток в переписанной с бумаги доле ---
+
+# Собрать долю старого формата SSS2 из свежей SSS3 (снять parity, пересчитать chk4) —
+# ровно то, что печатали релизы до 0.5.0. Так проверяется обратная совместимость combine.
+_sss3_to_sss2() {
+  local line="$1" sid T x yh
+  [[ "$line" =~ ^SSS3-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]+)-([0-9a-f]{4})$ ]] || return 1
+  sid="${BASH_REMATCH[1]}"; T="${BASH_REMATCH[2]}"; x="${BASH_REMATCH[3]}"; yh="${BASH_REMATCH[4]}"
+  local body="SSS2-${sid}-${T}-${x}-${yh}" chk
+  chk="$(printf '%s' "$body" | shasum -a 256 | cut -d' ' -f1)"
+  printf '%s-%s' "$body" "${chk:0:4}"
+}
+
+# Испортить один hex-символ строки в позиции $2 (гарантированно на другой).
+_typo_at() {
+  local line="$1" pos="$2" ch alt
+  ch="${line:pos:1}"
+  if [[ "$ch" == "a" ]]; then alt=b; else alt=a; fi
+  printf '%s%s%s' "${line:0:pos}" "$alt" "${line:pos+1}"
+}
+
+@test "split emits the SSS3 format with a parity field" {
+  run bash -c "printf 'legal winner thank year wave' | bash '$SCRIPT' split -n 3 -t 2"
+  [ "$status" -eq 0 ]
+  [[ "${lines[0]}" =~ ^SSS3-[0-9a-f]{8}-2-1-[0-9a-f]+-[0-9a-f]{8}-[0-9a-f]{4}$ ]]
+  [ "${#lines[@]}" -eq 3 ]
+}
+
+@test "one mistyped character in a share is corrected, secret comes back intact" {
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
+  bad="$(_typo_at "$s1" 30)"
+  run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -eq 0 ]
+  [ "$output" != "" ]
+  [[ "$output" == *"$secret"* ]]
+  [[ "$output" == *"corrected"* ]] || [[ "$output" == *"исправлено"* ]]   # починку не скрываем
+}
+
+@test "two mistyped characters in different bytes are still corrected" {
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
+  bad="$(_typo_at "$(_typo_at "$s1" 30)" 44)"
+  run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$secret"* ]]
+}
+
+@test "beyond two damaged bytes combine refuses — it never guesses a secret" {
+  # Самое важное свойство: код чинит или отказывает, но НЕ отдаёт молча другой секрет.
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
+  bad="$s1"
+  for pos in 30 44 50 56 62; do bad="$(_typo_at "$bad" "$pos")"; done
+  run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"$secret"* ]]
+}
+
+@test "old SSS2 shares (pre-0.5.0 printouts) still combine" {
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  o1="$(_sss3_to_sss2 "$(printf '%s\n' "$shares" | sed -n 1p)")"
+  o2="$(_sss3_to_sss2 "$(printf '%s\n' "$shares" | sed -n 2p)")"
+  run bash -c "printf '%s\n%s\n' '$o1' '$o2' | bash '$SCRIPT' combine"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$secret" ]
+}
+
+@test "a damaged SSS2 share still fails closed (no parity to repair with)" {
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  o1="$(_sss3_to_sss2 "$(printf '%s\n' "$shares" | sed -n 1p)")"
+  o2="$(_sss3_to_sss2 "$(printf '%s\n' "$shares" | sed -n 2p)")"
+  bad="$(_typo_at "$o1" 30)"
+  run bash -c "printf '%s\n%s\n' '$bad' '$o2' | bash '$SCRIPT' combine"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"$secret"* ]]
+}
+
+@test "parity is deterministic — known-answer for a fixed payload (bash↔ps1 parity anchor)" {
+  # Тот же вектор проверяется в Pester: доли, нарезанные на macOS, обязаны собираться
+  # на Windows и наоборот, значит и parity обязана считаться байт-в-байт одинаково.
+  run bash -c "source '$SCRIPT'; _rs_parity_hex '55000c6c6567616c2077696e6e6572deadbeefcafe00112233445566778899aa'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "36e2117b" ]
+}
+
+@test "verify accepts a share it had to repair" {
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
+  bad="$(_typo_at "$s1" 30)"
+  run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' verify"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"$secret"* ]]   # verify не печатает секрет
+}
+
+# KAT формата SSS3: набор заморожен (нарезан bash-версией 0.5.0). Тот же вектор проверяется
+# в Pester — так гарантируется, что доли, нарезанные на macOS, соберутся на Windows и наоборот.
+@test "KAT: frozen SSS3 share-set reconstructs the known secret" {
+  s1="SSS3-de3006a6-2-1-8078e43fb71f926eabbe001af8802beabe7bbc4b9e6cd7b48d92f566d4214fc5e1e7a3683487e4640e35077b-a6effc9d-ebc2"
+  s2="SSS3-de3006a6-2-2-e4f0f8eed6a89c6efcdcac5477aae77bf296de35bbb820dca4a95e50d93393c16b24ad6868acc44668047d71-4118ad84-4213"
+  run bash -c "printf '%s\n%s\n' '$s1' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -eq 0 ]
+  [ "$output" = "paranoid tools kat secret" ]
+}
+
+@test "KAT: a typo in the frozen SSS3 set is repaired to the same secret" {
+  s1="SSS3-de3006a6-2-1-8078e43fb71f926eabbe001af8802beabe7bbc4b9e6cd7b48d92f566d4214fc5e1e7a3683487e4640e35077b-a6effc9d-ebc2"
+  s2="SSS3-de3006a6-2-2-e4f0f8eed6a89c6efcdcac5477aae77bf296de35bbb820dca4a95e50d93393c16b24ad6868acc44668047d71-4118ad84-4213"
+  bad="$(_typo_at "$s1" 25)"
+  run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"paranoid tools kat secret"* ]]
+}
+
+@test "multi-chunk payload: parity covers every chunk and repairs the second one" {
+  # Полезная нагрузка >251 байта → parity из двух блоков. Проверяем и round-trip, и то,
+  # что чинится опечатка ВО ВТОРОМ чанке (первый чанк при этом чистый).
+  secret="$(head -c 300 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 600)"
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
+  IFS=- read -r pfx sid T x yh par chk <<<"$s1"
+  # 619 байт нагрузки → 3 чанка по 251 → 12 байт parity = 24 hex-символа.
+  [ "${#par}" -eq 24 ]
+  out="$(printf '%s\n%s\n' "$s1" "$s2" | bash "$SCRIPT" combine)"
+  [ "$out" = "$secret" ]
+  head_len=$(( ${#pfx} + 1 + ${#sid} + 1 + ${#T} + 1 + ${#x} + 1 ))
+  bad="$(_typo_at "$s1" $(( head_len + 520 )))"
+  run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$secret"* ]]
+}
+
+@test "a typo landing on a field separator is refused, not silently mangled" {
+  # RS кроет тело доли, но не структуру строки: съеденный/подменённый дефис = нечитаемая доля.
+  # Так и задокументировано; проверяем, что мы это честно говорим, а не гадаем.
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
+  IFS=- read -r pfx sid T x yh par chk <<<"$s1"
+  sep=$(( ${#pfx} + 1 + ${#sid} + 1 + ${#T} + 1 + ${#x} + 1 + ${#yh} ))   # дефис перед parity
+  bad="${s1:0:sep}a${s1:sep+1}"
+  run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"$secret"* ]]
+}
+
+@test "a typo inside the parity field is repaired too (Codex review)" {
+  # Раньше combine чинил тело, но сверял chk4 со всё ещё испорченным parity — и починка
+  # не засчитывалась. Теперь исправленный parity возвращается вместе с телом.
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
+  IFS=- read -r pfx sid T x yh par chk <<<"$s1"
+  ppos=$(( ${#pfx} + 1 + ${#sid} + 1 + ${#T} + 1 + ${#x} + 1 + ${#yh} + 1 + 2 ))
+  bad="$(_typo_at "$s1" "$ppos")"
+  run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$secret"* ]]
+}
+
+@test "a parity field of the wrong length is called out, not silently accepted" {
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
+  IFS=- read -r pfx sid T x yh par chk <<<"$s1"
+  body="SSS3-${sid}-${T}-${x}-${yh}-${par:0:4}"
+  newchk="$(printf '%s' "$body" | shasum -a 256 | cut -d' ' -f1)"
+  run bash -c "printf '%s-%s\n%s\n' '$body' '${newchk:0:4}' '$s2' | bash '$SCRIPT' combine"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"$secret"* ]]
+}
+
+@test "the repair notice is printed only after the payload tag verifies" {
+  # «Починил» имеет смысл говорить лишь когда набор реально собрался: иначе пользователь
+  # читал бы «исправлено» у долей, которые следом честно отвергнуты.
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
+  s1="$(printf '%s\n' "$shares" | sed -n 1p)"
+  other="$(printf 'unrelated secret' | bash "$SCRIPT" split -n 3 -t 2 | sed -n 2p)"
+  bad="$(_typo_at "$s1" 30)"
+  run bash -c "printf '%s\n%s\n' '$bad' '$other' | bash '$SCRIPT' combine"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"corrected"* ]] && [[ "$output" != *"исправлено"* ]]
 }

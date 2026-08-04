@@ -130,14 +130,14 @@ Describe 'failure taxonomy (no secret leak)' {
         $sh = Split-ToShares (Utf8 'needs-three') 5 3
         { Get-SsRecoveredSecret (($sh[0], $sh[1]) -join "`n") } | Should -Throw
     }
-    It 'corrupted share (Y flipped, stale chk) is rejected' {
+    It 'corrupted share (Y damaged past what parity fixes, stale chk) is rejected' {
+        # Раньше тест собирал SSS2-строку из полей SSS3 и ловил лишь отказ парсера.
+        # Теперь портим тело по-настоящему — восемь байт, вчетверо больше, чем чинит parity.
         $sh = Split-ToShares (Utf8 'integrity-matters') 3 2
-        $p = $sh[0] -split '-'   # SSS2 setid T x Y chk
+        $p = $sh[0] -split '-'   # SSS3 setid T x Y par chk
         $y = $p[4]
-        $first = $y.Substring(0, 1)
-        $nc = if ($first -eq '0') { '1' } else { '0' }
-        $corrupt = "SSS2-$($p[1])-$($p[2])-$($p[3])-$nc$($y.Substring(1))-$($p[5])"
-        { Get-SsRecoveredSecret ($corrupt + "`n" + $sh[1]) } | Should -Throw
+        $corrupt = "SSS3-$($p[1])-$($p[2])-$($p[3])-$('ff' * 8)$($y.Substring(16))-$($p[5])-$($p[6])"
+        { Get-SsRecoveredSecret ($corrupt + "`n" + $sh[1]) 6>$null } | Should -Throw
     }
     It 'shares from different splits are rejected (set-id)' {
         $a = Split-ToShares (Utf8 'secret-A') 3 2
@@ -206,5 +206,106 @@ Describe 'CLI dispatch (fresh pwsh)' {
             $got = & pwsh -NoProfile -File $script:ScriptPath combine $f
             $got | Should -Be $secret
         } finally { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# --- SSS3: RS-коррекция опечаток (Pack C). Зеркало bats-тестов bash-версии. ---
+Describe 'SSS3 — parity и коррекция опечаток' {
+
+    It 'parity совпадает с bash байт-в-байт (KAT-вектор)' {
+        # Тот же вектор в test/shamir.bats: расхождение здесь = доли, нарезанные на одной
+        # платформе, не соберутся на другой.
+        Get-SsRsParityHex '55000c6c6567616c2077696e6e6572deadbeefcafe00112233445566778899aa' |
+            Should -Be '36e2117b'
+    }
+
+    It 'split печатает формат SSS3 с полем parity' {
+        $sh = Split-ToShares (Utf8 'legal winner thank year wave') 3 2
+        $sh.Count | Should -Be 3
+        $sh[0] | Should -Match '^SSS3-[0-9a-f]{8}-2-1-[0-9a-f]+-[0-9a-f]{8}-[0-9a-f]{4}$'
+    }
+
+    It 'одна опечатка чинится, секрет возвращается целым' {
+        $secret = 'legal winner thank year wave'
+        $sh = Split-ToShares (Utf8 $secret) 3 2
+        $ch = $sh[0][30]; $alt = if ($ch -eq 'a') { 'b' } else { 'a' }
+        $bad = $sh[0].Substring(0, 30) + $alt + $sh[0].Substring(31)
+        FromUtf8 (Get-SsRecoveredSecret ($bad + "`n" + $sh[1]) 6>$null) | Should -Be $secret
+    }
+
+    It 'две опечатки в разных байтах тоже чинятся' {
+        $secret = 'legal winner thank year wave'
+        $sh = Split-ToShares (Utf8 $secret) 3 2
+        $bad = $sh[0]
+        foreach ($pos in 30, 44) {
+            $ch = $bad[$pos]; $alt = if ($ch -eq 'a') { 'b' } else { 'a' }
+            $bad = $bad.Substring(0, $pos) + $alt + $bad.Substring($pos + 1)
+        }
+        FromUtf8 (Get-SsRecoveredSecret ($bad + "`n" + $sh[1]) 6>$null) | Should -Be $secret
+    }
+
+    It 'сверх двух повреждённых байт combine отказывает, а не выдумывает секрет' {
+        $secret = 'legal winner thank year wave'
+        $sh = Split-ToShares (Utf8 $secret) 3 2
+        $bad = $sh[0]
+        foreach ($pos in 30, 36, 44, 50, 56) {
+            $ch = $bad[$pos]; $alt = if ($ch -eq 'a') { 'b' } else { 'a' }
+            $bad = $bad.Substring(0, $pos) + $alt + $bad.Substring($pos + 1)
+        }
+        { Get-SsRecoveredSecret ($bad + "`n" + $sh[1]) 6>$null } | Should -Throw
+    }
+
+    It 'KAT: замороженный SSS3-набор из bash собирается здесь' {
+        $s1 = 'SSS3-de3006a6-2-1-8078e43fb71f926eabbe001af8802beabe7bbc4b9e6cd7b48d92f566d4214fc5e1e7a3683487e4640e35077b-a6effc9d-ebc2'
+        $s2 = 'SSS3-de3006a6-2-2-e4f0f8eed6a89c6efcdcac5477aae77bf296de35bbb820dca4a95e50d93393c16b24ad6868acc44668047d71-4118ad84-4213'
+        FromUtf8 (Get-SsRecoveredSecret ($s1 + "`n" + $s2)) | Should -Be 'paranoid tools kat secret'
+    }
+
+    It 'KAT: опечатка в замороженном наборе чинится до того же секрета' {
+        $s1 = 'SSS3-de3006a6-2-1-8078e43fb71f926eabbe001af8802beabe7bbc4b9e6cd7b48d92f566d4214fc5e1e7a3683487e4640e35077b-a6effc9d-ebc2'
+        $s2 = 'SSS3-de3006a6-2-2-e4f0f8eed6a89c6efcdcac5477aae77bf296de35bbb820dca4a95e50d93393c16b24ad6868acc44668047d71-4118ad84-4213'
+        $alt = if ($s1[25] -eq 'a') { 'b' } else { 'a' }
+        $bad = $s1.Substring(0, 25) + $alt + $s1.Substring(26)
+        FromUtf8 (Get-SsRecoveredSecret ($bad + "`n" + $s2) 6>$null) | Should -Be 'paranoid tools kat secret'
+    }
+
+    It 'старые SSS2-доли (распечатки до 0.5.0) по-прежнему собираются' {
+        $s1 = 'SSS2-c8854057-2-1-7f68df20a655723629706e8be2e0741a33c4df7ac2ca982951c438ff3f707f6c15ce9b9c50-f201'
+        $s2 = 'SSS2-c8854057-2-2-01d0939d945693f9fd4f70984f6f53a81109f5a1cfa0b44e7dbc279aa76b64da2932a07193-49a0'
+        (Get-SsRecoveredSecret ($s1 + "`n" + $s2)).Length | Should -BeGreaterThan 0
+    }
+    It 'опечатка ВНУТРИ поля parity тоже чинится (находка Codex)' {
+        $secret = 'legal winner thank year wave'
+        $sh = Split-ToShares (Utf8 $secret) 3 2
+        $p = $sh[0] -split '-'
+        $par = $p[5]
+        $alt = if ($par[2] -eq 'a') { 'b' } else { 'a' }
+        $badPar = $par.Substring(0, 2) + $alt + $par.Substring(3)
+        $bad = "SSS3-$($p[1])-$($p[2])-$($p[3])-$($p[4])-$badPar-$($p[6])"
+        FromUtf8 (Get-SsRecoveredSecret ($bad + "`n" + $sh[1]) 6>$null) | Should -Be $secret
+    }
+
+    It 'многочанковая нагрузка: parity на каждый чанк, чинится ошибка во втором' {
+        # >251 байта нагрузки → parity из нескольких блоков (зеркало bats-теста bash).
+        $secret = ('x' * 600)
+        $sh = Split-ToShares (Utf8 $secret) 3 2
+        $p = $sh[0] -split '-'
+        $p[5].Length | Should -Be 24          # 619 байт → 3 чанка × 4 байта parity
+        FromUtf8 (Get-SsRecoveredSecret (($sh[0], $sh[1]) -join "`n")) | Should -Be $secret
+        $y = $p[4]
+        $alt = if ($y[520] -eq 'a') { 'b' } else { 'a' }
+        $badY = $y.Substring(0, 520) + $alt + $y.Substring(521)
+        $bad = "SSS3-$($p[1])-$($p[2])-$($p[3])-$badY-$($p[5])-$($p[6])"
+        FromUtf8 (Get-SsRecoveredSecret ($bad + "`n" + $sh[1]) 6>$null) | Should -Be $secret
+    }
+
+    It 'parity неверной длины: доля читается, но честно помечается непочинимой' {
+        $secret = 'legal winner thank year wave'
+        $sh = Split-ToShares (Utf8 $secret) 3 2
+        $p = $sh[0] -split '-'
+        $shortPar = $p[5].Substring(0, 4)
+        $body = "SSS3-$($p[1])-$($p[2])-$($p[3])-$($p[4])-$shortPar"
+        $chk = (Get-SsSha256Hex ([System.Text.Encoding]::ASCII.GetBytes($body))).Substring(0, 4)
+        { Get-SsRecoveredSecret (("$body-$chk") + "`n" + $sh[1]) 6>$null } | Should -Throw
     }
 }
