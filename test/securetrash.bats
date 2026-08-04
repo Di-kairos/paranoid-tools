@@ -265,6 +265,17 @@ setup() {
   rm -rf "$tmp"
 }
 
+@test "a half-created vault is cleaned up when hdiutil create fails (P3 trap hygiene)" {
+  # Обрыв create оставлял каталог .sparsebundle, который не открывается: следующий create
+  # отвечал «сейф уже есть», а destroy предлагал «уничтожить всё» — при пустом контейнере.
+  tmp="$(mktemp -d)"
+  run env HOME="$tmp" ST_MOCK_CREATE_PARTIAL=1 ST_ASSUME_YES=1 ST_VAULT_PASS=test1234 \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" bash "$SCRIPT" vault create 1g
+  [ "$status" -ne 0 ]
+  [ ! -e "$tmp/SecureVault.sparsebundle" ]
+  rm -rf "$tmp"
+}
+
 @test "vault create with an invalid size refuses before touching hdiutil" {
   tmp="$(mktemp -d)"
   run env HOME="$tmp" ST_VAULT_PASS=test1234 \

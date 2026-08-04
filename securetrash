@@ -687,7 +687,12 @@ _vault_create_try() {
 # reset вызывает после того, как старый контейнер отставлен в сторону).
 _vault_create_now() {
   local size="${1:-1g}"
+  # Путь до вызова свободен (create это проверил, reset отставил старый в .old). Значит всё,
+  # что появится по нему при провале hdiutil, — наш недоделанный контейнер: он не открывается,
+  # но занимает место сейфа, и следующий create откажется «сейф уже есть». Убираем только его.
+  local existed=0; [[ -e "$VAULT_PATH" ]] && existed=1
   if ! _vault_create_try "$size"; then
+    if (( ! existed )) && [[ -e "$VAULT_PATH" ]]; then rm -rf "${VAULT_PATH:?}"; fi
     err "$(t vault_create_fail "$VAULT_PATH")"
     exit 1
   fi
