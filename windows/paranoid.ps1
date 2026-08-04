@@ -68,8 +68,8 @@ function T {
         'ru:update_how'   { return 'обновить: перезапусти install.ps1 или brew upgrade' }
         'en:m_status'     { return 'Status — full read-only check' }
         'ru:m_status'     { return 'Статус — полная проверка (только чтение)' }
-        'en:m_panic'      { return 'PANIC NOW — hide & lock everything (instant, no confirm)' }
-        'ru:m_panic'      { return 'ПАНИКА — спрятать и запереть всё (мгновенно, без подтверждения)' }
+        'en:m_panic'      { return 'PANIC NOW — hide & lock everything, hard mode (instant, no confirm)' }
+        'ru:m_panic'      { return 'ПАНИКА — спрятать и запереть всё, жёсткий режим (мгновенно, без подтверждения)' }
         'en:m_vault'      { return 'Vault — create / open / close' }
         'ru:m_vault'      { return 'Сейф — создать / открыть / закрыть' }
         'en:m_destroy'    { return 'Destroy the vault (irreversible)' }
@@ -115,8 +115,8 @@ function T {
         'en:empty_na'    { return 'no vault' }        'ru:empty_na'    { return 'нет сейфа' }
         'en:empty_none'  { return 'No vault to empty — create one first.' }
         'ru:empty_none'  { return 'Очищать нечего — сначала создай сейф.' }
-        'en:empty_hint'  { return 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' }
-        'ru:empty_hint'  { return 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' }
+        'en:empty_hint'  { return 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place). It runs "securetrash vault reset", NOT "securetrash empty" (that one only clears the ~/SecureTrash drop folder). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' }
+        'ru:empty_hint'  { return 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте). Запускается «securetrash vault reset», а НЕ «securetrash empty» (та команда лишь чистит папку-приёмник ~/SecureTrash). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' }
         # --- выбор размера (Windows: МБ для diskpart; cap, не резерв) ---
         'en:size_prompt' { return 'Vault size cap in MB (e.g. 1024 = 1 GB; empty = default 1024 MB). A ceiling, not reserved space — the VHDX grows as you add files:' }
         'ru:size_prompt' { return 'Потолок размера сейфа в МБ (напр. 1024 = 1 ГБ; пусто = по умолчанию 1024 МБ). Это лимит, не резерв — VHDX растёт по мере добавления файлов:' }
@@ -139,8 +139,6 @@ function T {
         'en:ghost_clip_hint' { return 'On exit the draft is copied to the clipboard (after a confirmation). Windows has NO auto-clear — Win+V history and Cloud Clipboard keep it — so clear it yourself.' }
         'ru:ghost_clip_hint' { return 'По выходу черновик копируется в буфер (после подтверждения). На Windows авто-очистки НЕТ — история Win+V и Cloud Clipboard его хранят — чисти сам.' }
         # Подсказки ввода (паритет с bash). На Windows конец ввода — Ctrl-Z затем Enter (НЕ Ctrl-D).
-        'en:split_prompt'    { return 'Paste the secret, then press Ctrl-Z and Enter:' }
-        'ru:split_prompt'    { return 'Вставь секрет, затем нажми Ctrl-Z и Enter:' }
         'en:combine_prompt'  { return 'Paste the shares — one per line — then press Ctrl-Z and Enter:' }
         'ru:combine_prompt'  { return 'Вставь доли — по одной на строку — затем нажми Ctrl-Z и Enter:' }
         'en:ghost_pipe_hint' { return 'Paste text, then Ctrl-Z and Enter — nothing is written to disk:' }
@@ -518,7 +516,7 @@ function Invoke-PnActEmpty {
 }
 # seedsplit split/combine молча читают stdin — без подсказки новичок видит пустой курсор
 # и не знает, что вставлять и чем завершить ввод (паритет с bash).
-function Invoke-PnActSplit   { Write-Output "  $(T 'split_prompt')";   Invoke-PnTool 'seedsplit' @('split');   Invoke-PnPause }
+function Invoke-PnActSplit   { Invoke-PnTool 'seedsplit' @('split');   Invoke-PnPause }
 function Invoke-PnActCombine { Write-Output "  $(T 'combine_prompt')"; Invoke-PnTool 'seedsplit' @('combine'); Invoke-PnPause }
 # Ghost-действия (из notepad-подменю). new --clipboard: ghostdraft сам показывает DANGER +
 # confirm; на Windows авто-очистки буфера НЕТ — лаунчер дублирует caveat честной подписью.

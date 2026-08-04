@@ -87,6 +87,7 @@ away. Each submenu has its own `0) Back`.
 ```
 1) Open / Close / Create  — label follows the current state
 2) Empty                  — crypto-shred everything, keep a fresh empty vault
+                            (this is `vault reset` — NOT `securetrash empty`, see below)
 3) Destroy                — remove the vault and its contents (irreversible)
 4) Watch                  — guard / stop the open vault (vaultwatch)
 0) Back
@@ -165,18 +166,36 @@ vaultwatch start --ttl 30m /Volumes/SecretVault
 **5. Set up the panic button — before you need it.**
 
 ```bash
-panic status     # what would happen right now
-panic now        # the real thing: detach volumes, clear the clipboard, lock the screen
+panic status                 # what would happen right now
+panic now                    # the real thing: detach volumes, clear the clipboard, lock the screen
+panic hotkey install         # global hotkey (cmd+alt-p) → panic now, from any app
 ```
 
-Or run the GUI (Paranoid Bar) and set the global hotkey: double-press ⌃⌥⇧P closes the
-vault and locks the screen no matter what app is in front.
+`panic hotkey install` needs skhd (`brew install skhd`) — a tiny hotkey daemon; `panic
+hotkey status` tells you where things stand and `panic hotkey uninstall` removes only the
+block panic itself manages.
+
+**Three ways to trigger it, and they are not the same thing:**
+
+| Trigger | What runs | Extra effect |
+|---|---|---|
+| `panic now`, or the `cmd+alt-p` hotkey | `panic now` | detach volumes, clear the clipboard, lock the screen |
+| Launcher menu item `2) PANIC NOW` | `panic now --hard` | the above **plus** killing cloud-sync daemons and clearing Recents |
+| GUI (Paranoid Bar), double-press ⌃⌥⇧P | `panic now --hard` | same as the launcher |
+
+The `--hard` variants are the more thorough ones — and the more disruptive: a killed
+Dropbox/iCloud daemon stays dead until you start it again. Run `panic status` once to see
+exactly what each would do on your machine.
 
 **6. Back up the secret — in pieces.**
 
 ```bash
 seedsplit split
 ```
+
+It asks for the secret and reads it without echoing (nothing lands in scrollback); press
+Enter when done. Feeding it from a file — `seedsplit split --file ~/secret.txt` — or from a
+pipe works too, and skips the prompt.
 
 Splits the phrase into Shamir shares — e.g. 2-of-3: any two reconstruct it, fewer
 reveal nothing about the secret itself. The shares print to the terminal — write them
@@ -283,6 +302,12 @@ irreversibility guarantee is destroying the container's key, so "empty" literall
 *destroy + recreate*. You're left with a working (empty) vault, ready to use again. This covers
 the everyday workflow: accumulate files → wipe everything for certain → keep working.
 securetrash asks you to type `yes` and set a password for the fresh vault.
+
+**Two different things are called "empty".** The launcher's `Vault ▸ → 2, Empty` is
+`securetrash vault reset` — it crypto-shreds the encrypted **container**. The command
+`securetrash empty` is something else entirely: it clears `~/SecureTrash`, the plain drop
+folder, by overwriting files in place — best-effort, and on an SSD no guarantee at all. If you
+want certainty, you want the vault one.
 
 **Vault size (a ceiling, not reserved space).** When the launcher creates a vault — or empties
 one and recreates it — it asks for a size. This is only an upper limit: the container

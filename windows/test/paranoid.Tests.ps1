@@ -531,12 +531,14 @@ Describe 'secrets submenu dispatch (seedsplit) + status (top 1)' {
             $Tool -eq 'vaultwatch' -and ($ToolArgs -contains 'status')
         }
     }
-    It 'secrets 1 runs seedsplit split (and shows a paste prompt first)' {
+    It 'secrets 1 runs seedsplit split and leaves the prompt to the tool itself' {
+        # Промпт печатает сам seedsplit (он же читает ввод без эха) — лаунчер свой убрал,
+        # иначе пользователь получал две разные инструкции подряд (AUDIT_2026-08-03 P2-1).
         $out = (Invoke-PnSecretsDispatch '1' 6>&1) -join "`n"
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'seedsplit' -and ($ToolArgs -contains 'split')
         }
-        $out | Should -Match 'Paste the secret'
+        $out | Should -Not -Match 'Paste the secret'
     }
     It 'secrets 2 runs seedsplit combine (and shows a one-per-line prompt)' {
         $out = (Invoke-PnSecretsDispatch '2' 6>&1) -join "`n"

@@ -60,8 +60,8 @@ t() {
     ru:update_how)   echo 'обновить: перезапусти установщик (git pull && bash install.sh) или brew upgrade' ;;
     en:m_status)     echo 'Status — full read-only check' ;;
     ru:m_status)     echo 'Статус — полная проверка (только чтение)' ;;
-    en:m_panic)      echo 'PANIC NOW — hide & lock everything (instant, no confirm)' ;;
-    ru:m_panic)      echo 'ПАНИКА — спрятать и запереть всё (мгновенно, без подтверждения)' ;;
+    en:m_panic)      echo 'PANIC NOW — hide & lock everything, hard mode (instant, no confirm)' ;;
+    ru:m_panic)      echo 'ПАНИКА — спрятать и запереть всё, жёсткий режим (мгновенно, без подтверждения)' ;;
     en:m_vault)      echo 'Vault — create / open / close' ;;
     ru:m_vault)      echo 'Сейф — создать / открыть / закрыть' ;;
     en:m_destroy)    echo 'Destroy the vault (irreversible)' ;;
@@ -129,8 +129,8 @@ t() {
     en:empty_na)     echo 'no vault' ;;        ru:empty_na)     echo 'нет сейфа' ;;
     en:empty_none)   echo 'No vault to empty — create one first.' ;;
     ru:empty_none)   echo 'Очищать нечего — сначала создай сейф.' ;;
-    en:empty_hint)   echo 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place on an SSD). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' ;;
-    ru:empty_hint)   echo 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте на SSD). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' ;;
+    en:empty_hint)   echo 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place on an SSD). It runs "securetrash vault reset", NOT "securetrash empty" (that one only clears the ~/SecureTrash drop folder). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' ;;
+    ru:empty_hint)   echo 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте на SSD). Запускается «securetrash vault reset», а НЕ «securetrash empty» (та команда лишь чистит папку-приёмник ~/SecureTrash). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' ;;
     # --- выбор размера сейфа (cap, не резерв — sparsebundle тонкий) ---
     en:size_free)    printf 'Free space on this disk: ~%s GB.' "$2" ;;
     ru:size_free)    printf 'Свободно на диске: ~%s ГБ.' "$2" ;;
@@ -156,8 +156,6 @@ t() {
     ru:ghost_pipe)   echo 'показать буфер — посмотреть, на диск ничего' ;;
     en:ghost_clip_hint) echo 'On exit the draft goes to the clipboard (with a prompt) and is wiped after ~20s if you have not replaced it.' ;;
     ru:ghost_clip_hint) echo 'По выходу черновик ляжет в буфер (с подтверждением) и сотрётся через ~20с, если ты его не сменишь.' ;;
-    en:split_prompt)  echo 'Paste the secret, then press Ctrl-D on an empty line:' ;;
-    ru:split_prompt)  echo 'Вставь секрет, затем нажми Ctrl-D на пустой строке:' ;;
     en:split_done)    echo '↑ Save each share above in a SEPARATE place. They disappear when you press Enter.' ;;
     ru:split_done)    echo '↑ Сохрани каждую долю выше в ОТДЕЛЬНОМ месте. После Enter они исчезнут.' ;;
     en:combine_prompt) echo 'Paste the shares — one per line — then press Ctrl-D:' ;;
@@ -551,8 +549,8 @@ _editor_exit_hint() {
   fi
 }
 _act_split() {
-  # seedsplit split молча читает stdin — без подсказки новичок видит пустой курсор.
-  echo "  $(t split_prompt)"
+  # Промпт печатает сам seedsplit (он же читает ввод без эха) — свой убран, чтобы не давать
+  # двух разных инструкций сразу: старая обещала многострочный ввод с Ctrl-D.
   if _run_tool seedsplit split; then echo; echo "  $(t split_done)"; fi
   _pause
 }

@@ -362,10 +362,12 @@ STUB
 
 # --- UX: подсказки и тупики ---
 
-@test "split prints a paste prompt before reading stdin" {
+@test "split leaves the input prompt to seedsplit itself" {
+  # seedsplit сам просит секрет и читает его без эха; свой промпт лаунчер убрал, иначе
+  # пользователь получал две разные инструкции подряд (AUDIT_2026-08-03 P2-1).
   run_paranoid $'5\n1\n\n0\n0\n'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Paste the secret"* ]]
+  [[ "$output" != *"Paste the secret"* ]]
 }
 
 @test "combine prints a one-per-line paste prompt" {
