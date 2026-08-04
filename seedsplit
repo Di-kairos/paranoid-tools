@@ -328,7 +328,6 @@ _pp_encrypt_hex() {
 }
 
 cmd_split() {
-  require_macos
   local n=3 t=2 file="" use_pp=0
   while (( $# )); do
     case "$1" in
@@ -530,7 +529,6 @@ _recover_secret_hex() {
 }
 
 cmd_combine() {
-  require_macos
   local raw; if (( $# )); then raw="$(cat "$@")"; else raw="$(cat)"; fi
   local sh; sh="$(_recover_secret_hex "$raw")" || exit 1
   # Восстановленный секрет — openssl-контейнер (magic "Salted__" = hex 53616c7465645f5f)?
@@ -553,7 +551,6 @@ cmd_combine() {
 # verify: проверить, что доли образуют валидный набор и секрет восстановим — БЕЗ его печати
 # (полезно при раскладке долей по носителям: подтвердить корректность, не раскрывая секрет).
 cmd_verify() {
-  require_macos
   local raw; if (( $# )); then raw="$(cat "$@")"; else raw="$(cat)"; fi
   local sh; sh="$(_recover_secret_hex "$raw")" || exit 1
   local n=$(( ${#sh} / 2 ))

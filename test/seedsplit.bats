@@ -7,6 +7,17 @@ setup() {
   export PATH="$STUBS:$PATH"
 }
 
+# Прогнать команду под pty. BSD (macOS): script -q <file> <cmd...>; GNU (util-linux, Linux-CI):
+# script -qec "<cmd>" <file>. Различаем по `script --version` — проба «запусти true под pty»
+# оказалась нестабильной, а uname здесь врёт (в PATH стаб, отдающий Darwin).
+_pty() {
+  if script --version 2>&1 | grep -qi util-linux; then
+    script -qec "$*" /dev/null
+  else
+    script -q /dev/null "$@"
+  fi
+}
+
 @test "version prints semver" {
   run bash "$SCRIPT" version
   [ "$status" -eq 0 ]
@@ -65,14 +76,8 @@ setup() {
   # Раньше интерактивный `seedsplit split` молча ждал stdin — читалось как зависание,
   # а набранный секрет оставался в scrollback. Нужен pty: без него ветка не срабатывает.
   command -v script >/dev/null 2>&1 || skip "script(1) unavailable"
-  # BSD (macOS): script -q <file> <cmd>; GNU (Linux-CI): script -qec "<cmd>" <file>.
-  if script -q /dev/null true >/dev/null 2>&1; then
-    out="$( (sleep 0.4; printf 'correct horse battery staple\n'; sleep 0.4) \
-            | script -q /dev/null bash "$SCRIPT" split -n 2 -t 2 2>&1 )"
-  else
-    out="$( (sleep 0.4; printf 'correct horse battery staple\n'; sleep 0.4) \
-            | script -qec "bash '$SCRIPT' split -n 2 -t 2" /dev/null 2>&1 )"
-  fi
+  out="$( (sleep 0.4; printf 'correct horse battery staple\n'; sleep 0.4) \
+          | _pty bash "$SCRIPT" split -n 2 -t 2 2>&1 )"
   [[ "$out" == *"Secret to split"* ]] || [[ "$out" == *"Секрет для разбиения"* ]]
   [[ "$out" == *"SSS2-"* ]]                        # доли всё же выданы
   [[ "$out" != *"correct horse battery staple"* ]] # и секрет не отражён эхом
@@ -83,13 +88,8 @@ setup() {
   # терминал и через пайп дал бы разные доли. Сверяем восстановленный секрет побайтно.
   command -v script >/dev/null 2>&1 || skip "script(1) unavailable"
   secret='  two spaces  and trailing  '
-  if script -q /dev/null true >/dev/null 2>&1; then
-    out="$( (sleep 0.4; printf '%s\n' "$secret"; sleep 0.4) \
-            | script -q /dev/null bash "$SCRIPT" split -n 2 -t 2 2>&1 )"
-  else
-    out="$( (sleep 0.4; printf '%s\n' "$secret"; sleep 0.4) \
-            | script -qec "bash '$SCRIPT' split -n 2 -t 2" /dev/null 2>&1 )"
-  fi
+  out="$( (sleep 0.4; printf '%s\n' "$secret"; sleep 0.4) \
+          | _pty bash "$SCRIPT" split -n 2 -t 2 2>&1 )"
   shares="$(printf '%s\n' "$out" | tr -d '\r' | grep '^SSS2-')"
   [ -n "$shares" ]
   back="$(printf '%s\n' "$shares" | bash "$SCRIPT" combine)"
@@ -113,4 +113,14 @@ setup() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"ДРЕЙФ"* ]] || [[ "$output" == *"drift"* ]]
   rm -rf "$work"
+}
+
+@test "split/combine work without the macOS gate (POSIX-only dependencies)" {
+  # Ядро seedsplit — арифметика над GF(256) поверх od/tr/printf: macOS-примитивов в нём нет,
+  # а ps1-порт такого гейта не имел вовсе. Гоняем БЕЗ uname-стаба, отдающего Darwin.
+  secret='legal winner thank year wave'
+  shares="$(printf '%s' "$secret" | env PATH="/usr/bin:/bin" bash "$SCRIPT" split -n 3 -t 2)"
+  [[ "$shares" == *"SSS2-"* ]]
+  back="$(printf '%s\n' "$shares" | head -2 | env PATH="/usr/bin:/bin" bash "$SCRIPT" combine)"
+  [ "$back" = "$secret" ]
 }

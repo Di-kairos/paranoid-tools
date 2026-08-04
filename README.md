@@ -21,6 +21,12 @@ survives; find one sheet and you learn nothing.
 
 ## Install
 
+The installer targets macOS, but the tool itself does not: `split`, `combine` and `verify` are
+arithmetic over POSIX utilities (`od`, `tr`, `printf`) with no macOS-specific calls, so the
+script runs on Linux too — clone it and run `bash seedsplit`. The Windows port has never had a
+platform gate either. (The rest of the Paranoid Tools suite genuinely needs macOS — it drives
+`hdiutil`, `fdesetup` and friends.)
+
 The installer pulls the binary **and `SHA256SUMS` from the release tag** (not from a
 moving `main` branch) and verifies the checksum **before** installing — it fails closed
 on any mismatch.
