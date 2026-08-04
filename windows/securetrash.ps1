@@ -36,7 +36,7 @@ Commands:
   setup                       Create %USERPROFILE%\SecureTrash and check BitLocker
   empty                       Empty %USERPROFILE%\SecureTrash
   shred <path>...             Delete a file/folder (best-effort; on SSD NOT a guarantee — see check)
-  vault create|open|close|reset|destroy   Encrypted container (crypto-shred)
+  vault create|open|close|reset|destroy|status|destroy-old   Encrypted container (crypto-shred)
   version                     Show the version
 
 Flags:
@@ -50,7 +50,7 @@ Commands:
   setup                       Создать %USERPROFILE%\SecureTrash, проверить BitLocker
   empty                       Опустошить %USERPROFILE%\SecureTrash
   shred <path>...             Удалить файл/папку (best-effort; на SSD НЕ гарантия — см. check)
-  vault create|open|close|reset|destroy   Зашифрованный контейнер (crypto-shred)
+  vault create|open|close|reset|destroy|status|destroy-old   Зашифрованный контейнер (crypto-shred)
   version                     Показать версию
 
 Flags:
@@ -214,8 +214,17 @@ Flags:
     'en:vault_unavailable'  = 'Vault unavailable — enable BitLocker or install VeraCrypt. No silent fake encryption.'
     'ru:vault_unavailable'  = 'Vault недоступен — включи BitLocker или поставь VeraCrypt. Никакого молчаливого "как будто зашифровали".'
 
-    'en:vault_usage'        = 'vault: provide create|open|close|reset|destroy|destroy-old'
-    'ru:vault_usage'        = 'vault: укажи create|open|close|reset|destroy|destroy-old'
+    'en:vault_status_open'  = 'Container is OPEN (mounted at {0}).'
+    'ru:vault_status_open'  = 'Контейнер ОТКРЫТ (смонтирован: {0}).'
+
+    'en:vault_status_closed' = 'Container exists but is CLOSED (not mounted): {0}'
+    'ru:vault_status_closed' = 'Контейнер существует, но ЗАКРЫТ (не смонтирован): {0}'
+
+    'en:vault_status_unknown' = 'Container exists, but its state could NOT be determined (Storage cmdlets unavailable or the image could not be read): {0}. Do not assume it is closed.'
+    'ru:vault_status_unknown' = 'Контейнер есть, но состояние определить НЕ удалось (нет Storage-командлетов или образ не читается): {0}. Не считай его закрытым.'
+
+    'en:vault_usage'        = 'vault: provide create|open|close|reset|destroy|status|destroy-old'
+    'ru:vault_usage'        = 'vault: укажи create|open|close|reset|destroy|status|destroy-old'
     'en:vault_old_none'     = 'Nothing is set aside: {0} does not exist.'
     'ru:vault_old_none'     = 'Отставленного контейнера нет: {0} не существует.'
     'en:vault_old_confirm'  = 'DESTROY the set-aside container and everything inside ({0})?'
@@ -287,10 +296,12 @@ function T {
 }
 
 # --- output helpers ---
-# info/warn/err — единый стиль вывода. warn/err идут в host (stderr-эквивалент).
-function Write-StInfo { param([string]$Msg) Write-Host "[ok] $Msg" }
-function Write-StWarn { param([string]$Msg) Write-Host "[!] $Msg" -ForegroundColor Yellow }
-function Write-StErr  { param([string]$Msg) Write-Host "[x] $Msg" -ForegroundColor Red }
+# info → stdout, warn/err → stderr. Так же, как в bash-версии (info в stdout, warn/err в &2)
+# и в остальных четырёх ps1-портах. Write-Host сюда не годится: он пишет в host, поэтому
+# `securetrash check > file` и разбор вывода лаунчером (windows/paranoid.ps1) получали пустоту.
+function Write-StInfo { param([string]$Msg) Write-Output "[ok] $Msg" }
+function Write-StWarn { param([string]$Msg) [Console]::Error.WriteLine("[!] $Msg") }
+function Write-StErr  { param([string]$Msg) [Console]::Error.WriteLine("[x] $Msg") }
 
 # Завершение команды с кодом возврата. Внутри команд НЕ зовём exit напрямую
 # (это убило бы Pester-раннер) — кидаем StExit, диспетчер ловит и делает exit.
@@ -391,7 +402,31 @@ function Get-StVeraCryptPath {
 # валидацию, уничтожил сейф и упал на recreate (Codex review AUDIT_2026-08-03 P0-1).
 function Assert-StValidSize {
     param([string]$Size)
-    if ($Size -notmatch '^\d+$' -or [int64]$Size -eq 0) { Write-StErr (T 'bad_size' $Size); Stop-StCommand }
+    if ($Size -notmatch '^\d+[bkmgtBKMGT]?$' -or (Convert-StSizeToMb -Size $Size) -le 0) {
+        Write-StErr (T 'bad_size' $Size); Stop-StCommand
+    }
+}
+
+# Размер в МБ для diskpart. bash принимает суффиксы hdiutil (`1g`, `500m`), и пользователь,
+# пришедший из macOS-версии или из GUIDE, пишет их же — раньше ps1 их просто отвергал.
+# Голое число трактуем как МБ (исторический формат ps1, его же ждёт diskpart).
+# Дробный результат округляем ВВЕРХ: `vault create 1500k` должен дать контейнер, а не 1 МБ.
+function Convert-StSizeToMb {
+    param([string]$Size)
+    if ($Size -notmatch '^(\d+)([bkmgtBKMGT]?)$') { return 0 }
+    # Регексп пропускает сколько угодно цифр. Без этой отсечки `vault create 999...9t`
+    # ронял бы [int64]-каст сырым OverflowException мимо Write-StErr/Stop-StCommand.
+    # 0 = «невалидный размер» → Assert-StValidSize отработает штатной ошибкой.
+    if ($Matches[1].Length -gt 15) { return 0 }
+    $n = [double]$Matches[1]
+    $mb = switch ($Matches[2].ToLower()) {
+        'b' { $n / 1MB }
+        'k' { $n / 1KB }
+        'g' { $n * 1KB }
+        't' { $n * 1MB }
+        default { $n }        # '' и 'm' — уже мегабайты
+    }
+    return [int64][Math]::Ceiling($mb)
 }
 
 # Проверить букву диска: ровно одна A-Z.
@@ -717,7 +752,7 @@ function Get-StVaultPath {
 # --- commands ---
 
 function Invoke-StVersion {
-    Write-Host "securetrash $VERSION (Windows, beta)"
+    Write-Output "securetrash $VERSION (Windows, beta)"
 }
 
 # Аудит окружения: честный вердикт о гарантиях удаления.
@@ -756,8 +791,8 @@ function Write-StSnapshotNote {
 }
 
 function Invoke-StCheck {
-    Write-Host (T 'beta_banner')
-    Write-Host (T 'check_header')
+    Write-Output (T 'beta_banner')
+    Write-Output (T 'check_header')
 
     switch (Get-StBitLockerState) {
         'on'    { Write-StInfo (T 'bl_on') }
@@ -767,16 +802,16 @@ function Invoke-StCheck {
 
     switch (Get-StDiskKind) {
         'ssd' {
-            Write-Host (T 'disk_ssd')
+            Write-Output (T 'disk_ssd')
             Write-StWarn (T 'ssd_no_guarantee')
             Write-StInfo (T 'ssd_real_guarantee')
         }
         'hdd' {
-            Write-Host (T 'disk_hdd')
+            Write-Output (T 'disk_hdd')
             Write-StInfo (T 'hdd_effective')
         }
         default {
-            Write-Host (T 'disk_unknown')
+            Write-Output (T 'disk_unknown')
             Write-StWarn (T 'unknown_effective')
         }
     }
@@ -792,8 +827,8 @@ function Invoke-StCheck {
 
     Write-StSnapshotNote
 
-    Write-Host ''
-    Write-Host (T 'check_verdict')
+    Write-Output ''
+    Write-Output (T 'check_verdict')
 }
 
 # Подготовка окружения: папка-корзина, предупреждение про BitLocker. Идемпотентно.
@@ -973,7 +1008,9 @@ function Invoke-StVaultCreateNow {
         $sec = Get-StVaultPasswordSecure
         $letter = Get-StFreeDriveLetter                 # #3: свободная буква, не хардкод 'V'
         Assert-StValidDriveLetter -DriveLetter $letter
-        New-StBitLockerVault -Path $vaultPath -Size $Size -Password $sec -DriveLetter $letter
+        # diskpart понимает только МБ-число: суффиксы (1g/500m) разворачиваем здесь,
+        # в сообщении оставляем то, что ввёл пользователь.
+        New-StBitLockerVault -Path $vaultPath -Size (Convert-StSizeToMb -Size $Size) -Password $sec -DriveLetter $letter
         Set-StPrivateAcl -Path $vaultPath               # #15: ACL на контейнер
         Write-StVaultBackend -VaultPath $vaultPath -Backend 'bitlocker'  # #10
         Write-StInfo (T 'vault_created' $vaultPath $Size)
@@ -1199,6 +1236,26 @@ function Invoke-StVault {
             Remove-StVaultContainer -Path $oldPath
             Write-StInfo (T 'vault_old_destroyed' $oldPath)
         }
+        'status' {
+            # Только чтение: есть ли контейнер и смонтирован ли он. Зеркало bash `vault status`
+            # (нет контейнера → ошибка и ненулевой код; иначе OPEN/CLOSED).
+            if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container' $vaultPath); Stop-StCommand }
+            $state = Get-StVaultState -Path $vaultPath
+            # 'unknown' (нет Storage-модуля, Get-DiskImage упал) — НЕ то же самое, что «закрыт».
+            # Сказать «ЗАКРЫТ», не сумев проверить, значит соврать в успокаивающую сторону.
+            # Расхождение с bash намеренное: у hdiutil такого режима отказа нет.
+            if ($state -eq 'unknown') {
+                Write-StWarn (T 'vault_status_unknown' $vaultPath)
+            } elseif ($state -eq 'mounted') {
+                # Реальный том, а не догадка: буква выбирается динамически при open.
+                $mount = Get-StMountedVaultRoot -Path $vaultPath
+                if (-not $mount) { $mount = Read-StVaultMount -VaultPath $vaultPath }
+                if (-not $mount) { $mount = $vaultPath }
+                Write-StInfo (T 'vault_status_open' $mount)
+            } else {
+                Write-StInfo (T 'vault_status_closed' $vaultPath)
+            }
+        }
         default {
             Write-StErr (T 'vault_usage'); Stop-StCommand
         }
@@ -1206,7 +1263,7 @@ function Invoke-StVault {
 }
 
 function Show-StUsage {
-    Write-Host (T 'usage')
+    Write-Output (T 'usage')
 }
 
 # Диспетчер подкоманд. Команды кидают StExit при ошибке — ловим и делаем exit.
@@ -1225,8 +1282,11 @@ function Invoke-Main {
         # массив в скаляр-строку, и индексация дала бы первый СИМВОЛ, не аргумент.
         $rest = @(if ($Argv.Count -ge 2) { $Argv[1..($Argv.Count - 1)] } else { @() })
 
+        # Алиасы -v/--version/-h/--help — паритет с bash: пользователь, пришедший из
+        # macOS-версии или просто из привычки, не должен получать «Unknown command».
         switch ($cmd) {
-            'version' { Invoke-StVersion }
+            { $_ -in @('version', '-v', '--version') } { Invoke-StVersion; break }
+            { $_ -in @('help', '-h', '--help') }       { Show-StUsage; break }
             'check'   { Invoke-StCheck }
             'setup'   { Invoke-StSetup }
             'shred'   { Invoke-StShred -Paths $rest }

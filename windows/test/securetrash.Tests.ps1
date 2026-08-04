@@ -6,6 +6,18 @@ BeforeAll {
     $env:ST_NO_MAIN = '1'   # отключить диспетчер при dot-source
     $script:ScriptPath = Join-Path $PSScriptRoot '..\securetrash.ps1'
     . $script:ScriptPath
+
+    # Write-StWarn/Write-StErr пишут прямо в [Console]::Error (паритет с bash warn/err >&2),
+    # а такой вывод перенаправление PowerShell не ловит. Хелпер подменяет консольный stderr
+    # на StringWriter и отдаёт stdout+информационный поток+stderr одной строкой.
+    function global:Get-StCombinedOutput {
+        param([scriptblock]$Body)
+        $sw = New-Object System.IO.StringWriter
+        $orig = [Console]::Error
+        [Console]::SetError($sw)
+        try { $out = & $Body 6>&1 } finally { [Console]::SetError($orig) }
+        return ((@($out) -join "`n") + "`n" + $sw.ToString())
+    }
 }
 
 AfterAll {
@@ -45,7 +57,8 @@ Describe 'dispatcher' {
     }
 
     It 'unknown command exits non-zero with message' {
-        $out = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Invoke-Main -Argv @('bogus')"
+        # 2>&1: сообщение об ошибке уходит в stderr (паритет с bash), usage — в stdout.
+        $out = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Invoke-Main -Argv @('bogus')" 2>&1
         $LASTEXITCODE | Should -Be 1
         ($out -join "`n") | Should -Match 'Unknown command'
     }
@@ -60,6 +73,63 @@ Describe 'dispatcher' {
     It 'usage documents the --yes flag' {
         $out = (Show-StUsage 6>&1) -join "`n"
         $out | Should -Match '--yes'
+    }
+
+    It 'usage lists vault status and destroy-old (bash parity)' {
+        $out = (Show-StUsage 6>&1) -join "`n"
+        $out | Should -Match 'status'
+        $out | Should -Match 'destroy-old'
+    }
+
+    It 'accepts -v/--version and -h/--help aliases (bash parity)' {
+        foreach ($flag in @('-v', '--version')) {
+            $out = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Invoke-Main -Argv @('$flag')"
+            $LASTEXITCODE | Should -Be 0 -Because "$flag must not be an unknown command"
+            ($out -join "`n") | Should -Match 'securetrash \d+\.\d+\.\d+'
+        }
+        foreach ($flag in @('-h', '--help')) {
+            $out = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Invoke-Main -Argv @('$flag')"
+            $LASTEXITCODE | Should -Be 0 -Because "$flag must not be an unknown command"
+            ($out -join "`n") | Should -Match 'Usage:'
+        }
+    }
+
+    It 'writes info to stdout, not to the host (launcher/redirect parity)' {
+        # 1>&1 не сливает информационный поток: если сообщение уйдёт в Write-Host, тут будет пусто.
+        $out = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Write-StInfo 'hello' 6>`$null"
+        ($out -join "`n") | Should -Match 'hello'
+    }
+
+    It 'writes warn/err to stderr, not to stdout (bash parity)' {
+        $out = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Write-StWarn 'warned'; Write-StErr 'failed'" 2>$null
+        ($out -join "`n") | Should -Not -Match 'warned'
+        ($out -join "`n") | Should -Not -Match 'failed'
+    }
+}
+
+Describe 'size units — bash parity (P2-8)' {
+
+    It 'accepts the hdiutil-style suffixes bash accepts' {
+        Convert-StSizeToMb -Size '1g'   | Should -Be 1024
+        Convert-StSizeToMb -Size '512'  | Should -Be 512      # голое число = МБ
+        Convert-StSizeToMb -Size '512m' | Should -Be 512
+        Convert-StSizeToMb -Size '1t'   | Should -Be 1048576
+        Convert-StSizeToMb -Size '2048k'| Should -Be 2
+        Convert-StSizeToMb -Size '1500k'| Should -Be 2        # округление вверх, не в 1 МБ
+    }
+
+    It 'rejects an absurdly long number instead of throwing a raw overflow' {
+        $huge = ('9' * 40) + 't'
+        Convert-StSizeToMb -Size $huge | Should -Be 0
+        { Assert-StValidSize -Size $huge 6>$null } | Should -Throw -ExceptionType ([StExit])
+    }
+
+    It 'rejects zero and garbage exactly like bash' {
+        { Assert-StValidSize -Size '0'  6>$null } | Should -Throw
+        { Assert-StValidSize -Size '0g' 6>$null } | Should -Throw
+        { Assert-StValidSize -Size '1x' 6>$null } | Should -Throw
+        { Assert-StValidSize -Size ''   6>$null } | Should -Throw
+        { Assert-StValidSize -Size '5g' 6>$null } | Should -Not -Throw
     }
 }
 
@@ -101,7 +171,7 @@ Describe 'check' {
         Mock Get-StBitLockerCapable { $true }
         Mock Get-StVeraCryptPath { $null }
 
-        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'BitLocker: ON'
         $out | Should -Match 'NO guarantees'
         $out | Should -Match 'native BitLocker VHDX available'
@@ -113,7 +183,7 @@ Describe 'check' {
         Mock Get-StBitLockerCapable { $true }
         Mock Get-StVeraCryptPath { $null }
 
-        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'BitLocker is OFF'
         $out | Should -Match 'main protection is missing'
     }
@@ -124,7 +194,7 @@ Describe 'check' {
         Mock Get-StBitLockerCapable { $false }
         Mock Get-StVeraCryptPath { $null }
 
-        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'BitLocker: unknown'
         $out | Should -Match 'NOT protected'
         $out | Should -Not -Match 'BitLocker is OFF'
@@ -138,7 +208,7 @@ Describe 'check' {
         Mock Get-StBitLockerCapable { $true }
         Mock Get-StVeraCryptPath { $null }
 
-        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'ВКЛЮЧЕН'
         Remove-Item Env:\ST_LANG -ErrorAction SilentlyContinue
         $script:ST_LOCALE = 'en'
@@ -158,7 +228,7 @@ Write-Output `$script:ST_LOCALE
         Mock Get-StBitLockerCapable { $true }
         Mock Get-StVeraCryptPath { $null }
 
-        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'could not be determined'
         $out | Should -Match 'NO guarantee'
         $out | Should -Not -Match 'Disk: HDD'
@@ -389,6 +459,59 @@ Describe 'vault lifecycle hooks (F1)' {
 
         { Invoke-StVault -VaultArgs @('close') 6>$null } | Should -Throw
         Should -Invoke Invoke-StVaultHook -Times 0 -Exactly
+    }
+}
+
+Describe 'vault status — bash parity (P2-8)' {
+
+    BeforeEach {
+        $script:ST_LOCALE = 'en'
+        Mock Test-StAsidePresent { $false }
+    }
+
+    It 'reports OPEN with the real mount point when the container is attached' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'W:\' }
+
+        $out = (Invoke-StVault -VaultArgs @('status') 6>&1) -join "`n"
+        $out | Should -Match 'OPEN'
+        $out | Should -Match 'W:'
+    }
+
+    It 'reports CLOSED when the container exists but is not attached' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'unmounted' }
+
+        $out = (Invoke-StVault -VaultArgs @('status') 6>&1) -join "`n"
+        $out | Should -Match 'CLOSED'
+    }
+
+    It 'says "could not be determined" instead of CLOSED when the state is unknown' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'unknown' }
+
+        $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('status') }
+        $out | Should -Match 'NOT be determined'
+        $out | Should -Not -Match 'is CLOSED \(not mounted\)'   # именно ложного «закрыт» тут быть не должно
+    }
+
+    It 'fails with a non-zero exit when there is no container at all' {
+        Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        { Invoke-StVault -VaultArgs @('status') 6>$null } | Should -Throw
+    }
+
+    It 'status never mounts, unmounts or destroys anything (read-only)' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Invoke-StDiskpart { }
+        Mock Dismount-StVault { }
+        Mock Remove-StVaultContainer { }
+
+        Invoke-StVault -VaultArgs @('status') 6>&1 | Out-Null
+        Should -Invoke Invoke-StDiskpart -Times 0 -Exactly
+        Should -Invoke Dismount-StVault -Times 0 -Exactly
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
     }
 }
 
@@ -1048,20 +1171,20 @@ Describe 'shadow copies (snapshot honesty)' {
 
     It 'check reports shadow copies when they exist' {
         Mock Get-StSnapshotCount { 3 }
-        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'Volume Shadow Copies: 3'
         $out | Should -Match 'FULL copy'
     }
 
     It 'check says none when there are no shadow copies' {
         Mock Get-StSnapshotCount { 0 }
-        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'none right now'
     }
 
     It 'check stays honest when shadow copies cannot be read' {
         Mock Get-StSnapshotCount { 'unknown' }
-        $out = (Invoke-StCheck 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'Volume Shadow Copies: unknown'
     }
 
@@ -1077,7 +1200,7 @@ Describe 'shadow copies (snapshot honesty)' {
     It 'the post-shred note warns about shadow copies too' {
         Mock Get-StSnapshotCount { 2 }
         Mock Get-StBitLockerOn { $true }
-        $out = (Write-StHonestDiskNote 6>&1) -join "`n"
+        $out = Get-StCombinedOutput { Write-StHonestDiskNote }
         $out | Should -Match 'Volume Shadow Copies: 2'
     }
 }

@@ -55,9 +55,16 @@ Requires **PowerShell 5.1+** (Windows PowerShell or PowerShell 7).
 | `shred <path>...` | Delete file(s)/folder(s), best-effort — on SSD **not** a guarantee + honest disk note. |
 | `vault create\|open\|close\|destroy` | Encrypted container (crypto-shred). |
 | `vault reset [size]` | Empty the vault for real: crypto-shred its contents, then recreate it empty (keeps the container). |
+| `vault status` | Read-only: is the container open (and where it is mounted), closed, or missing. |
+| `vault destroy-old` | Crypto-shreds a container left set aside by an interrupted `reset`. |
 | `version` | `securetrash 0.5.0 (Windows, beta)`. |
 
-Flags: `--yes` skips confirmation prompts (for scripts).
+Flags: `--yes` skips confirmation prompts (for scripts). `version`/`help` also accept the
+`-v`/`--version` and `-h`/`--help` spellings, same as the macOS version.
+
+Sizes accept the same suffixes as the macOS version (`vault create 5g`, `reset 500m`); a bare
+number is megabytes. Output follows the same contract too: normal output goes to stdout,
+warnings and errors to stderr — so `securetrash check > report.txt` keeps the report.
 
 Environment knobs: `ST_LANG=ru` (Russian output), `ST_ASSUME_YES=1` (skip confirmations,
 equivalent to `--yes`), `ST_VAULT_NO_REVEAL=1` (after `vault open`, do **not** pop the mounted
