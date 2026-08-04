@@ -11,17 +11,27 @@
 # --- статус (только чтение) ---
 function Get-PtVaultMount {
     if ($env:ST_VAULT_VOLUME) { return $env:ST_VAULT_VOLUME }
-    $home = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
-    if (-not $home) { return $null }
-    $sidecar = Join-Path $home 'SecureVault.vhdx.mount'
+    # Sidecar лежит рядом с САМИМ контейнером (`<vault>.mount`), а не в профиле: с
+    # ST_VAULT_PATH открытый кастомный сейф иначе показывался бы закрытым (находка Codex).
+    $container = Get-PtVaultContainer
+    if (-not $container) { return $null }
+    $sidecar = "$container.mount"
     if (Test-Path -LiteralPath $sidecar) { $m = (Get-Content -LiteralPath $sidecar -Raw).Trim(); if ($m) { return $m } }
     return $null
+}
+# Контейнер сейфа. ST_VAULT_PATH — тот же override, что уважает CLI (AUDIT_2026-07-03 P0-1):
+# без него трей показывал бы «сейф не создан» рядом с существующим кастомным сейфом.
+function Get-PtVaultContainer {
+    if ($env:ST_VAULT_PATH) { return $env:ST_VAULT_PATH }
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
+    if (-not $homeDir) { return $null }
+    return (Join-Path $homeDir 'SecureVault.vhdx')
 }
 function Get-PtVaultState {
     $m = Get-PtVaultMount
     if ($m -and (Test-Path -LiteralPath $m)) { return 'open' }
-    $home = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
-    if ($home -and (Test-Path -LiteralPath (Join-Path $home 'SecureVault.vhdx'))) { return 'closed' }
+    $container = Get-PtVaultContainer
+    if ($container -and (Test-Path -LiteralPath $container)) { return 'closed' }
     return 'none'
 }
 # BitLocker-статус (честность платформы, зеркало macOS fileVaultOn). Get-BitLockerVolume требует
@@ -56,7 +66,7 @@ $script:PtStrings = @{
         set_save='Save'; set_cancel='Cancel'; set_setup_btn='Show setup guide'; hk_off='Off'; lang_system='System'
         ob_title='Paranoid Bar — Welcome'
         ob_sub='A status bar over the same signed CLIs. Secrets never pass through the GUI.'
-        ob_cli_ok='CLIs installed (securetrash, panic, vaultwatch)'; ob_cli_missing='CLIs not found — install first'
+        ob_cli_ok='CLIs installed (all 5 tools + launcher)'; ob_cli_missing='CLIs not found — install first'
         ob_vault_ok='Vault created'; ob_vault_missing='No vault yet'; ob_create_btn='Create vault…'
         ob_hotkey_line='Panic hotkey'; ob_login_line='Start at login'; ob_enable_btn='Enable'
         ob_risk='An open vault is always "at risk" — the GUI never hides that.'; ob_done='Done'
@@ -79,7 +89,7 @@ $script:PtStrings = @{
         set_save='Сохранить'; set_cancel='Отмена'; set_setup_btn='Показать гид'; hk_off='Выкл'; lang_system='Системный'
         ob_title='Paranoid Bar — Добро пожаловать'
         ob_sub='Панель статуса поверх тех же подписанных CLI. Секреты через GUI не проходят.'
-        ob_cli_ok='CLI установлены (securetrash, panic, vaultwatch)'; ob_cli_missing='CLI не найдены — сначала установите'
+        ob_cli_ok='CLI установлены (все 5 инструментов + лаунчер)'; ob_cli_missing='CLI не найдены — сначала установите'
         ob_vault_ok='Сейф создан'; ob_vault_missing='Сейф ещё не создан'; ob_create_btn='Создать сейф…'
         ob_hotkey_line='Хоткей паники'; ob_login_line='Запускать при входе'; ob_enable_btn='Включить'
         ob_risk='Открытый сейф всегда «под риском» — GUI этого не прячет.'; ob_done='Готово'
@@ -175,9 +185,10 @@ function Disable-PtAutostart {
 # --- статус vaultwatch (только чтение тех же session-файлов, что пишет vaultwatch CLI) ---
 function Get-PtVwStateDir {
     if ($env:VW_STATE_DIR) { return $env:VW_STATE_DIR }
-    $home = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
-    if (-not $home) { return $null }
-    return (Join-Path $home '.vaultwatch\sessions')
+    # $homeDir — см. Get-PtVaultMount: присваивание в автоматическую $HOME бросает исключение.
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
+    if (-not $homeDir) { return $null }
+    return (Join-Path $homeDir '.vaultwatch\sessions')
 }
 # Формат как у vaultwatch CLI (Format-VwDuration): "1h 5m 9s" / "5m 9s".
 function Format-PtDuration {
@@ -288,9 +299,12 @@ function Get-PtChecklistLine {
     if ($Ok) { return ([char]0x2705 + ' ' + (Get-PtL -Key $OkKey -Lang $Lang)) }
     return ([char]0x274C + ' ' + (Get-PtL -Key $MissKey -Lang $Lang))
 }
-# Все 3 CLI на PATH? (install.sh ставит комплектом — по одному не проверяем.)
+# Комплект CLI, поверх которых работает трей: установщик ставит их вместе, поэтому «готово»
+# значит все пять. Лаунчер `paranoid` тоже здесь — меню трея зовёт именно его, и без него
+# зелёная галка была бы враньём (раньше проверялись только три тула из пяти). Зеркало macOS.
+$script:PtEcosystemClis = @('securetrash', 'vaultwatch', 'panic', 'ghostdraft', 'seedsplit', 'paranoid')
 function Test-PtClisInstalled {
-    foreach ($t in @('securetrash', 'panic', 'vaultwatch')) {
+    foreach ($t in $script:PtEcosystemClis) {
         if (-not (Get-Command $t -ErrorAction SilentlyContinue)) { return $false }
     }
     return $true

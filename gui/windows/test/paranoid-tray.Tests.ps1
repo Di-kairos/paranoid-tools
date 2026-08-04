@@ -306,7 +306,7 @@ Describe 'Localization' {
 Describe 'Onboarding' {
     It 'builds checklist lines from readiness' {
         Get-PtChecklistLine -Ok $true -OkKey 'ob_cli_ok' -MissKey 'ob_cli_missing' -Lang 'en' |
-            Should -Be ([char]0x2705 + ' ' + 'CLIs installed (securetrash, panic, vaultwatch)')
+            Should -Be ([char]0x2705 + ' ' + 'CLIs installed (all 5 tools + launcher)')
         Get-PtChecklistLine -Ok $false -OkKey 'ob_vault_ok' -MissKey 'ob_vault_missing' -Lang 'ru' |
             Should -Be ([char]0x274C + ' ' + 'Сейф ещё не создан')
     }
@@ -433,5 +433,46 @@ Describe 'Notification engine' {
         $r = Get-PtNotifyEvents -Open $true -Ttl $null -HasSessions $true -Now 1000000 -State $s
         $r2 = Get-PtNotifyEvents -Open $true -Ttl $null -HasSessions $true -Now 1001801 -State $r.State
         $r2.Events | Should -BeNullOrEmpty
+    }
+}
+
+# AUDIT_2026-08-03 P2-9: трей отставал от CLI-фиксов — не знал про ST_VAULT_PATH и считал
+# «всё установлено» по трём тулам из пяти, не проверяя сам лаунчер.
+Describe 'readiness и путь сейфа — паритет с CLI (P2-9)' {
+    AfterEach { Remove-Item Env:\ST_VAULT_PATH -ErrorAction SilentlyContinue }
+
+    It 'Get-PtVaultContainer уважает ST_VAULT_PATH' {
+        $env:ST_VAULT_PATH = 'C:\custom\myvault.vhdx'
+        Get-PtVaultContainer | Should -Be 'C:\custom\myvault.vhdx'
+    }
+    It 'Get-PtVaultContainer падает на дефолт, когда ST_VAULT_PATH не задан' {
+        Remove-Item Env:\ST_VAULT_PATH -ErrorAction SilentlyContinue
+        Get-PtVaultContainer | Should -Match 'SecureVault\.vhdx$'
+    }
+    It 'состояние сейфа читается по кастомному контейнеру, а не по дефолтному' {
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("pt-" + [System.Guid]::NewGuid().ToString('N') + '.vhdx')
+        Set-Content -LiteralPath $tmp -Value 'x'
+        try {
+            $env:ST_VAULT_PATH = $tmp
+            Get-PtVaultState | Should -Be 'closed'
+        } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
+    It 'mount-sidecar читается рядом с кастомным контейнером, а не из профиля (находка Codex)' {
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("pt-" + [System.Guid]::NewGuid().ToString('N') + '.vhdx')
+        Set-Content -LiteralPath $tmp -Value 'x'
+        Set-Content -LiteralPath "$tmp.mount" -Value 'Q:\' -NoNewline
+        try {
+            Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue
+            $env:ST_VAULT_PATH = $tmp
+            Get-PtVaultMount | Should -Be 'Q:\'
+        } finally {
+            Remove-Item -LiteralPath $tmp, "$tmp.mount" -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'readiness покрывает все пять тулов и сам лаунчер' {
+        $script:PtEcosystemClis.Count | Should -Be 6
+        foreach ($t in @('securetrash', 'vaultwatch', 'panic', 'ghostdraft', 'seedsplit', 'paranoid')) {
+            $script:PtEcosystemClis | Should -Contain $t
+        }
     }
 }

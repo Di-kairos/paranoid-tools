@@ -18,6 +18,23 @@ private var vaultVolume: String {
     if let v = UserDefaults.standard.string(forKey: "vaultVolume"), !v.isEmpty { return v }
     return ProcessInfo.processInfo.environment["ST_VAULT_VOLUME"] ?? "/Volumes/SecretVault"
 }
+// Комплект CLI, поверх которых работает GUI: install.sh ставит их вместе, поэтому «готово»
+// значит все пять. Лаунчер `paranoid` тоже здесь — меню-бар зовёт именно его, и без него
+// зелёная галка была бы враньём (раньше проверялись только три тула из пяти).
+let ecosystemCLIs = ["securetrash", "vaultwatch", "panic", "ghostdraft", "seedsplit", "paranoid"]
+
+// Экранирование значения для shell (внутренние `'` разбиваются). Чистая функция → selftest.
+func shellQuote(_ s: String) -> String {
+    "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+// Префикс окружения для CLI, запускаемых в Terminal.app: свежий shell окружение GUI НЕ наследует.
+// ОБЕ переменные обязательны — ST_VAULT_VOLUME задаёт точку монтирования, ST_VAULT_PATH сам
+// контейнер; без второй open/create/destroy били бы по дефолтному сейфу, пока GUI показывает
+// кастомный (находка Codex к AUDIT_2026-08-03 P2-9).
+func terminalEnvPrefix(volume: String, path: String) -> String {
+    "ST_VAULT_VOLUME=\(shellQuote(volume)) ST_VAULT_PATH=\(shellQuote(path)) "
+}
+
 // Зажать интервал опроса в разумные границы: снизу 5с (батарея/CPU), сверху 3600с (иначе статус
 // «зависает» на час+ и TTL-уведомления опаздывают до бесполезности). Зеркало Windows-tray clamp.
 func clampPoll(_ v: Int) -> Int { min(max(v, 5), 3600) }
@@ -82,7 +99,7 @@ private let strings: [String: (en: String, ru: String)] = [
     "ob_title":         ("Paranoid Bar — Welcome", "Paranoid Bar — Добро пожаловать"),
     "ob_sub":           ("A status bar over the same signed CLIs. Secrets never pass through the GUI.",
                          "Панель статуса поверх тех же подписанных CLI. Секреты через GUI не проходят."),
-    "ob_cli_ok":        ("CLIs installed (securetrash, panic, vaultwatch)", "CLI установлены (securetrash, panic, vaultwatch)"),
+    "ob_cli_ok":        ("CLIs installed (all 5 tools + launcher)", "CLI установлены (все 5 инструментов + лаунчер)"),
     "ob_cli_missing":   ("CLIs not found — install first", "CLI не найдены — сначала установите"),
     "ob_vault_ok":      ("Vault created", "Сейф создан"),
     "ob_vault_missing": ("No vault yet", "Сейф ещё не создан"),
@@ -283,9 +300,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return vols.contains { $0.standardizedFileURL == target }
     }
+    // Контейнер сейфа. ST_VAULT_PATH — тот же override, что уважает CLI (AUDIT_2026-07-03 P0-1):
+    // без него GUI показывал бы «сейфа нет» рядом с существующим кастомным сейфом.
+    private var vaultPath: String {
+        if let p = ProcessInfo.processInfo.environment["ST_VAULT_PATH"], !p.isEmpty { return p }
+        return FileManager.default.homeDirectoryForCurrentUser.path + "/SecureVault.sparsebundle"
+    }
     private func vaultExists() -> Bool {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return FileManager.default.fileExists(atPath: home + "/SecureVault.sparsebundle")
+        FileManager.default.fileExists(atPath: vaultPath)
     }
     private func fileVaultOn() -> Bool { capture("/usr/bin/fdesetup", ["status"]).contains("FileVault is On") }
 
@@ -489,7 +511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
             .split(separator: ":").map(String.init)
         dirs += [home + "/.local/bin", "/usr/local/bin", "/opt/homebrew/bin"]
-        for tool in ["securetrash", "panic", "vaultwatch"] {
+        for tool in ecosystemCLIs {
             guard dirs.contains(where: { fm.isExecutableFile(atPath: $0 + "/" + tool) }) else { return false }
         }
         return true
@@ -667,18 +689,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh()           // подхватить новую точку монтирования (и язык — меню перестроится)
     }
 
-    // Обернуть значение в одинарные кавычки для shell (экранируя внутренние `'`). Нужно,
-    // чтобы префикс ST_VAULT_VOLUME пережил произвольный путь сейфа.
-    private func shQuote(_ s: String) -> String {
-        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     // Запустить команду в Terminal.app — пользователь видит вывод и вводит секреты прямо в CLI,
     // НЕ через GUI. Terminal.app стартует свежий shell, который НЕ наследует окружение GUI →
     // префиксуем `ST_VAULT_VOLUME=<quoted>`, иначе securetrash/paranoid работали бы с дефолтным
     // сейфом, пока GUI показывает кастомный (паритет с Windows-tray, который ставит $env заранее).
     private func runInTerminal(_ command: String) {
-        let full = "ST_VAULT_VOLUME=\(shQuote(vaultVolume)) " + command
+        let full = terminalEnvPrefix(volume: vaultVolume, path: vaultPath) + command
         // AppleScript-строка: экранируем backslash ПЕРЕД кавычками (shQuote может внести `\`).
         let escaped = full
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -716,7 +732,17 @@ private func runSelfTests() -> Never {
     expect(L("no_such_key", lang: "en") == "no_such_key", "L unknown key fallback")
     // онбординг: строка чеклиста из статуса (галка/крест + локализованный текст)
     expect(checklistLine(ok: true, okKey: "ob_cli_ok", missKey: "ob_cli_missing", lang: "en")
-           == "✅ CLIs installed (securetrash, panic, vaultwatch)", "checklist ok en")
+           == "✅ CLIs installed (all 5 tools + launcher)", "checklist ok en")
+    // окружение для Terminal: обе переменные сейфа + корректное экранирование пути с апострофом
+    expect(terminalEnvPrefix(volume: "/Volumes/V", path: "/Users/me/V.sparsebundle")
+           == "ST_VAULT_VOLUME='/Volumes/V' ST_VAULT_PATH='/Users/me/V.sparsebundle' ",
+           "terminal env prefix carries both vault variables")
+    expect(shellQuote("/Users/o'brien/V") == "'/Users/o'\\''brien/V'", "shellQuote escapes a quote")
+    // readiness обязан покрывать ВЕСЬ комплект, включая сам лаунчер (AUDIT_2026-08-03 P2-9)
+    expect(ecosystemCLIs.count == 6, "ecosystemCLIs covers all five tools plus the launcher")
+    for tool in ["securetrash", "vaultwatch", "panic", "ghostdraft", "seedsplit", "paranoid"] {
+        expect(ecosystemCLIs.contains(tool), "ecosystemCLIs contains \(tool)")
+    }
     expect(checklistLine(ok: false, okKey: "ob_vault_ok", missKey: "ob_vault_missing", lang: "ru")
            == "❌ Сейф ещё не создан", "checklist miss ru")
     // выбор языка: явный override бьёт систему; "system" падает на префикс локали
