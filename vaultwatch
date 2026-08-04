@@ -178,7 +178,7 @@ EOF
     en:hook_skip_rm)     printf 'Skipped %s: not managed by vaultwatch.' "$1" ;;
     ru:hook_skip_rm)     printf 'Пропуск %s: не управляется vaultwatch.' "$1" ;;
     en:unknown_cmd)      printf 'Unknown command: %s' "$1" ;;
-    ru:unknown_cmd)      printf 'Unknown command: %s' "$1" ;;
+    ru:unknown_cmd)      printf 'Неизвестная команда: %s' "$1" ;;
     en:need_mount)       echo 'this command needs a mountpoint argument.' ;;
     ru:need_mount)       echo 'команде нужен аргумент — точка монтирования.' ;;
     en:mount_missing)    printf 'mountpoint not found: %s' "$1" ;;

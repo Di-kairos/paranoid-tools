@@ -72,7 +72,7 @@ function T {
     param([string]$Key, [string]$A)
     switch ("$($script:VW_LOCALE):$Key") {
         'en:unknown_cmd'   { return "Unknown command: $A" }
-        'ru:unknown_cmd'   { return "Unknown command: $A" }
+        'ru:unknown_cmd'   { return "Неизвестная команда: $A" }
         'en:need_ps7'      { return "vaultwatch requires PowerShell 7+ (pwsh); running under $A. TTL auto-dismount and hooks call pwsh.exe and will not fire on Windows PowerShell 5.1. Install PowerShell 7: https://aka.ms/powershell" }
         'ru:need_ps7'      { return "vaultwatch требует PowerShell 7+ (pwsh); запущен под $A. TTL-авторазмонтирование и хуки зовут pwsh.exe и НЕ сработают на Windows PowerShell 5.1. Установи PowerShell 7: https://aka.ms/powershell" }
         'en:need_mount'    { return 'this command needs a mountpoint argument.' }
