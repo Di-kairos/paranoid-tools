@@ -136,10 +136,24 @@ try {
             $allowedSigners = Join-Path $Tmp 'allowed_signers'
             Set-Content -Path $allowedSigners -Value "$SignPrincipal namespaces=`"file`" $SigningPubkey" -Encoding ascii
             Write-Host 'Verifying release signature...'
-            # SHA256SUMS подаётся на stdin (аналог `< SHA256SUMS` в install.sh).
-            Get-Content -LiteralPath $tmpSums -Raw |
-                & $sshKeygen.Source -Y verify -f $allowedSigners -I $SignPrincipal -n file -s $tmpSig *> $null
-            if ($LASTEXITCODE -eq 0) {
+            # SHA256SUMS подаётся на stdin ТОЧНЫМИ байтами (аналог `< SHA256SUMS` в install.sh):
+            # пайп PowerShell перекодировал бы содержимое (BOM, CRLF) и валидная подпись
+            # отвалилась бы как «incorrect signature». Копируем сырой поток файла.
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $sshKeygen.Source
+            foreach ($a in @('-Y','verify','-f',$allowedSigners,'-I',$SignPrincipal,'-n','file','-s',$tmpSig)) {
+                $psi.ArgumentList.Add($a)
+            }
+            $psi.RedirectStandardInput  = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $psi.UseShellExecute        = $false
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $fs = [System.IO.File]::OpenRead($tmpSums)
+            try { $fs.CopyTo($proc.StandardInput.BaseStream) } finally { $fs.Close() }
+            $proc.StandardInput.Close()
+            $proc.WaitForExit()
+            if ($proc.ExitCode -eq 0) {
                 Write-Host 'Signature OK (authenticity verified).'
             } else {
                 Write-Error 'Подпись релиза НЕ прошла проверку — установка прервана (возможна подмена).'
