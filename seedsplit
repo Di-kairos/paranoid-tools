@@ -185,6 +185,8 @@ EOF
     ru:split_file_unreadable) printf 'split: файл недоступен: %s' "$1" ;;
     en:split_empty_secret)  printf 'split: empty secret (feed it via stdin or --file)' ;;
     ru:split_empty_secret)  printf 'split: пустой секрет (подай через stdin или --file)' ;;
+    en:split_prompt)        printf 'Secret to split (not echoed; Enter when done): ' ;;
+    ru:split_prompt)        printf 'Секрет для разбиения (ввод не отображается; Enter — готово): ' ;;
     en:split_nt_not_num)    printf 'split: -n/-t must be numbers' ;;
     ru:split_nt_not_num)    printf 'split: -n/-t должны быть числами' ;;
     en:split_t_min)         printf 'split: threshold -t must be >=2 (else a share equals the whole secret)' ;;
@@ -343,6 +345,20 @@ cmd_split() {
   if [[ -n "$file" ]]; then
     [[ -r "$file" ]] || { err "$(t split_file_unreadable "$file")"; exit 1; }
     secret_hex="$(_to_hex < "$file")"
+  elif [[ -t 0 ]]; then
+    # Интерактивный запуск: без промпта команда просто молчала, ожидая stdin, — это читалось
+    # как зависание, а набранный секрет оставался в scrollback. Читаем с /dev/tty без эха,
+    # одной строкой (seed-фраза однострочна). Перевод строки в секрет НЕ попадает.
+    # IFS= обязателен: с дефолтным IFS bash срезал бы ведущие/хвостовые пробелы, и тот же
+    # секрет через TTY и через пайп дал бы РАЗНЫЕ доли. `|| true` — EOF (Ctrl-D) возвращает
+    # ненулевой код даже после частичного ввода: под set -e это убило бы и введённые байты,
+    # и честную ошибку про пустой секрет ниже.
+    local line=""
+    printf '%s' "$(t split_prompt)" >/dev/tty
+    IFS= read -rs line </dev/tty || true
+    echo >/dev/tty
+    secret_hex="$(printf '%s' "$line" | _to_hex)"
+    line=""
   else
     secret_hex="$(_to_hex)"
   fi

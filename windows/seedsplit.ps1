@@ -56,6 +56,8 @@ function T {
         'ru:split_file_unreadable'{ return "split: файл недоступен: $A" }
         'en:split_empty_secret'   { return 'split: empty secret (feed it via stdin or --file)' }
         'ru:split_empty_secret'   { return 'split: пустой секрет (подай через stdin или --file)' }
+        'en:split_prompt'         { return 'Secret to split (not echoed; Enter when done)' }
+        'ru:split_prompt'         { return 'Секрет для разбиения (ввод не отображается; Enter — готово)' }
         'en:split_nt_not_num'     { return 'split: -n/-t must be numbers' }
         'ru:split_nt_not_num'     { return 'split: -n/-t должны быть числами' }
         'en:split_t_min'          { return 'split: threshold -t must be >=2 (else a share equals the whole secret)' }
@@ -234,6 +236,16 @@ function Invoke-SsSplit {
         }
         try { $secret = [System.IO.File]::ReadAllBytes($file) }
         catch { Write-SsErr (T 'split_file_unreadable' $file); Stop-SsCommand 1 }
+    } elseif (-not [Console]::IsInputRedirected) {
+        # Интерактивный запуск: без промпта команда просто молчала, ожидая stdin, — это читалось
+        # как зависание, а набранный секрет оставался в scrollback консоли. -AsSecureString даёт
+        # ввод без эха; строку разворачиваем и сразу освобождаем BSTR (зеркало bash-порта).
+        $sec = Read-Host -Prompt (T 'split_prompt') -AsSecureString
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+        try { $line = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        $secret = [Text.Encoding]::UTF8.GetBytes($line)
+        $line = $null
     } else {
         $secret = Read-SsStdinBytes
     }
