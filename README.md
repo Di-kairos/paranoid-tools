@@ -113,7 +113,7 @@ vaultwatch — session report
 
 - Single-file Bash, zero dependencies. Native macOS primitives.
 - The shared core (`lib/common.sh`) is **vendored** inline from securetrash, pinned to a
-  git-ref; `tools/vendor-common.sh --check` catches drift in CI. See `paranoid-tools/README.md`.
+  git-ref; `tools/vendor-common.sh --check` catches drift in CI. See [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
 
 ## Scope & limitations
 

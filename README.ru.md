@@ -105,7 +105,7 @@ vaultwatch — session report
 
 - Single-file Bash, ноль зависимостей. Нативные примитивы macOS.
 - Общее ядро (`lib/common.sh`) **вендорится** из securetrash inline, пиннуто к git-ref;
-  `tools/vendor-common.sh --check` ловит дрейф в CI. См. `paranoid-tools/README.md`.
+  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
 
 ## Scope & limitations
 
