@@ -364,3 +364,19 @@ Describe 'i18n + CLI' {
         (Get-VwUsage) | Should -Match '--yes'
     }
 }
+
+# AUDIT_2026-08-03, отложенное из Codex-ревью Pack #1: путь тома вида 'V:\' в аргументах
+# задачи планировщика. Хвостовой backslash экранировал закрывающую кавычку — задача получала
+# 'V:"' вместо тома и _guard_fire/_ttl_fire срабатывали вхолостую.
+Describe 'ConvertTo-VwArgvSafe — хвостовые слэши в argv (Codex Pack #1)' {
+    It 'удваивает хвостовой backslash' {
+        ConvertTo-VwArgvSafe 'V:\' | Should -Be 'V:\\'
+    }
+    It 'удваивает все хвостовые слэши, но не трогает середину пути' {
+        ConvertTo-VwArgvSafe 'C:\path\to\vault\\' | Should -Be 'C:\path\to\vault\\\\'
+        ConvertTo-VwArgvSafe 'C:\path\to\vault'   | Should -Be 'C:\path\to\vault'
+    }
+    It 'оставляет обычную строку как есть' {
+        ConvertTo-VwArgvSafe 'plain' | Should -Be 'plain'
+    }
+}

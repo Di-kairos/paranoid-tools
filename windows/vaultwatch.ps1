@@ -241,12 +241,20 @@ function Get-VwCloudLines {
     return $lines
 }
 
+# Аргумент для командной строки Windows: хвостовые обратные слэши перед закрывающей кавычкой
+# экранируют её (CommandLineToArgvW), поэтому путь тома вида 'V:\' превращался в 'V:"' и задача
+# получала битый аргумент. Удваиваем только хвостовые слэши — внутри пути они не экранируют ничего.
+function ConvertTo-VwArgvSafe {
+    param([string]$Value)
+    return ($Value -replace '(\\+)$', '$1$1')
+}
+
 # Зарегистрировать одноразовую задачу авто-выхода. Возвращает label (или '' при провале).
 function Register-VwTtlTask {
     param([string]$Mount, [int]$Seconds, [string]$Self)
     $label = 'vaultwatch-ttl-' + (($Mount -replace '[^a-zA-Z0-9]', '_'))
     try {
-        $arg = "-NoProfile -File `"$Self`" _ttl_fire `"$Mount`""
+        $arg = "-NoProfile -File `"$(ConvertTo-VwArgvSafe $Self)`" _ttl_fire `"$(ConvertTo-VwArgvSafe $Mount)`""
         $action = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $arg
         $trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddSeconds($Seconds))
         Register-ScheduledTask -TaskName $label -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
@@ -282,7 +290,7 @@ function Register-VwGuardTask {
     param([string]$Mount, [string]$Self)
     $label = Get-VwGuardLabel -Mount $Mount
     try {
-        $arg = "-NoProfile -File `"$Self`" _guard_fire `"$Mount`""
+        $arg = "-NoProfile -File `"$(ConvertTo-VwArgvSafe $Self)`" _guard_fire `"$(ConvertTo-VwArgvSafe $Mount)`""
         $action  = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $arg
         # -RepetitionDuration ОБЯЗАТЕЛЕН: без него -RepetitionInterval регистрируется как one-shot
         # (срабатывает один раз сразу, пока том ещё смонтирован → no-op — и больше не повторяется,
