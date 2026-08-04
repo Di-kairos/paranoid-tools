@@ -12,7 +12,7 @@
 &nbsp;![releases](https://img.shields.io/badge/releases-Ed25519%20signed-blueviolet)
 &nbsp;![tools](https://img.shields.io/badge/tools-5-informational)
 
-**[Manifesto](MANIFEST.md)** &nbsp;·&nbsp; **[Threat model](THREAT-MODEL.md)** &nbsp;·&nbsp; **[Tools](#the-tools)** &nbsp;·&nbsp; **[Install](#install)** &nbsp;·&nbsp; **[Launcher](#the-launcher)**
+**[Guide](GUIDE.md)** &nbsp;·&nbsp; **[Manifesto](MANIFEST.md)** &nbsp;·&nbsp; **[Threat model](THREAT-MODEL.md)** &nbsp;·&nbsp; **[Tools](#the-tools)** &nbsp;·&nbsp; **[Install](#install)** &nbsp;·&nbsp; **[Launcher](#the-launcher)**
 
 <img src="assets/dashboard.svg" alt="The paranoid launcher: a status dashboard plus a menu over the five tools" width="560">
 
@@ -52,7 +52,10 @@ runtime dependencies** — and is honest about the limits of what it can guarant
 Each tool ships an English `README.md` (Russian in `README.ru.md`), a
 `CHANGELOG.md`, a checksum-verified and **Ed25519-signed** `install.sh`, CI +
 release workflows, and a dedicated **Scope & limitations** section — read it
-before you trust the tool.
+before you trust the tool. Everything a user reads to operate the tools — READMEs,
+`GUIDE.md`, the CLI output itself — exists in both languages. The changelogs and
+`docs/RELEASE-STATE.md` are release notes written in Russian; what they describe is
+in the English docs, and `git log` is English throughout.
 
 ## Install
 
@@ -86,6 +89,15 @@ port itself runs on PowerShell 7, the one platform prerequisite.
 
 Prefer to install just one tool, or inspect each step by hand? Every tool's README carries a
 standalone verify-then-run snippet plus a one-line quick form. See [the tools](#the-tools).
+
+**Verify the releases yourself.** `bash verify-releases.sh` downloads the published release of
+every tool and checks each Ed25519 signature and checksum against the key pinned in this repo —
+it installs nothing and needs nothing but `curl` and `ssh-keygen`. That is the "don't trust,
+verify" claim in the badge, executable. More on what is tested and how: [docs/TESTING.md](docs/TESTING.md).
+
+**Homebrew** covers `securetrash` today (`brew install Di-kairos/tap/securetrash`); the other
+four carry a formula in their repo but are not published in the tap yet — install those with
+the commands above.
 
 ### Uninstall
 

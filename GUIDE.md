@@ -13,8 +13,9 @@ cd paranoid-tools
 bash install.sh
 ```
 
-Installs all five tools plus the `paranoid` launcher into `~/.local/bin` (already on your
-PATH). Remove everything: `bash install.sh --uninstall`.
+Installs all five tools plus the `paranoid` launcher into `~/.local/bin` (usually already on
+your PATH — the default macOS zsh does not have it, and the installer tells you how to add it).
+Remove everything: `bash install.sh --uninstall`.
 
 On a fresh clone each tool is pulled from its signed release and verified (Ed25519 signature
 + checksum) before anything runs.
@@ -72,7 +73,7 @@ Below it — the menu (pick by number):
 
 ```
 1) Status        — full read-only check (what actually protects you on your hardware)
-2) 🔒 PANIC NOW  — hide & lock everything (instant, no confirmation)
+2) 🔒 PANIC NOW  — hide & lock everything, hard mode (instant, no confirmation)
 3) Vault ▸       — open / close / create, empty, destroy, watch
 4) Notepad ▸     — ghostdraft: note (write/edit/copy, vanishes) / show clipboard
 5) Secrets ▸     — seedsplit: split / combine
@@ -454,3 +455,7 @@ panic now                 # someone walked up — closed everything and locked t
 - Run `securetrash check` first: it explains what actually protects you on your hardware and
   what doesn't.
 - Don't remember the commands? Open `paranoid` and work through the menu.
+- Output is English by default. `ST_LANG=ru` switches every tool (and the launcher) to
+  Russian — for one command (`ST_LANG=ru paranoid`) or for the shell (`export ST_LANG=ru`).
+  A Russian system locale is picked up automatically; `ST_LANG=en` forces English back.
+  The Russian version of this guide is `ИНСТРУКЦИЯ.md`.
