@@ -276,7 +276,7 @@ Flags:
     'ru:no_free_letter'     = 'Нет свободной буквы диска (D..Z все заняты).'
 
     'en:unknown_cmd'        = 'Unknown command: {0}'
-    'ru:unknown_cmd'        = 'Unknown command: {0}'
+    'ru:unknown_cmd'        = 'Неизвестная команда: {0}'
 }
 
 # T — локализованная строка по ключу. Динамика — через -f с позиционными аргументами.

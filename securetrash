@@ -250,7 +250,7 @@ EOF
     ru:vault_hook_failed) printf 'хук vault %s завершился с ошибкой (игнорирую)' "$1" ;;
 
     en:unknown_cmd)      printf 'Unknown command: %s' "$1" ;;
-    ru:unknown_cmd)      printf 'Unknown command: %s' "$1" ;;
+    ru:unknown_cmd)      printf 'Неизвестная команда: %s' "$1" ;;
 
     *) echo "$key" ;;
   esac
@@ -751,6 +751,7 @@ cmd_vault() {
       # vault «под угрозой», это бóльший риск, чем сама видимость. Видимость даёт и штатный
       # выход: «извлечь» из Finder автоматически размонтирует том. Спрятать (старое поведение,
       # -nobrowse — вне сайдбара/рабочего стола): ST_VAULT_HIDDEN=1.
+      local attach_opts
       attach_opts=( -mountpoint "$VAULT_VOLUME" )
       if [[ "${ST_VAULT_HIDDEN:-0}" == "1" ]]; then attach_opts+=( -nobrowse ); fi
       _vault_pass | hdiutil attach "$VAULT_PATH" -stdinpass "${attach_opts[@]}"
