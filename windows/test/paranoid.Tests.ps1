@@ -213,32 +213,90 @@ Describe 'Format-PnMenuItem' {
     }
 }
 
-Describe 'Get-PnVaultState (3-state: open / closed / none)' {
+Describe 'Get-PnVaultState (4-state: open / closed / none / unknown)' {
     AfterEach { Remove-Item Env:\ST_VAULT_PATH -ErrorAction SilentlyContinue }
 
-    It 'reports open when the vault volume exists' {
-        $script:VAULT_VOLUME = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_v_" + [Guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:VAULT_VOLUME -Force | Out-Null
-        try { (Get-PnVaultState) | Should -Be 'open' }
-        finally { Remove-Item -LiteralPath $script:VAULT_VOLUME -Recurse -Force -ErrorAction SilentlyContinue }
+    It 'reports open when the volume is in the volume table' {
+        $script:VAULT_VOLUME = 'D:\'
+        Mock Get-PnMountPoints { @('C:\', 'D:\') }
+        (Get-PnVaultState) | Should -Be 'open'
     }
     It 'reports closed when the container exists but is not mounted' {
-        $script:VAULT_VOLUME = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_v_" + [Guid]::NewGuid().ToString('N'))
+        $script:VAULT_VOLUME = 'D:\'
         $container = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
         Set-Content -LiteralPath $container -Value 'x' -NoNewline
         $env:ST_VAULT_PATH = $container
+        Mock Get-PnMountPoints { @('C:\') }
         try { (Get-PnVaultState) | Should -Be 'closed' }
         finally { Remove-Item -LiteralPath $container -Force -ErrorAction SilentlyContinue }
     }
     It 'reports none when neither the volume nor the container exists' {
-        $script:VAULT_VOLUME = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_v_" + [Guid]::NewGuid().ToString('N'))
+        $script:VAULT_VOLUME = 'D:\'
         $env:ST_VAULT_PATH = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
+        Mock Get-PnMountPoints { @('C:\') }
         (Get-PnVaultState) | Should -Be 'none'
     }
     It 'reports none (no throw) when the vault volume is null and no container' {
         $script:VAULT_VOLUME = $null
         $env:ST_VAULT_PATH = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
+        Mock Get-PnMountPoints { @('C:\') }
         (Get-PnVaultState) | Should -Be 'none'
+    }
+    # Главный кейс: сейф, примонтированный в ПАПКУ, оставляет её после eject. Проверка
+    # «путь существует» звала такой сейф открытым — дашборд пугал «ОТКРЫТ · под угрозой».
+    It 'a folder left behind by an eject is not an open vault' {
+        $script:VAULT_VOLUME = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_v_" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:VAULT_VOLUME -Force | Out-Null
+        $env:ST_VAULT_PATH = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
+        Mock Get-PnMountPoints { @('C:\') }
+        try { (Get-PnVaultState) | Should -Be 'none' }
+        finally { Remove-Item -LiteralPath $script:VAULT_VOLUME -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'a neighbouring volume with a longer name is not the vault' {
+        $script:VAULT_VOLUME = 'C:\Vault'
+        $env:ST_VAULT_PATH = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
+        Mock Get-PnMountPoints { @('C:\', 'C:\Vault Backup\') }
+        (Get-PnVaultState) | Should -Be 'none'
+    }
+    It 'reports unknown when the volume table cannot be read' {
+        $script:VAULT_VOLUME = 'D:\'
+        Mock Get-PnMountPoints { $null }
+        (Get-PnVaultState) | Should -Be 'unknown'
+    }
+}
+
+Describe 'unknown vault state — the launcher names it and refuses to guess' {
+    BeforeEach {
+        $script:VAULT_VOLUME = 'D:\'
+        # Дашборд, меню и watch перечитывают букву тома перед работой — держим её постоянной.
+        Mock Get-PnVaultMount  { 'D:\' }
+        Mock Get-PnMountPoints { $null }
+        Mock Invoke-PnPause { }
+        Mock Invoke-PnTool  { }
+    }
+
+    It 'the dashboard says so instead of a green "closed"' {
+        Mock Get-PnBitLockerState { 'on' }
+        Mock Get-PnVaultwatchState { 'idle' }
+        $out = (Get-PnDashboard) -join "`n"
+        $out | Should -Match 'could not be determined'
+        $out | Should -Not -Match 'closed'
+    }
+
+    It 'the vault menu keeps item 1 but promises no action' {
+        $out = (Get-PnVaultMenu) -join "`n"
+        $out | Should -Match 'state unknown'
+        $out | Should -Match 'vault state unknown'   # empty/destroy — с причиной
+    }
+
+    It 'toggle, empty, destroy and watch all refuse instead of guessing' {
+        foreach ($act in 'Invoke-PnActVault', 'Invoke-PnActEmpty', 'Invoke-PnActDestroy', 'Invoke-PnActWatch') {
+            Mock Test-PnTool { $true }
+            Mock Get-PnVaultwatchState { 'idle' }
+            $out = (& $act) -join "`n"
+            $out | Should -Match 'Refusing to guess'
+        }
+        Should -Invoke Invoke-PnTool -Times 0 -Exactly
     }
 }
 
@@ -449,6 +507,8 @@ Describe 'vault submenu dispatch — watch toggle (item 4)' {
         # Через override: Invoke-PnActWatch рефрешит $script:VAULT_VOLUME = Get-PnVaultMount,
         # а Get-PnVaultMount читает ST_VAULT_VOLUME первым — так refresh не затирает 'V:\'.
         $env:ST_VAULT_VOLUME = 'V:\'
+        # Том в таблице: иначе состояние — unknown, и watch честно откажется стартовать.
+        Mock Get-PnMountPoints { @('C:\', 'V:\') }
     }
     AfterEach { Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue }
 

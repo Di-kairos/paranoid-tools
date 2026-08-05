@@ -27,9 +27,28 @@ function Get-PtVaultContainer {
     if (-not $homeDir) { return $null }
     return (Join-Path $homeDir 'SecureVault.vhdx')
 }
+# Точки монтирования всех томов — буквы дисков И folder mount points (`C:\Vault\`).
+# Обёртка для Mock. $null = таблицу прочитать не удалось (нет CIM, отказ WMI, нет прав).
+function Get-PtMountPoints {
+    try {
+        $vols = Get-CimInstance -ClassName Win32_Volume -ErrorAction Stop
+        if ($null -eq $vols) { return $null }
+        return @($vols | ForEach-Object { $_.Name } | Where-Object { $_ })
+    } catch { return $null }
+}
 function Get-PtVaultState {
+    # open / closed / none / unknown. Спрашиваем таблицу томов, а не `Test-Path`: сейф,
+    # примонтированный в папку, оставляет её на месте после eject — трей писал бы
+    # «ОТКРЫТ — под угрозой» над закрытым сейфом (зеркало лаунчера и bash `_status_vault`).
     $m = Get-PtVaultMount
-    if ($m -and (Test-Path -LiteralPath $m)) { return 'open' }
+    if ($m) {
+        $points = Get-PtMountPoints
+        if ($null -eq $points) { return 'unknown' }
+        $needle = ([string]$m).TrimEnd('\', '/')
+        foreach ($p in $points) {
+            if ($p.TrimEnd('\', '/') -ieq $needle) { return 'open' }
+        }
+    }
     $container = Get-PtVaultContainer
     if ($container -and (Test-Path -LiteralPath $container)) { return 'closed' }
     return 'none'
@@ -50,6 +69,7 @@ function Test-PtBitLocker {
 $script:PtStrings = @{
     en = @{
         vault_label='Vault:'; vault_open_risk='OPEN — at risk'; vault_closed='closed'; vault_not_setup='not set up'
+        vault_unknown='state unknown — volume table unreadable'; vault_ask='Ask securetrash for the vault state'
         fv_label='BitLocker:'; fv_on='ON'; fv_off='off / unknown'
         status_item='Status — full read-only check'; panic_item='PANIC NOW — hide & lock'
         vault_menu='Vault'; vault_close='Close the vault'; vault_open='Open the vault'; vault_create='Create a vault'
@@ -73,6 +93,7 @@ $script:PtStrings = @{
     }
     ru = @{
         vault_label='Сейф:'; vault_open_risk='ОТКРЫТ — под риском'; vault_closed='закрыт'; vault_not_setup='не создан'
+        vault_unknown='состояние неизвестно — таблица томов недоступна'; vault_ask='Спросить securetrash о состоянии сейфа'
         fv_label='BitLocker:'; fv_on='включён'; fv_off='выкл / неизвестно'
         status_item='Статус — полная read-only проверка'; panic_item='ПАНИКА — спрятать и заблокировать'
         vault_menu='Сейф'; vault_close='Закрыть сейф'; vault_open='Открыть сейф'; vault_create='Создать сейф'
@@ -120,14 +141,17 @@ function Get-PtMenuSpec {
     param([string]$VaultState = (Get-PtVaultState),
           [string]$Lang = (Resolve-PtLang -Override ((Get-PtSettings).Language)),
           [bool]$FvOn = (Test-PtBitLocker))
-    $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } default { 'securetrash vault create' } }
-    $vaultLabel  = switch ($VaultState) { 'open' { Get-PtL 'vault_close' -Lang $Lang } 'closed' { Get-PtL 'vault_open' -Lang $Lang } default { Get-PtL 'vault_create' -Lang $Lang } }
+    # При 'unknown' пункт не обещает действия: открыть/закрыть/создать вслепую — угадывание,
+    # поэтому зовём read-only `vault status` и так и подписываем.
+    $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } 'unknown' { 'securetrash vault status' } default { 'securetrash vault create' } }
+    $vaultLabel  = switch ($VaultState) { 'open' { Get-PtL 'vault_close' -Lang $Lang } 'closed' { Get-PtL 'vault_open' -Lang $Lang } 'unknown' { Get-PtL 'vault_ask' -Lang $Lang } default { Get-PtL 'vault_create' -Lang $Lang } }
     # Empty/Destroy имеют смысл только при существующем контейнере (open|closed) — при 'none'
-    # грей-аутим, чтобы деструктив не был активен «в пустоту» (P2-7).
+    # грей-аутим, чтобы деструктив не был активен «в пустоту» (P2-7). При 'unknown' — тоже:
+    # необратимое поверх состояния, которого мы не знаем, не предлагаем.
     $hasVault = $VaultState -in @('open', 'closed')
     # Честный статус-заголовок сверху меню (P1, зеркало macOS rebuildMenu header()-строк) —
     # без них tray молчал о риске «сейф открыт»/BitLocker выключен, в отличие от macOS.
-    $vaultStatusText = switch ($VaultState) { 'open' { Get-PtL 'vault_open_risk' -Lang $Lang } 'closed' { Get-PtL 'vault_closed' -Lang $Lang } default { Get-PtL 'vault_not_setup' -Lang $Lang } }
+    $vaultStatusText = switch ($VaultState) { 'open' { Get-PtL 'vault_open_risk' -Lang $Lang } 'closed' { Get-PtL 'vault_closed' -Lang $Lang } 'unknown' { Get-PtL 'vault_unknown' -Lang $Lang } default { Get-PtL 'vault_not_setup' -Lang $Lang } }
     $fvText = if ($FvOn) { Get-PtL 'fv_on' -Lang $Lang } else { Get-PtL 'fv_off' -Lang $Lang }
     return @(
         [pscustomobject]@{ Label = ((Get-PtL 'vault_label' -Lang $Lang) + ' ' + $vaultStatusText); Command = ''; Enabled = $false }

@@ -50,6 +50,12 @@ function T {
         'en:vault_open'   { return 'OPEN' }         'ru:vault_open'   { return 'ОТКРЫТ' }
         'en:vault_closed' { return 'closed' }       'ru:vault_closed' { return 'закрыт' }
         'en:vault_none'   { return 'not set up' }    'ru:vault_none'   { return 'не создан' }
+        'en:vault_unknown' { return 'state could not be determined (volume table unreadable)' }
+        'ru:vault_unknown' { return 'состояние определить не удалось (таблица томов недоступна)' }
+        'en:vault_state_na' { return 'vault state unknown' }
+        'ru:vault_state_na' { return 'состояние сейфа неизвестно' }
+        'en:vault_unknown_act' { return 'Refusing to guess: the volume table could not be read, so the vault could be open or closed. Run "securetrash vault status" directly.' }
+        'ru:vault_unknown_act' { return 'Не гадаю: таблицу томов прочитать не удалось, сейф может быть и открыт, и закрыт. Спроси напрямую: "securetrash vault status".' }
         'en:vault_setup_hint' { return 'No vault yet — creating one (securetrash will ask for size & password).' }
         'ru:vault_setup_hint' { return 'Сейфа ещё нет — создаём (securetrash спросит размер и пароль).' }
         'en:vault_risk'   { return 'at risk while open' } 'ru:vault_risk' { return 'под угрозой, пока открыт' }
@@ -109,6 +115,8 @@ function T {
         'en:m_v_create'  { return 'Create a vault' }  'ru:m_v_create'  { return 'Создать сейф' }
         'en:m_v_open'    { return 'Open the vault' }   'ru:m_v_open'    { return 'Открыть сейф' }
         'en:m_v_close'   { return 'Close the vault' }  'ru:m_v_close'   { return 'Закрыть сейф' }
+        'en:m_v_unknown' { return 'Vault state unknown — ask securetrash' }
+        'ru:m_v_unknown' { return 'Состояние сейфа неизвестно — спросить securetrash' }
         # --- empty (= securetrash vault reset) ---
         'en:m_empty'     { return 'Empty — wipe contents, keep the vault (crypto-shred)' }
         'ru:m_empty'     { return 'Очистить — стереть содержимое, сейф оставить (crypto-shred)' }
@@ -180,10 +188,30 @@ function Get-PnVaultContainer {
     if (-not $homeDir) { return $null }
     return (Join-Path $homeDir 'SecureVault.vhdx')
 }
+# Точки монтирования всех томов — буквы дисков И folder mount points (`C:\Vault\`).
+# Обёртка для Mock. $null = таблицу прочитать не удалось (нет CIM-командлетов, отказ WMI,
+# нехватка прав) — это НЕ «ничего не смонтировано».
+function Get-PnMountPoints {
+    try {
+        $vols = Get-CimInstance -ClassName Win32_Volume -ErrorAction Stop
+        if ($null -eq $vols) { return $null }
+        return @($vols | ForEach-Object { $_.Name } | Where-Object { $_ })
+    } catch { return $null }
+}
 function Get-PnVaultState {
-    # Трёхсостоянийно: open = том примонтирован (буква из sidecar/override); closed = контейнер
-    # есть, но не смонтирован; none = контейнера ещё нет. Guard на $null/пустое (Test-Path '' кидает).
-    if ($script:VAULT_VOLUME -and (Test-Path -LiteralPath $script:VAULT_VOLUME)) { return 'open' }
+    # Четыре состояния: open = том реально в таблице томов; closed = контейнер есть, но не
+    # смонтирован; none = контейнера ещё нет; unknown = таблицу прочитать не удалось.
+    # Спрашиваем таблицу, а не `Test-Path`: сейф, примонтированный в папку, оставляет её на
+    # месте после eject, и дашборд пугал бы «ОТКРЫТ · данные под угрозой» над закрытым сейфом
+    # (зеркало bash `_status_vault`). Guard на $null/пустое (Test-Path '' кидает).
+    if ($script:VAULT_VOLUME) {
+        $points = Get-PnMountPoints
+        if ($null -eq $points) { return 'unknown' }
+        $needle = ([string]$script:VAULT_VOLUME).TrimEnd('\', '/')
+        foreach ($p in $points) {
+            if ($p.TrimEnd('\', '/') -ieq $needle) { return 'open' }
+        }
+    }
     $container = Get-PnVaultContainer
     if ($container -and (Test-Path -LiteralPath $container)) { return 'closed' }
     return 'none'
@@ -311,6 +339,10 @@ function Get-PnDashboard {
         $lines += "  $(T 'vault')      $(T 'vault_open')  ($($script:VAULT_VOLUME))   ! $(T 'vault_risk')"
     } elseif ($v -eq 'none') {
         $lines += "  $(T 'vault')      $(T 'vault_none')"
+    } elseif ($v -eq 'unknown') {
+        # Зелёное «закрыт» над открытым сейфом — худшее из возможных враньё, поэтому
+        # неизвестное состояние называется своим именем (зеркало bash-дашборда).
+        $lines += "  $(T 'vault')      $(T 'vault_unknown')"
     } else {
         $lines += "  $(T 'vault')      $(T 'vault_closed')"
     }
@@ -366,20 +398,27 @@ function Get-PnVaultMenu {
         'none'   { $lines += (Format-PnMenuItem 1 (T 'm_v_create') 'securetrash') }
         'closed' { $lines += (Format-PnMenuItem 1 (T 'm_v_open')   'securetrash') }
         'open'   { $lines += (Format-PnMenuItem 1 (T 'm_v_close')  'securetrash') }
+        # Состояние неизвестно — пункт остаётся видимым (иначе меню молча теряет строку),
+        # но обещает не действие, а честный отказ гадать.
+        'unknown' { $lines += (Format-PnMenuItem 1 (T 'm_v_unknown') 'securetrash') }
     }
-    # 2 Empty (reset) — серый при отсутствии securetrash / сейфа
+    # 2 Empty (reset) — серый при отсутствии securetrash / сейфа / неизвестном состоянии
     if (-not (Test-PnTool 'securetrash')) {
         $lines += "  2) $(T 'm_empty') ($(T 'not_installed'))"
     } elseif ($v -eq 'none') {
         $lines += "  2) $(T 'm_empty') ($(T 'empty_na'))"
+    } elseif ($v -eq 'unknown') {
+        $lines += "  2) $(T 'm_empty') ($(T 'vault_state_na'))"
     } else {
         $lines += "  2) $(T 'm_empty')"
     }
-    # 3 Destroy — серый при отсутствии securetrash / сейфа
+    # 3 Destroy — серый при отсутствии securetrash / сейфа / неизвестном состоянии
     if (-not (Test-PnTool 'securetrash')) {
         $lines += "  3) $(T 'm_destroy') ($(T 'not_installed'))"
     } elseif ($v -eq 'none') {
         $lines += "  3) $(T 'm_destroy') ($(T 'destroy_na'))"
+    } elseif ($v -eq 'unknown') {
+        $lines += "  3) $(T 'm_destroy') ($(T 'vault_state_na'))"
     } else {
         $lines += "  3) $(T 'm_destroy')"
     }
@@ -470,6 +509,7 @@ function Invoke-PnActVault {
     switch (Get-PnVaultState) {
         'open'   { Invoke-PnTool 'securetrash' @('vault', 'close') }
         'closed' { Invoke-PnTool 'securetrash' @('vault', 'open') }
+        'unknown' { Write-Output "  $(T 'vault_unknown_act')" }
         'none'   {
             Write-Output "  $(T 'vault_setup_hint')"
             $sz = Read-PnVaultSize
@@ -488,8 +528,13 @@ function Invoke-PnActDestroy {
         [Console]::Error.WriteLine((T 'install_hint' 'securetrash' (Get-PnToolRepo 'securetrash')))
         Invoke-PnPause; return
     }
-    if ((Get-PnVaultState) -eq 'none') {
+    $v = Get-PnVaultState
+    if ($v -eq 'none') {
         Write-Output "  $(T 'destroy_none')"; Invoke-PnPause; return
+    }
+    # Необратимая операция поверх состояния, которого мы не знаем, — не наш выбор.
+    if ($v -eq 'unknown') {
+        Write-Output "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
     Write-Output "  $(T 'destroy_hint')"
     Invoke-PnTool 'securetrash' @('vault', 'destroy')
@@ -503,8 +548,12 @@ function Invoke-PnActEmpty {
         [Console]::Error.WriteLine((T 'install_hint' 'securetrash' (Get-PnToolRepo 'securetrash')))
         Invoke-PnPause; return
     }
-    if ((Get-PnVaultState) -eq 'none') {
+    $v = Get-PnVaultState
+    if ($v -eq 'none') {
         Write-Output "  $(T 'empty_none')"; Invoke-PnPause; return
+    }
+    if ($v -eq 'unknown') {
+        Write-Output "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
     Write-Output "  $(T 'empty_hint')"
     $sz = Read-PnVaultSize
@@ -533,6 +582,11 @@ function Invoke-PnActWatch {
     if ((Get-PnVaultwatchState) -eq 'active') {
         Invoke-PnTool 'vaultwatch' @('stop', $script:VAULT_VOLUME)
         Invoke-PnPause; return
+    }
+    # Сторожить том, про который неизвестно, смонтирован ли он, — это сессия охраны вокруг
+    # пустого места: состояние на диске появится, а охранять будет нечего.
+    if ((Get-PnVaultState) -eq 'unknown') {
+        Write-Output "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
     $ttl = Read-PnLine "  $(T 'ask_ttl')"
     if ($ttl) { Invoke-PnTool 'vaultwatch' @('start', '--ttl', $ttl, $script:VAULT_VOLUME) }

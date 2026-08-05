@@ -34,6 +34,16 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $vault.Label   | Should -Be (Get-PtL -Key 'vault_create' -Lang 'en')
         $vault.Command | Should -Be 'securetrash vault create'
     }
+    It 'пункт сейфа: unknown → спросить securetrash, а не гадать действием' {
+        $spec = Get-PtMenuSpec -VaultState 'unknown' -Lang 'en'
+        $spec[6].Label   | Should -Be (Get-PtL -Key 'vault_ask' -Lang 'en')
+        $spec[6].Command | Should -Be 'securetrash vault status'   # read-only, ничего не меняет
+        # Необратимое поверх неизвестного состояния не предлагаем.
+        ($spec | Where-Object { $_.Label -match 'Empty' }).Enabled   | Should -BeFalse
+        ($spec | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeFalse
+        # И заголовок называет состояние своим именем, а не «closed».
+        $spec[0].Label | Should -Match 'unknown'
+    }
     It 'empty = securetrash vault reset (crypto-shred)' {
         $empty = (Get-PtMenuSpec -VaultState 'open' -Lang 'en') | Where-Object { $_.Label -match 'Empty' }
         $empty.Command | Should -Be 'securetrash vault reset'

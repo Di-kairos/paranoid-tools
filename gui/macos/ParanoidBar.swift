@@ -58,6 +58,8 @@ private let strings: [String: (en: String, ru: String)] = [
     "vault_open_risk":  ("OPEN — at risk", "ОТКРЫТ — под риском"),
     "vault_closed":     ("closed", "закрыт"),
     "vault_not_setup":  ("not set up", "не создан"),
+    "vault_unknown":    ("state unknown — volume list unreadable", "состояние неизвестно — список томов недоступен"),
+    "vault_ask":        ("Ask securetrash for the vault state", "Спросить securetrash о состоянии сейфа"),
     "fv_label":         ("FileVault:", "FileVault:"),
     "fv_on":            ("ON", "включён"),
     "fv_off":           ("off / unknown", "выкл / неизвестно"),
@@ -292,14 +294,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // --- статус (только чтение, как dashboard лаунчера) ---
     // Реально СМОНТИРОВАН, а не «путь существует» (остаток каталога /Volumes/… давал ложное OPEN, P2-10).
-    private func vaultOpen() -> Bool {
+    // Трёхсостоянийно: "open" / "closed" / "unknown". Отвечать «закрыт», когда список томов
+    // получить не удалось, нельзя: зелёное «закрыт» над открытым сейфом — худшее из возможных
+    // враньё (зеркало lib/common.sh:_volume_mounted и дашборда лаунчера). Раньше в этой ветке
+    // стоял fileExists — то есть ровно проверка каталога, от которой экосистема ушла.
+    private func vaultMountState() -> String {
         let target = URL(fileURLWithPath: vaultVolume).standardizedFileURL
         guard let vols = FileManager.default.mountedVolumeURLs(
                 includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) else {
-            return FileManager.default.fileExists(atPath: vaultVolume)   // API недоступен → старое поведение
+            return "unknown"
         }
-        return vols.contains { $0.standardizedFileURL == target }
+        return vols.contains { $0.standardizedFileURL == target } ? "open" : "closed"
     }
+    // Для глифа и уведомлений «не знаем» = «не открыт»: тревожить ⚠ и слать long_open
+    // по неизвестному состоянию не за что. Меню же обязано назвать unknown своим именем.
+    private func vaultOpen() -> Bool { vaultMountState() == "open" }
     // Контейнер сейфа. ST_VAULT_PATH — тот же override, что уважает CLI (AUDIT_2026-07-03 P0-1):
     // без него GUI показывал бы «сейфа нет» рядом с существующим кастомным сейфом.
     private var vaultPath: String {
@@ -373,7 +382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.button?.image = nil
             statusItem.button?.title = ttl != nil ? suffix.trimmingCharacters(in: .whitespaces) : (open ? "🔓⚠" : "🔒")
         }
-        let tip = open ? L("tip_open") : L("tip_closed")
+        let tip = open ? L("tip_open") : (vaultMountState() == "unknown" ? L("vault_unknown") : L("tip_closed"))
         if let t = ttl {
             statusItem.button?.toolTip = tip + (t == 0 ? " · vaultwatch " + L("ttl_expired") : " · vaultwatch " + L("auto_exit_in") + " " + fmtDuration(t))
         } else {
@@ -397,7 +406,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // --- меню ---
     private func rebuildMenu(open: Bool, sessions: [VWSession]) {
         let menu = NSMenu()
-        menu.addItem(header(L("vault_label") + "      " + (open ? L("vault_open_risk") : (vaultExists() ? L("vault_closed") : L("vault_not_setup")))))
+        let mountState = vaultMountState()
+        let vaultStatusText: String
+        if mountState == "open" { vaultStatusText = L("vault_open_risk") }
+        else if mountState == "unknown" { vaultStatusText = L("vault_unknown") }
+        else { vaultStatusText = vaultExists() ? L("vault_closed") : L("vault_not_setup") }
+        menu.addItem(header(L("vault_label") + "      " + vaultStatusText))
         menu.addItem(header(L("fv_label") + "  " + (fileVaultOn() ? L("fv_on") : L("fv_off"))))
         // Активные vaultwatch-сессии: точка монтирования + обратный отсчёт TTL (или «no TTL»).
         for s in sessions {
@@ -417,10 +431,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // сам включит пункты по наличию target (наш disable не удержится).
         let vault = NSMenu()
         vault.autoenablesItems = false
-        let hasVault = vaultExists()
-        vault.addItem(item(open ? L("vault_close") : (hasVault ? L("vault_open") : L("vault_create")), #selector(doVaultToggle)))
-        // Empty/Destroy имеют смысл только при существующем контейнере — иначе grey-out, чтобы
-        // деструктив не был активен «в пустоту» (P2-7).
+        // При unknown пункт не обещает действия: открыть/закрыть вслепую — угадывание.
+        let hasVault = vaultExists() && mountState != "unknown"
+        let toggleLabel: String
+        if mountState == "open" { toggleLabel = L("vault_close") }
+        else if mountState == "unknown" { toggleLabel = L("vault_ask") }
+        else { toggleLabel = vaultExists() ? L("vault_open") : L("vault_create") }
+        vault.addItem(item(toggleLabel, #selector(doVaultToggle)))
+        // Empty/Destroy имеют смысл только при существующем контейнере И известном состоянии —
+        // иначе grey-out, чтобы деструктив не был активен «в пустоту» (P2-7) и не шёл поверх
+        // состояния, которого мы не знаем.
         let emptyItem = item(L("vault_empty"), #selector(doVaultEmpty))
         emptyItem.isEnabled = hasVault
         vault.addItem(emptyItem)
@@ -460,7 +480,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func doStatus()        { runInTerminal("securetrash check") }
     // --hard = паритет с «PANIC NOW» лаунчера (hide&lock + cloud-демоны + recents)
     @objc private func doPanic()         { runInTerminal("panic now --hard") }
-    @objc private func doVaultToggle()   { runInTerminal("securetrash vault " + (vaultOpen() ? "close" : (vaultExists() ? "open" : "create"))) }
+    // unknown → read-only `vault status`: спрашиваем инструмент вместо того, чтобы гадать.
+    @objc private func doVaultToggle() {
+        let s = vaultMountState()
+        let verb: String
+        if s == "open" { verb = "close" }
+        else if s == "unknown" { verb = "status" }
+        else { verb = vaultExists() ? "open" : "create" }
+        runInTerminal("securetrash vault " + verb)
+    }
     @objc private func doVaultEmpty()    { runInTerminal("securetrash vault reset") }
     @objc private func doVaultDestroy()  { runInTerminal("securetrash vault destroy") }
     @objc private func doLauncher()      { runInTerminal("paranoid") }
@@ -730,6 +758,11 @@ private func runSelfTests() -> Never {
     expect(L("vault_closed", lang: "en") == "closed", "L vault_closed en")
     expect(L("vault_closed", lang: "ru") == "закрыт", "L vault_closed ru")
     expect(L("no_such_key", lang: "en") == "no_such_key", "L unknown key fallback")
+    // Неизвестное состояние сейфа обязано иметь свою строку в обеих таблицах: иначе меню
+    // молча покажет ключ вместо текста.
+    expect(L("vault_unknown", lang: "en") != "vault_unknown", "L vault_unknown en")
+    expect(L("vault_unknown", lang: "ru") != "vault_unknown", "L vault_unknown ru")
+    expect(L("vault_ask", lang: "ru") != "vault_ask", "L vault_ask ru")
     // онбординг: строка чеклиста из статуса (галка/крест + локализованный текст)
     expect(checklistLine(ok: true, okKey: "ob_cli_ok", missKey: "ob_cli_missing", lang: "en")
            == "✅ CLIs installed (all 5 tools + launcher)", "checklist ok en")
