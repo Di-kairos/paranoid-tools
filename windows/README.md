@@ -15,12 +15,17 @@ reveal nothing.
 seedsplit's wire format is identical on both builds:
 
 ```
-SSS2-<set-id>-<T>-<x>-<hexY>-<chk>
+SSS3-<set-id>-<T>-<x>-<hexY>-<parity>-<chk>
 ```
 
 Same GF(256) field (generator `0x03`, reducing polynomial `0x11b`), same integrity
-wrapper (`0x55 | len | secret | 16-byte SHA-256 tag`), same per-share checksum. A
-share file moves between macOS and Windows unchanged.
+wrapper (`0x55 | len | secret | 16-byte SHA-256 tag`), same Reed-Solomon parity field,
+same per-share checksum. A share file moves between macOS and Windows unchanged.
+
+Like the bash build, `combine` repairs **up to two mistyped bytes per share** from the
+parity field and says so after the secret has verified; shares printed by 0.4.x
+(`SSS2-…`, no parity) still combine, they simply have nothing to repair with. The
+exact limits are spelled out in [`../README.md`](../README.md).
 
 ## Install (verify-then-run)
 

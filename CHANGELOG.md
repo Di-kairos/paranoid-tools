@@ -5,7 +5,7 @@
 
 ## [Unreleased]
 
-## [0.5.0] — 2026-08-04
+## [0.5.0] — 2026-08-05
 
 ### Added
 - **Формат долей SSS3 с коррекцией опечаток.** Доля теперь несёт поле parity —
@@ -186,7 +186,8 @@
   порога, отказ при <T долях без утечки, детект порчи/чужого набора, бинарные секреты,
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
-[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Di-kairos/seedsplit/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/Di-kairos/seedsplit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Di-kairos/seedsplit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Di-kairos/seedsplit/compare/v0.3.3...v0.4.0
