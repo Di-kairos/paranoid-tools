@@ -215,3 +215,27 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"NO"* ]]
 }
+
+# Нечитаемая таблица монтирования — это «не знаем» (код 2), а не «не смонтирован»:
+# показать зелёное «закрыт» над открытым сейфом хуже, чем сказать «не определили».
+# Предикатным вызовам двойка по-прежнему читается как ложь (fail-closed).
+@test "_volume_mounted returns 2 when the mount table cannot be read" {
+  tmp="$(mktemp -d)"   # PATH без mount; bash по абсолютному пути
+  run env PATH="$tmp" /bin/bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault"
+  [ "$status" -eq 2 ]
+  run env PATH="$tmp" /bin/bash -c "source '$LIB'; if _volume_mounted /Volumes/SecretVault; then echo MOUNTED; else echo NO; fi"
+  [[ "$output" == *"NO"* ]]
+  rm -rf "$tmp"
+}
+
+@test "_volume_mounted returns 1 (not 2) when the volume is simply absent" {
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/mount" <<'EOF'
+#!/usr/bin/env bash
+echo "/dev/disk1s5 on / (apfs, local, read-only, journaled)"
+EOF
+  chmod +x "$tmp/bin/mount"
+  run env PATH="$tmp/bin:$PATH" bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault"
+  [ "$status" -eq 1 ]
+  rm -rf "$tmp"
+}
