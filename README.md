@@ -14,7 +14,7 @@ An honest watchdog for an open vault — part of the [Paranoid Tools](https://gi
 which open plaintext can leak (Spotlight, Time Machine) and **restores everything on close**.
 It runs automatically from the `securetrash vault open/close` hooks.
 
-> **Status: early (v0.1.7, work in progress).** Done: integration (hooks + vendoring),
+> **Status: early (v0.1.8, work in progress).** Done: integration (hooks + vendoring),
 > the **watchdog core `start`/`stop`** (Spotlight off, Time Machine exclude, cloud-detect,
 > session report), and **auto-exit `--ttl`** via a **launchd LaunchAgent** (a managed timer,
 > visible in `launchctl list`, cleanly removed via bootout).
@@ -52,11 +52,11 @@ the hash **before** installing. Environment variables: `VW_VERSION` (pin a speci
 > over `SHA256SUMS`: the snippet above and `install.sh` both verify it against a key
 > pinned in this repo, and the installer fails closed when it can't (see `SECURITY.md`).
 > Residual risk: one project key signs all five tools — see the ecosystem
-> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a version with `VW_VERSION=0.1.7` instead of `latest`
+> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a version with `VW_VERSION=0.1.8` instead of `latest`
 > for reproducibility.
 
-> The current public release is **v0.1.7** (signed, with `install.sh` + `SHA256SUMS`).
-> Pin it for reproducibility with `VW_VERSION=0.1.7` instead of `latest`.
+> The current public release is **v0.1.8** (signed, with `install.sh` + `SHA256SUMS`).
+> Pin it for reproducibility with `VW_VERSION=0.1.8` instead of `latest`.
 
 ## Usage
 
