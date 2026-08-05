@@ -45,6 +45,12 @@ t() {
     en:vault_open)   echo 'OPEN' ;;          ru:vault_open)   echo 'ОТКРЫТ' ;;
     en:vault_closed) echo 'closed' ;;        ru:vault_closed) echo 'закрыт' ;;
     en:vault_none)   echo 'not set up' ;;    ru:vault_none)   echo 'не создан' ;;
+    en:vault_unknown) echo 'state could not be determined (mount table unreadable)' ;;
+    ru:vault_unknown) echo 'состояние определить не удалось (таблица монтирования недоступна)' ;;
+    en:vault_state_na) echo 'vault state unknown' ;;
+    ru:vault_state_na) echo 'состояние сейфа неизвестно' ;;
+    en:vault_unknown_act) echo 'Refusing to guess: the mount table could not be read, so the vault could be open or closed. Run "securetrash vault status" directly.' ;;
+    ru:vault_unknown_act) echo 'Не гадаю: таблицу монтирования прочитать не удалось, сейф может быть и открыт, и закрыт. Спроси напрямую: "securetrash vault status".' ;;
     en:vault_setup_hint) echo 'No vault yet — creating one (securetrash will ask for size & password).' ;;
     ru:vault_setup_hint) echo 'Сейфа ещё нет — создаём (securetrash спросит размер и пароль).' ;;
     en:vault_risk)   echo 'at risk while open' ;; ru:vault_risk) echo 'под угрозой, пока открыт' ;;
@@ -123,6 +129,8 @@ t() {
     en:m_v_create)   echo 'Create a vault' ;;  ru:m_v_create)   echo 'Создать сейф' ;;
     en:m_v_open)     echo 'Open the vault' ;;   ru:m_v_open)     echo 'Открыть сейф' ;;
     en:m_v_close)    echo 'Close the vault' ;;  ru:m_v_close)    echo 'Закрыть сейф' ;;
+    en:m_v_unknown)  echo 'Vault state unknown — ask securetrash' ;;
+    ru:m_v_unknown)  echo 'Состояние сейфа неизвестно — спросить securetrash' ;;
     # --- empty (= securetrash vault reset) ---
     en:m_empty)      echo 'Empty — wipe contents, keep the vault (crypto-shred)' ;;
     ru:m_empty)      echo 'Очистить — стереть содержимое, сейф оставить (crypto-shred)' ;;
@@ -194,14 +202,41 @@ _run_tool() {
 }
 
 # --- статус для dashboard (только чтение; деградирует в unknown, не угадывает) ---
+# Том РЕАЛЬНО примонтирован? Зеркало канонической `securetrash lib/common.sh:_volume_mounted`
+# (лаунчер не вендорит common.sh — он не пользуется остальными её примитивами). Раньше здесь
+# стояла проверка `[[ -d "$VAULT_VOLUME" ]]`: каталог, оставшийся от прошлого монтирования
+# или созданный руками, читался как «ОТКРЫТ» — и дашборд лаунчера пугал пользователя
+# «сейф открыт, данные под угрозой», пока ghostdraft и GUI на тот же путь отвечали «закрыт».
+# Точку монтирования сравниваем целиком: подстрочный поиск считает `/Volumes/Foo`
+# смонтированным, когда смонтирован `/Volumes/Foo Bar`.
+# Код возврата: 0 — примонтирован, 1 — точно нет, 2 — таблицу прочитать не удалось.
+_volume_mounted() {
+  local vol="${1:-}" line mp out
+  [[ -n "$vol" ]] || return 1
+  command -v mount >/dev/null 2>&1 || return 2
+  out="$(mount 2>/dev/null)" || return 2
+  [[ -n "$out" ]] || return 2
+  while [[ "$vol" == */ && "$vol" != "/" ]]; do vol="${vol%/}"; done
+  while IFS= read -r line; do
+    [[ "$line" == *" on "* ]] || continue
+    mp="${line#* on }"
+    mp="${mp% (*}"
+    [[ "$mp" == "$vol" ]] && return 0
+  done <<<"$out"
+  return 1
+}
+
+# open / closed / none / unknown. Дашборд «деградирует в unknown, не угадывает»: если
+# таблицу монтирования прочитать не вышло, зелёное «закрыт» над открытым сейфом — худшее
+# из возможных враньё, поэтому такое состояние называется своим именем.
 _status_vault() {
-  # Открыт = том примонтирован. ASSUMPTION: на macOS hdiutil создаёт mountpoint-каталог
-  # /Volumes/SecretVault при attach и удаляет его при detach — поэтому наличие каталога
-  # эквивалентно «смонтирован». Stale-каталог (ручной mkdir) дал бы ложный «open», но это
-  # вне обычного потока securetrash vault open/close.
-  if [[ -d "$VAULT_VOLUME" ]]; then echo open
-  elif [[ -e "$VAULT_CONTAINER" ]]; then echo closed
-  else echo none; fi
+  local rc
+  _volume_mounted "$VAULT_VOLUME" && rc=0 || rc=$?
+  case "$rc" in
+    0) echo open ;;
+    2) echo unknown ;;
+    *) if [[ -e "$VAULT_CONTAINER" ]]; then echo closed; else echo none; fi ;;
+  esac
 }
 _status_filevault() {
   command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
@@ -327,6 +362,8 @@ _render() {
       "$(t vault)" "$(_dot warn)" "$(t vault_open)" "$VAULT_VOLUME" "$C_YEL" "$(t vault_risk)" "$C_RST"
   elif [[ "$v" == none ]]; then
     printf '  %s      %s %s\n' "$(t vault)" "$(_dot dim)" "$(t vault_none)"
+  elif [[ "$v" == unknown ]]; then
+    printf '  %s      %s %s\n' "$(t vault)" "$(_dot warn)" "$(t vault_unknown)"
   else
     printf '  %s      %s %s\n' "$(t vault)" "$(_dot ok)" "$(t vault_closed)"
   fi
@@ -482,6 +519,7 @@ _act_vault() {
   case "$(_status_vault)" in
     open)   _run_tool securetrash vault close ;;
     closed) _run_tool securetrash vault open ;;
+    unknown) echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}" ;;
     none)
       echo "  $(t vault_setup_hint)"
       local sz
@@ -501,8 +539,13 @@ _act_destroy() {
     echo "${C_YEL}$(t install_hint securetrash "$(_tool_repo securetrash)")${C_RST}" >&2
     _pause; return
   fi
-  if [[ "$(_status_vault)" == none ]]; then
+  local v; v="$(_status_vault)"
+  if [[ "$v" == none ]]; then
     echo "  $(t destroy_none)"; _pause; return
+  fi
+  # Необратимая операция поверх состояния, которого мы не знаем, — не наш выбор.
+  if [[ "$v" == unknown ]]; then
+    echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}"; _pause; return
   fi
   echo "  ${C_YEL}$(t destroy_hint)${C_RST}"
   _run_tool securetrash vault destroy
@@ -517,8 +560,12 @@ _act_empty() {
     echo "${C_YEL}$(t install_hint securetrash "$(_tool_repo securetrash)")${C_RST}" >&2
     _pause; return
   fi
-  if [[ "$(_status_vault)" == none ]]; then
+  local v; v="$(_status_vault)"
+  if [[ "$v" == none ]]; then
     echo "  $(t empty_none)"; _pause; return
+  fi
+  if [[ "$v" == unknown ]]; then
+    echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}"; _pause; return
   fi
   echo "  ${C_YEL}$(t empty_hint)${C_RST}"
   local sz
@@ -604,6 +651,11 @@ _act_watch() {
     _run_tool vaultwatch stop "$VAULT_VOLUME"
     _pause; return
   fi
+  # Сторожить том, про который неизвестно, смонтирован ли он, — это сессия охраны
+  # вокруг пустого места: состояние на диске появится, а охранять будет нечего.
+  if [[ "$(_status_vault)" == unknown ]]; then
+    echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}"; _pause; return
+  fi
   local ttl; read -r -p "  $(t ask_ttl) " ttl <&0 || ttl=""
   if [[ -n "$ttl" ]]; then
     # Валидируем формат тут: иначе кривой ввод даёт ошибку vaultwatch + «idle» в
@@ -630,15 +682,20 @@ _menu_vault() {
     clear 2>/dev/null || true
     printf '\n  %s%s%s\n\n' "$C_BLD" "$(t h_vault)" "$C_RST"
     case "$v" in
-      none)   _menu_item 1 "$(t m_v_create)" securetrash ;;
-      closed) _menu_item 1 "$(t m_v_open)"   securetrash ;;
-      open)   _menu_item 1 "$(t m_v_close)"  securetrash ;;
+      none)    _menu_item 1 "$(t m_v_create)"  securetrash ;;
+      closed)  _menu_item 1 "$(t m_v_open)"    securetrash ;;
+      open)    _menu_item 1 "$(t m_v_close)"   securetrash ;;
+      # Состояние неизвестно — пункт остаётся видимым (иначе меню молча теряет строку),
+      # но обещает не действие, а честный отказ гадать.
+      unknown) _menu_item 1 "$(t m_v_unknown)" securetrash ;;
     esac
     # 2 Empty (reset) — серый при отсутствии securetrash / сейфа
     if ! _tool_installed securetrash; then
       printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_empty)" "$(t not_installed)" "$C_RST"
     elif [[ "$v" == none ]]; then
       printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_empty)" "$(t empty_na)" "$C_RST"
+    elif [[ "$v" == unknown ]]; then
+      printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_empty)" "$(t vault_state_na)" "$C_RST"
     else
       printf '  2) %s\n' "$(t m_empty)"
     fi
@@ -647,6 +704,8 @@ _menu_vault() {
       printf '  %s3) 💣 %s (%s)%s\n' "$C_DIM" "$(t m_destroy)" "$(t not_installed)" "$C_RST"
     elif [[ "$v" == none ]]; then
       printf '  %s3) 💣 %s (%s)%s\n' "$C_DIM" "$(t m_destroy)" "$(t destroy_na)" "$C_RST"
+    elif [[ "$v" == unknown ]]; then
+      printf '  %s3) 💣 %s (%s)%s\n' "$C_DIM" "$(t m_destroy)" "$(t vault_state_na)" "$C_RST"
     else
       printf '  3) 💣 %s\n' "$(t m_destroy)"
     fi

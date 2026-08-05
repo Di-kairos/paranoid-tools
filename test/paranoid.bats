@@ -25,8 +25,30 @@ setup() {
     _make_stub "$t"
   done
 
+  # Таблица монтирования под контролем теста: «сейф открыт» = том есть в выводе `mount`,
+  # а не «каталог существует» (см. _volume_mounted в лаунчере).
+  # Корень в таблице есть всегда — пустой вывод `mount` означал бы «прочитать не смогли».
+  MOUNTS="$TMP/mounts"
+  printf '/dev/disk1s5 on / (apfs, local, read-only, journaled)\n' >"$MOUNTS"
+  cat >"$STUBS/mount" <<EOF
+#!/usr/bin/env bash
+cat "$MOUNTS"
+EOF
+  chmod +x "$STUBS/mount"
+
   unset ST_LANG ST_LOCALE
   export ST_LOCALE=en   # детерминированный chrome по умолчанию (en)
+}
+
+# Объявить том примонтированным для стаба `mount`.
+_mark_mounted() {
+  printf '/dev/disk9s1 on %s (apfs, local, nodev, nosuid, journaled, nobrowse)\n' "$1" >>"$MOUNTS"
+}
+
+# Сломать чтение таблицы монтирования (mount возвращает ненулевой код).
+_break_mount() {
+  printf '#!/usr/bin/env bash\nexit 1\n' >"$STUBS/mount"
+  chmod +x "$STUBS/mount"
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -162,7 +184,7 @@ run_paranoid() {
 }
 
 @test "vault submenu: open -> dispatches 'securetrash vault close'" {
-  mkdir -p "$TMP/vault"
+  mkdir -p "$TMP/vault"; _mark_mounted "$TMP/vault"
   run_paranoid $'3\n1\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault close" "$LOG"
@@ -621,4 +643,68 @@ _make_fake_clone() {
   grep -q "INSTALLER RAN" "$LOG"
   # успех установщика не должен выдаваться за «всё свежее»
   [[ "$output" == *"clone itself was not updated"* ]]
+}
+
+# Структурный P3: остаточный каталог /Volumes/… — НЕ открытый сейф. Раньше лаунчер
+# считал «каталог существует» = «смонтирован» и показывал «ОТКРЫТ · под угрозой»,
+# пока ghostdraft и GUI на тот же путь честно отвечали «закрыт»: три реализации
+# детекта, три разных ответа. Теперь ответ один — таблица монтирования.
+@test "a leftover volume directory is not reported as an open vault" {
+  mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"   # каталог есть, в mount его нет
+  run_paranoid $'0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"OPEN"* ]]
+  [[ "$output" == *"closed"* ]]
+}
+
+# И обратное: том в таблице монтирования — открытый сейф, даже если контейнера нет
+# на привычном месте (сейф мог быть открыт с кастомным путём).
+@test "a mounted volume is reported as an open vault" {
+  mkdir -p "$TMP/vault"; _mark_mounted "$TMP/vault"
+  run_paranoid $'0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OPEN"* ]]
+}
+
+# Нечитаемая таблица монтирования — не «закрыт». Зелёное «закрыт» над реально открытым
+# сейфом опаснее честного «не определили»: пользователь решит, что данные уже зашифрованы.
+@test "an unreadable mount table is reported as unknown, not as closed" {
+  _break_mount   # mount падает → _volume_mounted отдаёт код 2
+  mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
+  run_paranoid $'0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"could not be determined"* ]]
+  [[ "$output" != *"OPEN"* ]]
+}
+
+# И лаунчер не гадает действием: пункт 1 подменю не диспатчит ни open, ни close.
+@test "the vault submenu refuses to guess while the state is unknown" {
+  _break_mount
+  mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
+  run_paranoid $'3\n1\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  [ "$status" -eq 0 ]
+  ! grep -q "vault open" "$LOG"
+  ! grep -q "vault close" "$LOG"
+  [[ "$output" == *"Refusing to guess"* ]]
+}
+
+# Ревью Codex: unknown не должен просачиваться в НЕОБРАТИМЫЕ действия подменю.
+@test "empty and destroy refuse to run while the vault state is unknown" {
+  _break_mount
+  mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  [ "$status" -eq 0 ]
+  ! grep -q "vault reset" "$LOG"
+  run_paranoid $'3\n3\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  [ "$status" -eq 0 ]
+  ! grep -q "vault destroy" "$LOG"
+}
+
+# Охрана вокруг тома, про который неизвестно, смонтирован ли он, — сессия вокруг пустого места.
+@test "watch refuses to start while the vault state is unknown" {
+  _break_mount
+  mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
+  run_paranoid $'3\n4\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  [ "$status" -eq 0 ]
+  ! grep -q "vaultwatch start" "$LOG"
 }
