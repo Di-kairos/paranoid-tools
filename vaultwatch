@@ -10,7 +10,7 @@
 # (см. README «Scope & limitations»). Полное ядро — в последующих паках.
 set -euo pipefail
 
-VERSION="0.1.8"
+VERSION="0.1.9"
 
 # === BEGIN vendored common (pin: 221f2c7fbed10a220b832aab9264e6665581b514) ===
 # shellcheck shell=bash

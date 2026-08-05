@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-08-05
+
+### Changed
+- **Перевендорен `securetrash/lib/common.sh`** (пин `221f2c7`). Библиотека получила единый
+  на всю экосистему ответ на вопрос «том примонтирован?» (`_volume_mounted` — читает
+  таблицу монтирования, а не наличие каталога) и tri-state FileVault (`_fv_state`:
+  on/off/**unknown**; `filevault_on` стал его двоичной обёрткой). Поведение самого
+  vaultwatch не меняется — он ни одну из этих функций пока не вызывает; синхронизация
+  нужна, чтобы вендоренный блок не разъезжался с каноном.
+
 ## [0.1.8] — 2026-08-05
 
 ### Added
@@ -170,7 +180,8 @@
 - Real-device smoke на macOS: start/stop/`--ttl` на живом sparsebundle, launchd
   bootstrap/bootout-цикл, plist валиден (`plutil -lint`).
 
-[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.5...v0.1.6
