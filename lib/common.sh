@@ -9,11 +9,13 @@
 #
 # Даёт tool-агностичные примитивы: локаль (ST_LOCALE), цветной вывод (info/warn/err),
 # подтверждение (confirm), детект платформы macOS (require_macos/is_ssd/_disk_kind/
-# filevault_on), канонизацию пути (_abspath). Своя i18n-таблица — у каждого инструмента.
+# _fv_state/filevault_on), детект примонтированного тома (_volume_mounted), канонизацию
+# пути (_abspath). Своя i18n-таблица — у каждого инструмента.
 #
 # ВЕНДОРИНГ — зарезервированные имена (не переопределять в host-скрипте): функции
-# info warn err confirm require_macos is_ssd _disk_kind filevault_on _abspath
-# _st_detect_locale; переменные ST_LOCALE C_RED C_GRN C_YEL C_RST _ST_COMMON_LOADED.
+# info warn err confirm require_macos is_ssd _disk_kind _fv_state filevault_on
+# _volume_mounted _abspath _st_detect_locale; переменные ST_LOCALE C_RED C_GRN C_YEL
+# C_RST _ST_COMMON_LOADED.
 
 # Идемпотентность через if-обёртку (а не top-level return): безопасно при source,
 # исполнении и inline-вставке. Определения функций внутри if регистрируются глобально.
@@ -84,9 +86,52 @@ if [[ -z "${_ST_COMMON_LOADED:-}" ]]; then
     else echo unknown; fi
   }
 
-  # FileVault включён? (fdesetup status: "FileVault is On.")
+  # Состояние FileVault — tri-state: on / off / unknown. Отличать «выключен» от
+  # «не смогли определить» обязательно: инструмент, который печатает «ВЫКЛЮЧЕН» на
+  # отсутствующий fdesetup, врёт пользователю о его защите.
+  #
+  # Вывод захватываем в переменную и матчим here-string, а НЕ через прямой пайп
+  # `fdesetup ... | grep -q`: под `set -o pipefail` такой пайп ложно «падает» — grep -q
+  # закрывает канал на первом совпадении, источник получает SIGPIPE (141), и pipefail
+  # делает весь конвейер ненулевым (ложный unknown).
+  _fv_state() {
+    command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
+    local s; s="$(fdesetup status 2>/dev/null)"
+    if   grep -qi "FileVault is On"  <<<"$s"; then echo on
+    elif grep -qi "FileVault is Off" <<<"$s"; then echo off
+    else echo unknown; fi
+  }
+
+  # FileVault включён? Двоичная обёртка над _fv_state для мест, где «не определили»
+  # безопасно трактовать как «не включён» (fail-closed).
   filevault_on() {
-    fdesetup status 2>/dev/null | grep -qi "FileVault is On"
+    [[ "$(_fv_state)" == on ]]
+  }
+
+  # Том РЕАЛЬНО примонтирован по этому пути? Единственный ответ на этот вопрос в
+  # экосистеме — раньше их было три: `[[ -d ]]` (лаунчер), `mount | grep` (ghostdraft),
+  # mountedVolumeURLs (GUI), и на остаточном каталоге /Volumes/… они расходились:
+  # каталог, оставшийся от прошлого монтирования (или созданный руками), читался как
+  # «ОТКРЫТ». Проверяем таблицу монтирования, а не наличие каталога.
+  #
+  # Разбираем строку `mount` целиком и сравниваем точку монтирования ЦЕЛИКОМ, а не
+  # ищем подстроку: `grep -F " on /Volumes/Foo "` считает смонтированным `/Volumes/Foo`,
+  # когда на деле смонтирован `/Volumes/Foo Bar` — пробел внутри имени тома выглядит
+  # как разделитель перед опциями (нашёл Codex). Формат строки на macOS:
+  #   /dev/diskNsM on /Volumes/Имя тома (apfs, local, nobrowse)
+  # Имя тома может содержать и пробелы, и `(`, поэтому опции срезаем КОРОТЧАЙШИМ
+  # суффиксом ` (*` — у тома `/Volumes/Foo (1)` останется именно `/Volumes/Foo (1)`.
+  _volume_mounted() {
+    local vol="${1:-}" line mp
+    [[ -n "$vol" ]] || return 1
+    while [[ "$vol" == */ && "$vol" != "/" ]]; do vol="${vol%/}"; done
+    while IFS= read -r line; do
+      [[ "$line" == *" on "* ]] || continue
+      mp="${line#* on }"
+      mp="${mp% (*}"
+      [[ "$mp" == "$vol" ]] && return 0
+    done < <(mount 2>/dev/null)
+    return 1
   }
 
   # --- path ---

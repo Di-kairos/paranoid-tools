@@ -298,20 +298,22 @@ _disk_kind() {
   fi
 }
 
-# FileVault включён? (fdesetup status: "FileVault is On.")
-filevault_on() {
-  fdesetup status 2>/dev/null | grep -qi "FileVault is On"
-}
-
 # Tri-state FileVault: on / off / unknown. Отличает «выключено» от «не смогли определить»
 # (fdesetup недоступен / непонятный вывод), чтобы `check` не выдавал ложное «ВЫКЛЮЧЕН», когда
-# статус на деле неизвестен. Та же логика, что у дашборда лаунчера (paranoid:_status_filevault),
-# — иначе дашборд и `check` расходились: один «неизвестно», другой «OFF».
+# статус на деле неизвестен. Зеркало канонической `lib/common.sh:_fv_state` — securetrash
+# предшествует библиотеке и не потребляет её, поэтому копия держится синхронной вручную.
 _fv_state() {
+  command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
   local s; s="$(fdesetup status 2>/dev/null)"
   if   grep -qi "FileVault is On"  <<<"$s"; then echo on
   elif grep -qi "FileVault is Off" <<<"$s"; then echo off
   else echo unknown; fi
+}
+
+# FileVault включён? Двоичная обёртка над _fv_state для мест, где «не определили»
+# безопасно трактовать как «не включён» (fail-closed).
+filevault_on() {
+  [[ "$(_fv_state)" == on ]]
 }
 
 require_macos() {
