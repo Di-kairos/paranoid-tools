@@ -113,6 +113,8 @@ function T {
         'ru:rep_search_on' { return "  Windows Search:  индексация снова включена для $A" }
         'en:rep_search_keep' { return '  Windows Search:  was already excluded before session — left as-is' }
         'ru:rep_search_keep' { return '  Windows Search:  было исключено до сессии — оставлено как есть' }
+        'en:rep_search_na' { return '  Windows Search:  NOT re-enabled — the volume is not mounted. NotContentIndexed lives on the volume itself: mount it and run "vaultwatch stop" to bring indexing back.' }
+        'ru:rep_search_na' { return '  Windows Search:  НЕ включена обратно — том не смонтирован. NotContentIndexed живёт на самом томе: смонтируй его и выполни "vaultwatch stop", чтобы вернуть индексацию.' }
         'en:rep_cloud_none' { return '  cloud daemons:   none active' }
         'ru:rep_cloud_none' { return '  cloud daemons:   активных нет' }
         'en:rep_snap_none' { return '  VSS shadows:     none observed (vssadmin list shadows)' }
@@ -563,8 +565,10 @@ function Invoke-VwStop {
 
     # Восстановить РОВНО изменённое.
     $restoreOk = $true
+    $searchNa = $false
     if ($searchSet -eq '1') {
         if (Test-VwVaultGone -Mount $mount) {
+            $searchNa = $true   # включать нечего — но и «включили» писать нельзя (см. отчёт ниже)
             # Том уже размонтирован (напр. Explorer-eject → guard вызвал stop) — индексировать
             # НЕЧЕГО, restore N/A, это НЕ ошибка (зеркало bash). Иначе stale state-файл
             # навсегда блокировал следующий start: guard уже снят, а сессия «висит»
@@ -580,8 +584,11 @@ function Invoke-VwStop {
     $dur = [int]((Get-VwNow) - $started)
     Write-Output (T 'rep_header')
     Write-Output (T 'rep_duration' (Format-VwDuration $dur))
-    if ($searchSet -eq '1') { Write-Output (T 'rep_search_on' $mount) }
-    else { Write-Output (T 'rep_search_keep') }
+    # «Включили обратно» — только если правда включили. Атрибут пережил бы перемонтирование
+    # тома, поэтому про несмонтированный том отчёт говорит прямо, что индексация всё ещё выключена.
+    if ($searchSet -ne '1') { Write-Output (T 'rep_search_keep') }
+    elseif ($searchNa) { Write-Output (T 'rep_search_na') }
+    else { Write-Output (T 'rep_search_on' $mount) }
     $cloud = @(Get-VwCloudLines -Mount $mount)
     if ($cloud.Count -gt 0) {
         foreach ($c in $cloud) { Write-Output "  cloud daemons:   $($c.Text)" }

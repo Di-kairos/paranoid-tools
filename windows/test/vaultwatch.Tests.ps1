@@ -180,6 +180,19 @@ Describe 'stop — restores and reports' {
         (Test-Path -LiteralPath $sf) | Should -BeFalse          # сессия закрыта, а не подвисла
     }
 
+    It 'does not claim it re-enabled indexing on a volume that is not mounted' {
+        # NotContentIndexed остался на самом томе и переживёт перемонтирование — «включено
+        # обратно» было бы ложью о состоянии, которое пользователь не может увидеть сам.
+        $resolved = (Resolve-Path $script:Mount).Path
+        $sf = Get-VwStateFile -Mount $resolved
+        Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Mock Get-VwMountPoints { @('C:\') }
+        $out = (Invoke-VwStop -ArgList @($resolved)) -join "`n"
+        $out | Should -Not -Match 'indexing re-enabled'
+        $out | Should -Match 'NOT re-enabled'
+        $out | Should -Match 'vaultwatch stop'
+    }
+
     It 'keeps the session when the volume table cannot be read' {
         # «Не знаем, смонтирован ли» → пробуем восстановить и честно падаем, а не молча чистим.
         $resolved = (Resolve-Path $script:Mount).Path

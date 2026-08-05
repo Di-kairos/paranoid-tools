@@ -289,6 +289,8 @@ EOF
     ru:rep_spot_on)      printf '  Spotlight:       индексация снова включена для %s' "$1" ;;
     en:rep_spot_keep)    echo '  Spotlight:       was already OFF before session — left OFF' ;;
     ru:rep_spot_keep)    echo '  Spotlight:       была выключена до сессии — оставлена OFF' ;;
+    en:rep_spot_na)      echo '  Spotlight:       NOT re-enabled — the volume is not mounted. The setting lives on the volume itself: mount it and run "vaultwatch stop" to turn indexing back on.' ;;
+    ru:rep_spot_na)      echo '  Spotlight:       НЕ включена обратно — том не смонтирован. Настройка живёт на самом томе: смонтируй его и выполни "vaultwatch stop", чтобы вернуть индексацию.' ;;
     en:rep_tm_removed)   echo '  Time Machine:    exclusion removed (added by this session)' ;;
     ru:rep_tm_removed)   echo '  Time Machine:    исключение снято (добавляла эта сессия)' ;;
     en:rep_tm_keep)      echo '  Time Machine:    was already excluded before session — left as-is' ;;
@@ -695,12 +697,15 @@ cmd_stop() {
 
   # Восстанавливаем РОВНО то, что меняли. Проверяем результат: если не удалось —
   # сохраняем state file для повторного восстановления после перемонтирования vault.
-  local restore_ok=1
+  local restore_ok=1 spot_na=0
   if [[ "$spot_was" == "enabled" ]]; then
     if _vault_gone "$mount"; then
-      : # том размонтирован (напр. Finder-eject + guard) — индексировать НЕЧЕГО, restore N/A,
-        # это НЕ ошибка: настройка Spotlight относится к несмонтированному тому. Чистим сессию.
-        # Остаточный каталог на месте тома сюда же: индексировать в нём тоже нечего.
+      # Том размонтирован (напр. Finder-eject + guard) — включать индексацию не по чему,
+      # restore N/A, и это НЕ ошибка: сессию чистим, иначе stale state-файл навсегда
+      # блокировал бы следующий start. Остаточный каталог на месте тома — сюда же.
+      # Но и «включили обратно» тут писать нельзя: настройка осталась на самом томе и
+      # переживёт перемонтирование, поэтому отчёт обязан сказать это прямым текстом.
+      spot_na=1
     elif ! mdutil -i on "$mount" >/dev/null 2>&1; then
       warn "$(t restore_spot_fail "$mount")"
       restore_ok=0
@@ -714,8 +719,9 @@ cmd_stop() {
   local now dur; now="$(date +%s)"; dur=$((now - started))
   printf '%s\n' "$(t rep_header)"
   printf '%s\n' "$(t rep_duration "$(_fmt_duration "$dur")")"
-  if [[ "$spot_was" == "enabled" ]]; then printf '%s\n' "$(t rep_spot_on "$mount")"
-  else printf '%s\n' "$(t rep_spot_keep)"; fi
+  if [[ "$spot_was" != "enabled" ]]; then printf '%s\n' "$(t rep_spot_keep)"
+  elif [[ "$spot_na" == "1" ]]; then printf '%s\n' "$(t rep_spot_na)"
+  else printf '%s\n' "$(t rep_spot_on "$mount")"; fi
   if [[ "$tm_added" == "1" ]]; then printf '%s\n' "$(t rep_tm_removed)"
   else printf '%s\n' "$(t rep_tm_keep)"; fi
   local cloud ln; cloud="$(_cloud_lines "$mount" | cut -f2-)"

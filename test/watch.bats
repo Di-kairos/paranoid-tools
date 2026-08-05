@@ -193,6 +193,18 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]    # сессия закрыта, а не подвисла
 }
 
+@test "stop does not claim it re-enabled indexing on a volume that is not mounted" {
+  # Настройка Spotlight осталась на самом томе и переживёт перемонтирование — отчёт,
+  # рапортующий «индексация снова включена», прямо врёт пользователю о его состоянии.
+  STUB_SPOTLIGHT=enabled bash "$SCRIPT" start "$MOUNT" >/dev/null
+  : >"$STUB_MOUNTS"
+  run_vw stop "$MOUNT"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"indexing re-enabled"* ]]
+  [[ "$output" == *"NOT re-enabled"* ]]
+  [[ "$output" == *"vaultwatch stop"* ]]   # сказано, как всё-таки вернуть индексацию
+}
+
 @test "stop keeps the session when the mount table cannot be read" {
   # «Не знаем, смонтирован ли» → пробуем восстановить и честно падаем, а не молча чистим.
   STUB_SPOTLIGHT=enabled bash "$SCRIPT" start "$MOUNT" >/dev/null
