@@ -106,6 +106,8 @@ Describe 'stop — restores and reports' {
         Mock Get-VwCloudLines     { @() }
         Mock Unregister-VwTtlTask { }
         Mock Unregister-VwGuardTask { }
+        # Таблица томов под контролем теста: «том на месте» = он в ней есть, а не «папка есть».
+        Mock Get-VwMountPoints { @('C:\', ((Resolve-Path $script:Mount).Path + '\')) }
     }
     AfterEach {
         Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue
@@ -156,10 +158,61 @@ Describe 'stop — restores and reports' {
         $resolved = (Resolve-Path $script:Mount).Path
         $sf = Get-VwStateFile -Mount $resolved
         Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Mock Get-VwMountPoints { @('C:\') }                     # том ушёл из таблицы
         Remove-Item -LiteralPath $script:Mount -Recurse -Force   # том «изъят» до stop
         Invoke-VwStop -ArgList @($resolved) | Out-Null
         Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly
         (Test-Path -LiteralPath $sf) | Should -BeFalse
+    }
+
+    # Сейф, примонтированный в ПАПКУ: после eject папка остаётся. `Test-Path` считал такой
+    # сейф открытым — stop дёргал снятие NotContentIndexed на пустой папке, ловил отказ
+    # и навсегда оставлял сессию, блокируя следующий start.
+    It 'eject leaves the folder mountpoint behind -> still restore N/A, state cleared' {
+        $resolved = (Resolve-Path $script:Mount).Path
+        $sf = Get-VwStateFile -Mount $resolved
+        Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Mock Get-VwMountPoints    { @('C:\') }      # тома нет...
+        Mock Enable-VwSearchIndex { $false }        # ...а на папке снятие атрибута провалилось бы
+        Invoke-VwStop -ArgList @($resolved) | Out-Null
+        (Test-Path -LiteralPath $resolved) | Should -BeTrue     # папка на месте
+        Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly
+        (Test-Path -LiteralPath $sf) | Should -BeFalse          # сессия закрыта, а не подвисла
+    }
+
+    It 'keeps the session when the volume table cannot be read' {
+        # «Не знаем, смонтирован ли» → пробуем восстановить и честно падаем, а не молча чистим.
+        $resolved = (Resolve-Path $script:Mount).Path
+        $sf = Get-VwStateFile -Mount $resolved
+        Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Mock Get-VwMountPoints    { $null }
+        Mock Enable-VwSearchIndex { $false }
+        { Invoke-VwStop -ArgList @($resolved) 6>$null } | Should -Throw -ExceptionType ([VwExit])
+        (Test-Path -LiteralPath $sf) | Should -BeTrue
+    }
+}
+
+Describe 'Test-VwVaultGone — the volume table, not the folder' {
+    It 'a mounted volume is not gone (trailing backslash and case do not matter)' {
+        Mock Get-VwMountPoints { @('C:\', 'C:\Vault\') }
+        Test-VwVaultGone -Mount 'C:\Vault'  | Should -BeFalse
+        Test-VwVaultGone -Mount 'C:\vault\' | Should -BeFalse
+    }
+
+    It 'a folder that is no longer a mountpoint is gone' {
+        Mock Get-VwMountPoints { @('C:\') }
+        Test-VwVaultGone -Mount 'C:\Vault' | Should -BeTrue
+    }
+
+    It 'a neighbouring volume with a longer name is not the vault' {
+        # Ровно та ошибка, что была в bash: подстрока вместо целой точки монтирования.
+        Mock Get-VwMountPoints { @('C:\', 'C:\Vault Backup\') }
+        Test-VwVaultGone -Mount 'C:\Vault' | Should -BeTrue
+    }
+
+    It 'an unreadable volume table means "may still be open", not "gone"' {
+        Mock Get-VwMountPoints { $null }
+        Test-VwVaultGone -Mount 'C:\Vault' | Should -BeFalse
     }
 }
 
@@ -184,8 +237,8 @@ Describe '_ttl_fire — auto-exit' {
 
     It 'dismounts when not busy, then runs stop' {
         Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=60', 'ttl_force=0')
-        Mock Test-VwMountBusy { $false }
-        Mock Test-VwMounted   { $false }
+        Mock Test-VwMountBusy  { $false }
+        Mock Get-VwMountPoints { @('C:\') }        # dismount сработал — тома в таблице нет
         Invoke-VwTtlFire -ArgList @($script:Mount) | Out-Null
         Should -Invoke Invoke-VwDismount -Times 1 -Exactly
         (Test-Path -LiteralPath $script:Sf) | Should -BeFalse   # stop очистил state
@@ -197,6 +250,25 @@ Describe '_ttl_fire — auto-exit' {
         Invoke-VwTtlFire -ArgList @($script:Mount) | Out-Null
         Should -Invoke Invoke-VwDismount -Times 0 -Exactly
         (Test-Path -LiteralPath $script:Sf) | Should -BeTrue    # сессия сохранена
+    }
+
+    It 'does not call a successful dismount a failure over a leftover folder' {
+        # Тома в таблице нет, папка-mountpoint осталась: старая проверка `Test-Path`
+        # объявила бы «dismount не удался, сейф может быть открыт» — и это была бы ложь.
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=60', 'ttl_force=0')
+        Mock Test-VwMountBusy  { $false }
+        Mock Get-VwMountPoints { @('C:\') }
+        Invoke-VwTtlFire -ArgList @($script:Mount) | Out-Null
+        (Test-Path -LiteralPath $script:Mount) | Should -BeTrue   # папка на месте
+        (Test-Path -LiteralPath $script:Sf) | Should -BeFalse     # сессия всё равно закрыта
+    }
+
+    It 'keeps the session when the volume table cannot be read after dismount' {
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=60', 'ttl_force=0')
+        Mock Test-VwMountBusy  { $false }
+        Mock Get-VwMountPoints { $null }
+        { Invoke-VwTtlFire -ArgList @($script:Mount) 6>$null } | Should -Throw -ExceptionType ([VwExit])
+        (Test-Path -LiteralPath $script:Sf) | Should -BeTrue
     }
 }
 
@@ -269,7 +341,7 @@ Describe 'unmount-guard _guard_fire — restore только если том и�
 
     It 'is a no-op while the mount still exists (fired on a write, not an eject)' {
         Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
-        Mock Test-VwMounted { $true }
+        Mock Get-VwMountPoints { @('C:\', ((Resolve-Path $script:Mount).Path + '\')) }
         Invoke-VwGuardFire -ArgList @($script:Mount) | Out-Null
         Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly   # ничего не восстанавливаем
         (Test-Path -LiteralPath $script:Sf) | Should -BeTrue    # сессия на месте
@@ -277,14 +349,31 @@ Describe 'unmount-guard _guard_fire — restore только если том и�
 
     It 'restores and clears the session when the mount is gone (eject past stop)' {
         Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
-        Mock Test-VwMounted { $false }
+        Mock Get-VwMountPoints { @('C:\') }
         Invoke-VwGuardFire -ArgList @($script:Mount) | Out-Null
-        Should -Invoke Enable-VwSearchIndex -Times 1 -Exactly   # restore прошёл
         (Test-Path -LiteralPath $script:Sf) | Should -BeFalse   # сессия снята
     }
 
+    It 'restores when the volume is gone but its folder is left behind' {
+        # Главный кейс folder-mountpoint: папка на месте, тома нет. Со старой проверкой
+        # `Test-Path` guard молчал — и NotContentIndexed не снимался никогда.
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Mock Get-VwMountPoints { @('C:\') }
+        Invoke-VwGuardFire -ArgList @($script:Mount) | Out-Null
+        (Test-Path -LiteralPath $script:Mount) | Should -BeTrue
+        (Test-Path -LiteralPath $script:Sf) | Should -BeFalse
+    }
+
+    It 'keeps the exclusion while the volume table cannot be read' {
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
+        Mock Get-VwMountPoints { $null }
+        Invoke-VwGuardFire -ArgList @($script:Mount) | Out-Null
+        Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly   # вслепую не восстанавливаем
+        (Test-Path -LiteralPath $script:Sf) | Should -BeTrue
+    }
+
     It 'with no session is a quiet success' {
-        Mock Test-VwMounted { $false }
+        Mock Get-VwMountPoints { @('C:\') }
         { Invoke-VwGuardFire -ArgList @($script:Mount) } | Should -Not -Throw
     }
 }

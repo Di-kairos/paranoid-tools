@@ -349,8 +349,35 @@ function Invoke-VwDismount {
     } catch { return $false }
 }
 
-# Том всё ещё примонтирован/доступен?
-function Test-VwMounted { param([string]$Mount) return (Test-Path -LiteralPath $Mount) }
+# Точки монтирования всех томов — буквы дисков И folder mount points (`C:\Vault\`).
+# Обёртка для Mock. $null означает «таблицу прочитать не удалось»: нет CIM-командлетов
+# (не-Windows прогон тестов), отказ WMI или нехватка прав — это НЕ «ничего не смонтировано».
+function Get-VwMountPoints {
+    try {
+        $vols = Get-CimInstance -ClassName Win32_Volume -ErrorAction Stop
+        if ($null -eq $vols) { return $null }
+        return @($vols | ForEach-Object { $_.Name } | Where-Object { $_ })
+    } catch { return $null }
+}
+
+# Том ТОЧНО исчез? Спрашиваем таблицу томов, а не наличие каталога: сейф, примонтированный
+# в папку (`C:\Vault`), после eject оставляет саму папку на месте, и `Test-Path` считал такой
+# сейф открытым. Цена ошибки максимальная: guard молчал, и NotContentIndexed не снимался
+# НИКОГДА, а сессия висела, блокируя следующий start (зеркало bash `_vault_gone`).
+#
+# «Не смогли прочитать» трактуем как «может быть открыт»: снимать защиту с тома, про
+# который мы не знаем, нельзя.
+function Test-VwVaultGone {
+    param([string]$Mount)
+    if (-not $Mount) { return $false }
+    $points = Get-VwMountPoints
+    if ($null -eq $points) { return $false }
+    $needle = $Mount.TrimEnd('\', '/')
+    foreach ($p in $points) {
+        if ($p.TrimEnd('\', '/') -ieq $needle) { return $false }
+    }
+    return $true
+}
 
 # === state helpers ===
 
@@ -537,15 +564,15 @@ function Invoke-VwStop {
     # Восстановить РОВНО изменённое.
     $restoreOk = $true
     if ($searchSet -eq '1') {
-        if (-not (Test-Path -LiteralPath $mount)) {
+        if (Test-VwVaultGone -Mount $mount) {
             # Том уже размонтирован (напр. Explorer-eject → guard вызвал stop) — индексировать
             # НЕЧЕГО, restore N/A, это НЕ ошибка (зеркало bash). Иначе stale state-файл
             # навсегда блокировал следующий start: guard уже снят, а сессия «висит»
-            # (AUDIT_2026-08-03 P0-4).
+            # (AUDIT_2026-08-03 P0-4). Оставшаяся после eject папка-mountpoint — сюда же.
         } elseif (-not (Enable-VwSearchIndex -Path $mount)) {
-            # TOCTOU: том мог исчезнуть МЕЖДУ Test-Path и Enable — перепроверяем; исчез →
+            # TOCTOU: том мог исчезнуть МЕЖДУ проверкой и Enable — перепроверяем; исчез →
             # та же ветка N/A, иначе честный провал restore (Codex review P0-4).
-            if (Test-Path -LiteralPath $mount) { $restoreOk = $false }
+            if (-not (Test-VwVaultGone -Mount $mount)) { $restoreOk = $false }
         }
     }
 
@@ -594,7 +621,7 @@ function Invoke-VwTtlFire {
         Invoke-VwDismount -Mount $mount -Force $false | Out-Null
     }
 
-    if (Test-VwMounted -Mount $mount) {
+    if (-not (Test-VwVaultGone -Mount $mount)) {
         Write-VwWarn (T 'ttl_detach_fail' $mount); Stop-VwCommand 1
     }
     Invoke-VwStop -ArgList @($mount)
@@ -606,7 +633,7 @@ function Invoke-VwGuardFire {
     param([string[]]$ArgList)
     $raw = [string]$ArgList[0]; if (-not $raw) { return }
     $mount = Resolve-VwMount -Raw $raw -MustExist $false
-    if (Test-VwMounted -Mount $mount) { return }   # том на месте → поллинг дёрнулся зря, no-op
+    if (-not (Test-VwVaultGone -Mount $mount)) { return }   # том на месте (или не знаем) → no-op
     Invoke-VwStop -ArgList @($mount)                # том исчез → restore + чистка сессии (+ снятие guard)
 }
 

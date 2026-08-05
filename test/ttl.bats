@@ -15,6 +15,9 @@ setup() {
   export ST_ASSUME_YES=1
   export VW_NO_SPAWN=1   # по умолчанию не грузить launchd-таймер (юнит-тесты состояния)
   unset ST_LANG
+  # «Том на месте» = он есть в таблице монтирования, а не «каталог существует».
+  export STUB_MOUNTS="$TMP/mounts"
+  printf '/dev/disk9s1 on %s (apfs, local, nodev, nosuid, journaled, nobrowse)\n' "$MOUNT" >"$STUB_MOUNTS"
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -139,6 +142,24 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   STUB_LSOF_BUSY=0 run_vw _ttl_fire "$MOUNT"
   [ "$status" -eq 0 ]
   ! ls "$VW_LAUNCH_DIR"/com.vaultwatch.ttl.*.plist >/dev/null 2>&1
+}
+
+@test "ttl fire does not call a successful detach a failure over a leftover directory" {
+  # detach сработал, том ушёл из таблицы, но каталог остался. Проверка «каталог есть»
+  # объявляла бы «dismount не удался, сейф может быть открыт» — и это была бы ложь.
+  bash "$SCRIPT" start --ttl 30m "$MOUNT" >/dev/null
+  STUB_LSOF_BUSY=0 STUB_DETACH_LEAVES_DIR=1 run_vw _ttl_fire "$MOUNT"
+  [ "$status" -eq 0 ]
+  [ -d "$MOUNT" ]                                  # каталог на месте
+  [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]    # сессия всё равно закрыта корректно
+}
+
+@test "ttl fire keeps session state when the mount table cannot be read" {
+  # «Не знаем» после detach трактуем как «может быть открыт»: сессию не чистим.
+  bash "$SCRIPT" start --ttl 30m "$MOUNT" >/dev/null
+  STUB_LSOF_BUSY=0 STUB_MOUNT_FAIL=1 run_vw _ttl_fire "$MOUNT"
+  [ "$status" -ne 0 ]
+  [ -n "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]
 }
 
 @test "ttl fire keeps session state when detach does not unmount the vault" {

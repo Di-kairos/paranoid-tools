@@ -15,6 +15,9 @@ setup() {
   export PATH="$STUBS:$PATH"
   export ST_ASSUME_YES=1
   unset ST_LANG
+  # «Том на месте» = он есть в таблице монтирования, а не «каталог существует».
+  export STUB_MOUNTS="$TMP/mounts"
+  printf '/dev/disk9s1 on %s (apfs, local, nodev, nosuid, journaled, nobrowse)\n' "$MOUNT" >"$STUB_MOUNTS"
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -177,6 +180,25 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   run_vw stop "$MOUNT"
   [ "$status" -eq 0 ]
   [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]
+}
+
+@test "stop calls restore N/A when the volume is gone but its directory is left behind" {
+  # Остаточный каталог — не том: индексировать нечего, mdutil звать не по чему.
+  # Со старой проверкой «каталог есть» stop дёргал mdutil на пустом каталоге, ловил
+  # отказ и навсегда оставлял сессию, блокируя следующий start.
+  STUB_SPOTLIGHT=enabled bash "$SCRIPT" start "$MOUNT" >/dev/null
+  : >"$STUB_MOUNTS"                                # том ушёл из таблицы, каталог остался
+  STUB_MDUTIL_FAIL=1 run_vw stop "$MOUNT"
+  [ "$status" -eq 0 ]
+  [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]    # сессия закрыта, а не подвисла
+}
+
+@test "stop keeps the session when the mount table cannot be read" {
+  # «Не знаем, смонтирован ли» → пробуем восстановить и честно падаем, а не молча чистим.
+  STUB_SPOTLIGHT=enabled bash "$SCRIPT" start "$MOUNT" >/dev/null
+  STUB_MOUNT_FAIL=1 STUB_MDUTIL_FAIL=1 run_vw stop "$MOUNT"
+  [ "$status" -ne 0 ]
+  [ -n "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]
 }
 
 @test "stop warns, keeps state AND exits non-zero when Spotlight restore fails" {
