@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-08-05
+
+### Fixed
+- **`check` больше не докладывает «FileVault ВЫКЛЮЧЕН», когда `fdesetup` недоступен.**
+  Отсутствие команды читалось как «шифрование выключено» — инструмент врал пользователю
+  о его защите ровно в том месте, где к нему приходят за правдой. Теперь такой случай
+  честно называется «не удалось определить».
+
+### Changed
+- **`lib/common.sh`: один ответ на вопрос «сейф примонтирован?» для всей экосистемы.**
+  Библиотека получила `_volume_mounted` (читает таблицу монтирования, а не наличие
+  каталога — остаточный `/Volumes/…` от прошлого монтирования больше не выглядит открытым
+  сейфом) и `_fv_state` (FileVault on/off/**unknown**; `filevault_on` теперь его
+  двоичная обёртка). Точка монтирования сравнивается целиком, поэтому смонтированный
+  `/Volumes/Foo Bar` не выдаёт себя за `/Volumes/Foo`. Код возврата `_volume_mounted` —
+  трёхзначный: 0 примонтирован, 1 точно нет, 2 таблицу прочитать не удалось; предикатным
+  вызовам двойка читается как «нет» (fail-closed), а тому, кто показывает состояние
+  человеку, — как «не знаем». Имена зарезервированы для вендоринга (см. шапку файла).
+
 ## [0.5.1] — 2026-08-05
 
 ### Added
@@ -307,7 +326,8 @@
 - На SSD перезапись (`rm -P`) гарантий НЕ даёт (wear leveling, COW, TRIM) — для секретов
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
-[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/Di-kairos/securetrash/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Di-kairos/securetrash/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Di-kairos/securetrash/compare/v0.4.13...v0.5.0
 [0.4.13]: https://github.com/Di-kairos/securetrash/compare/v0.4.12...v0.4.13
