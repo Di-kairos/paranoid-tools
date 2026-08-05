@@ -10,8 +10,8 @@
 # При бампе версии common.sh обнови PIN и COMMON_SHA256 вместе (и маркер BEGIN).
 set -euo pipefail
 
-PIN="2e3d2dd5b36251bdcb1a8ffd348b63ece5fa7aab"
-COMMON_SHA256="fdfb0e3c3c565290065d13385ed1260b51b8748e06e1aa098ad8ba82bee7af75"
+PIN="221f2c7fbed10a220b832aab9264e6665581b514"
+COMMON_SHA256="348afdd5d924230b4eea6e495b6b21bd78fc851ac5795108078abf7dc5d4e6a0"
 SRC_URL="https://raw.githubusercontent.com/Di-kairos/securetrash/${PIN}/lib/common.sh"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET="${ROOT}/seedsplit"
