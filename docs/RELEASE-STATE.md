@@ -58,4 +58,4 @@ HEAD каждого тула = тег + `chore(formula)` + `docs`-bump верс�
 ## Vendoring pin
 
 Все 4 тула (vaultwatch/panic/ghostdraft/seedsplit) вендорят `securetrash/lib/common.sh`
-с пина `2e3d2dd` (SHA `fdfb0e3c…af75`), офлайн-проверка через `tools/vendor-common.sh --check`.
+с пина `221f2c7` (SHA `348afdd5…e6a0`), офлайн-проверка через `tools/vendor-common.sh --check`.
