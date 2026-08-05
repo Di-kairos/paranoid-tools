@@ -55,7 +55,7 @@ curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/insta
 > `install.sh` — по ключу, пришитому в этом репо; без проверки установщик отказывает
 > (см. `SECURITY.md`). Остаточный риск — один проектный ключ на все пять тулов, см.
 > [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для
-> воспроизводимости фиксируй версию: `SEEDSPLIT_VERSION=0.5.0` вместо `latest`. Источник
+> воспроизводимости фиксируй версию: `SEEDSPLIT_VERSION=0.5.1` вместо `latest`. Источник
 > можно переопределить через `SEEDSPLIT_BASE_URL`, путь установки — через `SEEDSPLIT_DEST`.
 
 ### Язык вывода

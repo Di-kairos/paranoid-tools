@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-08-05
+
+### Changed
+- **Перевендорен `securetrash/lib/common.sh`** (пин `221f2c7`). Библиотека получила единый
+  на всю экосистему детект примонтированного тома (`_volume_mounted` — читает таблицу
+  монтирования, а не наличие каталога) и tri-state FileVault (`_fv_state`: on/off/**unknown**;
+  `filevault_on` стал его двоичной обёрткой). Поведение самого seedsplit не меняется — он ни
+  одну из этих функций пока не вызывает; синхронизация нужна, чтобы вендоренный блок не
+  разъезжался с каноном. Формат долей SSS3 не затронут.
+
 ## [0.5.0] — 2026-08-05
 
 ### Added
@@ -186,7 +196,8 @@
   порога, отказ при <T долях без утечки, детект порчи/чужого набора, бинарные секреты,
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
-[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Di-kairos/seedsplit/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Di-kairos/seedsplit/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/Di-kairos/seedsplit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Di-kairos/seedsplit/compare/v0.4.0...v0.4.1
