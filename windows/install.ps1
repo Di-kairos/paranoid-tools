@@ -149,9 +149,16 @@ try {
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute        = $false
             $proc = [System.Diagnostics.Process]::Start($psi)
+            # stdout/stderr вычитываем АСИНХРОННО и ДО WaitForExit: перенаправленный, но не
+            # прочитанный поток упирается в буфер трубы — верификатор встаёт, а установщик
+            # ждёт его вечно. Тихо висящий установщик хуже честного отказа.
+            $outTask = $proc.StandardOutput.ReadToEndAsync()
+            $errTask = $proc.StandardError.ReadToEndAsync()
             $fs = [System.IO.File]::OpenRead($tmpSums)
             try { $fs.CopyTo($proc.StandardInput.BaseStream) } finally { $fs.Close() }
             $proc.StandardInput.Close()
+            $null = $outTask.Result
+            $null = $errTask.Result
             $proc.WaitForExit()
             if ($proc.ExitCode -eq 0) {
                 Write-Host 'Signature OK (authenticity verified).'
