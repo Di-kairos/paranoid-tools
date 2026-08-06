@@ -1,8 +1,8 @@
 class Vaultwatch < Formula
   desc "Guard an open securetrash vault on macOS (Spotlight/Time Machine/cloud)"
   homepage "https://github.com/Di-kairos/vaultwatch"
-  url "https://github.com/Di-kairos/vaultwatch/archive/refs/tags/v0.1.10.tar.gz"
-  sha256 "49b0d34c957fcd95f6afe7c1d14b4d122aaafd3df4c251965a733776695dcdaa"
+  url "https://github.com/Di-kairos/vaultwatch/archive/refs/tags/v0.1.11.tar.gz"
+  sha256 "ac8110b31657825b8cbd4a7e12778d3e735eb6b4bb9f65cdf04f8d837a479982"
   license "MIT"
 
   def install
