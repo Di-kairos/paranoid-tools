@@ -125,17 +125,32 @@ try {
             $allowedSigners = Join-Path $Tmp 'allowed_signers'
             Set-Content -LiteralPath $allowedSigners -Value ('{0} namespaces="file" {1}' -f $SignPrincipal, $ReleaseSigningPubkey) -Encoding ascii -NoNewline
             Write-Host 'Verifying release signature...'
-            # ssh-keygen -Y verify читает подписанные данные (SHA256SUMS) из stdin; ASCII → UTF-8 без BOM
-            # байт-идентично, LF сохраняется (Get-Content -Raw не конвертит).
-            $prevEnc = $OutputEncoding
-            try {
-                $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-                Get-Content -Raw -LiteralPath $tmpSums | & $sshKeygen.Source -Y verify -f $allowedSigners -I $SignPrincipal -n file -s $tmpSig *> $null
-                $verifyExit = $LASTEXITCODE
-            } finally {
-                $OutputEncoding = $prevEnc
+            # SHA256SUMS подаётся на stdin ТОЧНЫМИ байтами (аналог `< SHA256SUMS` в install.sh):
+            # пайп PowerShell перекодировал бы содержимое (BOM, CRLF) и валидная подпись
+            # отвалилась бы как «incorrect signature». Копируем сырой поток файла.
+            # Зеркало канона securetrash/windows/install.ps1 — правишь здесь, правь во всех пяти.
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $sshKeygen.Source
+            foreach ($a in @('-Y','verify','-f',$allowedSigners,'-I',$SignPrincipal,'-n','file','-s',$tmpSig)) {
+                $psi.ArgumentList.Add($a)
             }
-            if ($verifyExit -eq 0) {
+            $psi.RedirectStandardInput  = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $psi.UseShellExecute        = $false
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            # stdout/stderr вычитываем АСИНХРОННО и ДО WaitForExit: перенаправленный, но не
+            # прочитанный поток упирается в буфер трубы — верификатор встаёт, а установщик
+            # ждёт его вечно. Тихо висящий установщик хуже честного отказа.
+            $outTask = $proc.StandardOutput.ReadToEndAsync()
+            $errTask = $proc.StandardError.ReadToEndAsync()
+            $fs = [System.IO.File]::OpenRead($tmpSums)
+            try { $fs.CopyTo($proc.StandardInput.BaseStream) } finally { $fs.Close() }
+            $proc.StandardInput.Close()
+            $null = $outTask.Result
+            $null = $errTask.Result
+            $proc.WaitForExit()
+            if ($proc.ExitCode -eq 0) {
                 Write-Host 'Signature OK (authenticity verified).'
             } else {
                 Write-Error 'Подпись релиза НЕ прошла проверку — установка прервана (возможна подмена). Обхода нет.'
