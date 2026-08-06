@@ -144,9 +144,13 @@ try {
             # ждёт его вечно. Тихо висящий установщик хуже честного отказа.
             $outTask = $proc.StandardOutput.ReadToEndAsync()
             $errTask = $proc.StandardError.ReadToEndAsync()
+            # Верификатор может завершиться, не дочитав stdin (кривые аргументы, чужой бинарь под
+            # тем же именем). Запись в закрытую трубу — это не наша авария: вердикт всё равно
+            # даёт код возврата, и пользователь должен увидеть честное «подпись не сошлась»,
+            # а не необработанное исключение установщика.
             $fs = [System.IO.File]::OpenRead($tmpSums)
-            try { $fs.CopyTo($proc.StandardInput.BaseStream) } finally { $fs.Close() }
-            $proc.StandardInput.Close()
+            try { $fs.CopyTo($proc.StandardInput.BaseStream) } catch [System.IO.IOException] { } finally { $fs.Close() }
+            try { $proc.StandardInput.Close() } catch [System.IO.IOException] { }
             $null = $outTask.Result
             $null = $errTask.Result
             $proc.WaitForExit()

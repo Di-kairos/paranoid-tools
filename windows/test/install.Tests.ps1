@@ -154,6 +154,35 @@ Describe 'install.ps1 signature gate' {
         (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeTrue
     }
 
+    It 'says the signature did not verify when the verifier quits without reading stdin' {
+        # Верификатор вправе выйти, не дочитав подписанные данные (кривые аргументы, чужой
+        # ssh-keygen в PATH). Запись в уже закрытую трубу роняла установщик исключением, и
+        # вместо честного «подпись не сошлась» пользователь получал аварию. SHA256SUMS здесь
+        # намеренно большой: иначе копирование успевает пролезть в буфер трубы до её закрытия,
+        # и гонка не воспроизводится (так этот дефект и прошёл мимо macOS-прогона).
+        $sums = Join-Path $script:Release 'SHA256SUMS'
+        $hash = (Get-FileHash -Path (Join-Path $script:Release 'seedsplit.ps1') -Algorithm SHA256).Hash.ToLower()
+        $filler = (1..20000 | ForEach-Object { "$hash  filler-$_" }) -join "`n"
+        Set-Content -LiteralPath $sums -Value "$hash  seedsplit.ps1`n$filler" -NoNewline
+
+        Set-Content -LiteralPath $script:SigFile -Value 'dummy-signature'
+        # Стаб выходит сразу, stdin не дренирует.
+        New-Item -ItemType Directory -Path $script:StubDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:StubDir 'ssh-keygen.cmd') -Encoding ascii -NoNewline `
+            -Value "@echo off`r`nexit /b 1`r`n"
+        $shPath = Join-Path $script:StubDir 'ssh-keygen'
+        Set-Content -LiteralPath $shPath -Value "#!/bin/sh`nexit 1`n" -Encoding ascii -NoNewline
+        if (-not $IsWindows) { & chmod +x $shPath }
+
+        $out = & pwsh -NoProfile -Command (
+            (script:PrefixPathEnv $script:StubDir) +
+            "`$env:SEEDSPLIT_BASE_URL='$($script:Release)'; `$env:SEEDSPLIT_INSTALL_DIR='$($script:Target)'; " +
+            "`$env:SEEDSPLIT_SKIP_PATH='1'; & '$($script:InstallScript)'") 2>&1 | Out-String
+
+        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeFalse
+        $out | Should -Match 'Подпись релиза НЕ прошла проверку'
+    }
+
     It 'does not hang when the verifier is noisy (redirected streams must be drained)' {
         Set-Content -LiteralPath $script:SigFile -Value 'dummy-signature'
         script:New-SshKeygenNoisyStub -Dir $script:StubDir
