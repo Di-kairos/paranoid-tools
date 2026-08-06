@@ -61,7 +61,7 @@ curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/insta
 > snippet above and `install.sh` both verify it against a key pinned in this repo, and
 > the installer fails closed when it can't (see `SECURITY.md`). Residual risk: one
 > project key signs all five tools — see the ecosystem
-> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a specific version with `SEEDSPLIT_VERSION=0.5.2` instead of `latest` for
+> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a specific version with `SEEDSPLIT_VERSION=0.5.3` instead of `latest` for
 > reproducibility. Override the source with `SEEDSPLIT_BASE_URL` and the install path
 > with `SEEDSPLIT_DEST`.
 

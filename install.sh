@@ -34,7 +34,17 @@ elif [[ -n "${SEEDSPLIT_VERSION:-}" ]]; then
 else
   BASE_URL="https://github.com/${REPO}/releases/latest/download"
 fi
-DEST="${SEEDSPLIT_DEST:-/usr/local/bin/seedsplit}"
+# Каталог установки. Умбрелла `paranoid-tools` ставит всё в ~/.local/bin (без sudo), а этот
+# установщик исторически — в /usr/local/bin. Если тул уже стоит из умбреллы, ставим РЯДОМ с ним:
+# иначе появляется вторая копия, и какая из них запустится, решает порядок в PATH — то есть
+# обновление молча не доезжает до пользователя. Явный SEEDSPLIT_DEST всегда сильнее.
+if [[ -n "${SEEDSPLIT_DEST:-}" ]]; then
+  DEST="$SEEDSPLIT_DEST"
+elif [[ -e "$HOME/.local/bin/seedsplit" ]]; then
+  DEST="$HOME/.local/bin/seedsplit"
+else
+  DEST="/usr/local/bin/seedsplit"
+fi
 
 # Временный каталог под загрузку; чистим в любом случае.
 TMP="$(mktemp -d)"
@@ -101,4 +111,9 @@ else
 fi
 
 echo "Установлено: $DEST"
+# Каталог вне PATH — молчать нельзя: пользователь решит, что установка не удалась.
+case ":${PATH}:" in
+  *":$(dirname "$DEST"):"*) : ;;
+  *) echo "ВНИМАНИЕ: $(dirname "$DEST") не в PATH — добавь его, иначе команда не найдётся." >&2 ;;
+esac
 echo "Дальше: 'printf %s \"твой секрет\" | seedsplit split -n 5 -t 3' (см. README / КАК-ПОЛЬЗОВАТЬСЯ)."

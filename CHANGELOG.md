@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+## [0.5.3] — 2026-08-06
+
+### Fixed
+- **Установщик больше не плодит вторую копию тула.** Умбрелла `paranoid-tools` ставит всё в
+  `~/.local/bin` (без sudo), а этот установщик по умолчанию — в `/usr/local/bin`. Кто ставил
+  обоими способами, получал две копии, и какая из них запустится, решал порядок в `PATH`:
+  обновление молча не доезжало до пользователя. Теперь при уже установленной копии в
+  `~/.local/bin` установка идёт поверх неё; явный `<TOOL>_DEST` по-прежнему сильнее всего.
+  Плюс предупреждение, если каталог установки не в `PATH`, — молчать здесь нельзя, иначе
+  успешная установка выглядит как несостоявшаяся.
+
 ## [0.5.2] — 2026-08-06
 
 ### Fixed
@@ -214,7 +225,8 @@
   порога, отказ при <T долях без утечки, детект порчи/чужого набора, бинарные секреты,
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
-[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/Di-kairos/seedsplit/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/Di-kairos/seedsplit/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Di-kairos/seedsplit/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Di-kairos/seedsplit/compare/v0.4.2...v0.5.0
