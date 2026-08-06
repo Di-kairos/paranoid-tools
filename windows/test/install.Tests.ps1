@@ -53,6 +53,16 @@ Describe 'install.ps1 integrity gate' {
 # Get-VwVerifier (наличие ssh-keygen), Get-ReleaseFile (загрузка .sig), Invoke-VwVerifier
 # (ssh-keygen -Y verify). Покрытие: valid / invalid / missing-sig / missing-verifier + fail-closed.
 Describe 'install.ps1 signature verification (P1-2)' {
+    It 'never pipes the signed data into the verifier (bytes must reach it unchanged)' {
+        # Конвейер PowerShell перекодирует текст (BOM, CRLF) и дописывает перевод строки, поэтому
+        # верификатор увидел бы НЕ те байты, что подписаны: валидная подпись читается как
+        # «incorrect signature», и fail-closed рубит установку с настоящего релиза. Так уже
+        # ломался seedsplit. Канон — сырой поток файла в stdin через ProcessStartInfo.
+        $src = Get-Content -Raw -LiteralPath $script:InstallScript
+        $src | Should -Match 'ProcessStartInfo'
+        $src | Should -Not -Match '(?m)Get-Content[^\r\n]*\|\s*&'
+    }
+
     BeforeAll {
         $env:VAULTWATCH_NO_MAIN = '1'
         # LOCALAPPDATA нет на macOS-хосте → задаём InstallDir явно, иначе config-блок падает на Join-Path.
