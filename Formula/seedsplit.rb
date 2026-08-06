@@ -1,8 +1,8 @@
 class Seedsplit < Formula
   desc "Split a secret into Shamir shares (pure Bash, GF(256))"
   homepage "https://github.com/Di-kairos/seedsplit"
-  url "https://github.com/Di-kairos/seedsplit/archive/refs/tags/v0.5.3.tar.gz"
-  sha256 "9e90e32b23274c3e4840b3f28d49a14ad57e1b94f40a2a52fd90d36ff13d5bc1"
+  url "https://github.com/Di-kairos/seedsplit/archive/refs/tags/v0.5.4.tar.gz"
+  sha256 "4d79ef0fe1e825730644e2deee5e53ea9f8abe50b00349559efa0e565d7a0bac"
   license "MIT"
 
   def install
