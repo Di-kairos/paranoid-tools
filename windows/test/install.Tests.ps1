@@ -128,6 +128,15 @@ Describe 'install.ps1 integrity gate' {
 }
 
 Describe 'install.ps1 signature gate' {
+    It 'can still verify under Windows PowerShell 5.1 (no ArgumentList there)' {
+        # `ArgumentList` есть только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
+        # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README;
+        # без запасного пути установка падала бы на шаге проверки подписи.
+        $src = Get-Content -Raw -LiteralPath $script:InstallScript
+        $src | Should -Match "PSObject\.Properties\.Name -contains 'ArgumentList'"
+        $src | Should -Match '\$psi\.Arguments ='
+    }
+
     BeforeEach {
         $script:Work = Join-Path ([System.IO.Path]::GetTempPath()) ("ss_sig_" + [Guid]::NewGuid().ToString('N'))
         $script:Release = Join-Path $script:Work 'release'
