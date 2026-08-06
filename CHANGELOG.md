@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+## [0.5.3] — 2026-08-06
+
+### Fixed
+- **Установщик Windows больше не может тихо повиснуть на проверке подписи.** `stdout`/`stderr`
+  верификатора перенаправлялись, но не вычитывались до `WaitForExit`: `ssh-keygen`, написавший
+  больше буфера трубы, вставал на записи, а установщик ждал его вечно. Молча висящая установка
+  хуже честного отказа. Потоки теперь дренируются асинхронно; регрессия воспроизведена тестом
+  (без дренажа установщик не возвращается).
+
 ## [0.5.2] — 2026-08-05
 
 ### Fixed
@@ -326,7 +335,8 @@
 - На SSD перезапись (`rm -P`) гарантий НЕ даёт (wear leveling, COW, TRIM) — для секретов
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
-[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/Di-kairos/securetrash/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/Di-kairos/securetrash/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Di-kairos/securetrash/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Di-kairos/securetrash/compare/v0.4.13...v0.5.0

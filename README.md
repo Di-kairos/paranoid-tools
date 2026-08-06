@@ -94,7 +94,7 @@ bash install.sh
 > this repo, and the installer fails closed when it can't (see `SECURITY.md`). Another
 > channel is **Homebrew**, whose expected hash lives in the tap's git history rather than
 > alongside the download. Residual risk: one project key signs all five tools — see the
-> ecosystem [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a specific version with `ST_VERSION=0.5.2` instead of
+> ecosystem [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a specific version with `ST_VERSION=0.5.3` instead of
 > `latest` for reproducibility.
 
 ### Windows (beta)
