@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+## [0.5.5] — 2026-08-06
+
+### Fixed
+- **Установщик Windows работает и под штатным Windows PowerShell 5.1.** Аргументы верификатору
+  подписи собирались через `ProcessStartInfo.ArgumentList`, которого в .NET Framework нет, —
+  а 5.1 это ровно тот шелл, в котором выполняют однострочник из README. Установка падала бы на
+  шаге проверки подписи. Добавлен запасной путь через строку аргументов с корректным
+  квотированием (кавычки экранируются, хвостовые обратные слэши удваиваются).
+
 ## [0.5.4] — 2026-08-06
 
 ### Fixed
@@ -349,7 +358,8 @@
 - На SSD перезапись (`rm -P`) гарантий НЕ даёт (wear leveling, COW, TRIM) — для секретов
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
-[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.5...HEAD
+[0.5.5]: https://github.com/Di-kairos/securetrash/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/Di-kairos/securetrash/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/Di-kairos/securetrash/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/Di-kairos/securetrash/compare/v0.5.1...v0.5.2

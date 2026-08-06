@@ -2,7 +2,7 @@
 # securetrash — честное безопасное удаление файлов на macOS.
 set -euo pipefail
 
-VERSION="0.5.4"
+VERSION="0.5.5"
 
 # --- language detection ---
 # Выбор языка вывода. По умолчанию английский (en); русский — opt-in.
