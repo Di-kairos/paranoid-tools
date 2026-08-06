@@ -90,7 +90,7 @@ bash install.sh
 > `install.sh` — по ключу, пришитому в этом репо; без проверки установщик отказывает
 > (см. `SECURITY.md`). Другой канал — **Homebrew**, чей ожидаемый хеш лежит в git-истории
 > tap'а, а не рядом со скачиваемым файлом. Остаточный риск — один проектный ключ на все
-> пять тулов, см. [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `ST_VERSION=0.5.3` вместо `latest`.
+> пять тулов, см. [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `ST_VERSION=0.5.4` вместо `latest`.
 
 ### Windows (beta)
 

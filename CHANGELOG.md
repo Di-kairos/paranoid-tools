@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+## [0.5.4] — 2026-08-06
+
+### Fixed
+- **Установщик больше не плодит вторую копию тула.** Умбрелла `paranoid-tools` ставит всё в
+  `~/.local/bin` (без sudo), а этот установщик по умолчанию — в `/usr/local/bin`. Кто ставил
+  обоими способами, получал две копии, и какая из них запустится, решал порядок в `PATH`:
+  обновление молча не доезжало до пользователя. Теперь при уже установленной копии в
+  `~/.local/bin` установка идёт поверх неё; явный `<TOOL>_DEST` по-прежнему сильнее всего.
+  Плюс предупреждение, если каталог установки не в `PATH`, — молчать здесь нельзя, иначе
+  успешная установка выглядит как несостоявшаяся.
+
 ## [0.5.3] — 2026-08-06
 
 ### Fixed
@@ -338,7 +349,8 @@
 - На SSD перезапись (`rm -P`) гарантий НЕ даёт (wear leveling, COW, TRIM) — для секретов
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
-[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/Di-kairos/securetrash/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/Di-kairos/securetrash/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/Di-kairos/securetrash/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Di-kairos/securetrash/compare/v0.5.0...v0.5.1
