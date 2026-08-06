@@ -73,3 +73,18 @@ _make_fakebin() {
   [ "$status" -eq 0 ]
   [ -x "$DEST" ]
 }
+
+@test "install.sh installs next to an existing umbrella copy instead of making a second one" {
+  # Умбрелла ставит всё в ~/.local/bin; этот установщик по умолчанию — в /usr/local/bin.
+  # Две копии одного тула = обновление, которое молча не доезжает: какая запустится, решает
+  # порядок в PATH. Если копия из умбреллы уже есть — ставим поверх неё, а не рядом.
+  BINS="$(_make_fakebin with-keygen)"
+  FAKEHOME="${WORK}/home"
+  mkdir -p "${FAKEHOME}/.local/bin"
+  printf '#!/usr/bin/env bash\necho stale\n' > "${FAKEHOME}/.local/bin/vaultwatch"
+  chmod +x "${FAKEHOME}/.local/bin/vaultwatch"
+  run env PATH="$BINS" HOME="$FAKEHOME" VW_BASE_URL="file://${FIX}" ALLOW_UNSIGNED_LEGACY=1 bash "$INSTALL"
+  [ "$status" -eq 0 ]
+  run "${FAKEHOME}/.local/bin/vaultwatch"
+  [[ "$output" == *"payload-ok"* ]]
+}

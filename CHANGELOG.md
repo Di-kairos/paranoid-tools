@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+## [0.1.12] — 2026-08-06
+
+### Fixed
+- **Установщик больше не плодит вторую копию тула.** Умбрелла `paranoid-tools` ставит всё в
+  `~/.local/bin` (без sudo), а этот установщик по умолчанию — в `/usr/local/bin`. Кто ставил
+  обоими способами, получал две копии, и какая из них запустится, решал порядок в `PATH`:
+  обновление молча не доезжало до пользователя. Теперь при уже установленной копии в
+  `~/.local/bin` установка идёт поверх неё; явный `<TOOL>_DEST` по-прежнему сильнее всего.
+  Плюс предупреждение, если каталог установки не в `PATH`, — молчать здесь нельзя, иначе
+  успешная установка выглядит как несостоявшаяся.
+
 ## [0.1.11] — 2026-08-06
 
 ### Fixed
@@ -220,7 +231,8 @@
 - Real-device smoke на macOS: start/stop/`--ttl` на живом sparsebundle, launchd
   bootstrap/bootout-цикл, plist валиден (`plutil -lint`).
 
-[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.8...v0.1.9
