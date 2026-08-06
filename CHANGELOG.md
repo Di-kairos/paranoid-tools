@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+## [0.1.11] — 2026-08-06
+
+### Fixed
+- **Установщик Windows больше не может тихо повиснуть на проверке подписи.** `stdout`/`stderr`
+  верификатора перенаправлялись, но не вычитывались до `WaitForExit`: `ssh-keygen`, написавший
+  больше буфера трубы, вставал на записи, а установщик ждал его вечно. Молча висящая установка
+  хуже честного отказа. Потоки теперь дренируются асинхронно; регрессия воспроизведена тестом
+  (без дренажа установщик не возвращается).
+
 ## [0.1.10] — 2026-08-06
 
 ### Fixed
@@ -208,7 +217,8 @@
 - Real-device smoke на macOS: start/stop/`--ttl` на живом sparsebundle, launchd
   bootstrap/bootout-цикл, plist валиден (`plutil -lint`).
 
-[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.7...v0.1.8
