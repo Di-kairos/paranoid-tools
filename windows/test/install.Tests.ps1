@@ -53,6 +53,15 @@ Describe 'install.ps1 integrity gate' {
 # Get-VwVerifier (наличие ssh-keygen), Get-ReleaseFile (загрузка .sig), Invoke-VwVerifier
 # (ssh-keygen -Y verify). Покрытие: valid / invalid / missing-sig / missing-verifier + fail-closed.
 Describe 'install.ps1 signature verification (P1-2)' {
+    It 'can still verify under Windows PowerShell 5.1 (no ArgumentList there)' {
+        # `ArgumentList` есть только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
+        # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README;
+        # без запасного пути установка падала бы на шаге проверки подписи.
+        $src = Get-Content -Raw -LiteralPath $script:InstallScript
+        $src | Should -Match "PSObject\.Properties\.Name -contains 'ArgumentList'"
+        $src | Should -Match '\$psi\.Arguments ='
+    }
+
     It 'never pipes the signed data into the verifier (bytes must reach it unchanged)' {
         # Конвейер PowerShell перекодирует текст (BOM, CRLF) и дописывает перевод строки, поэтому
         # верификатор увидел бы НЕ те байты, что подписаны: валидная подпись читается как

@@ -82,7 +82,7 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   STUB_LSOF_BUSY=0 run_vw _ttl_fire "$MOUNT"
   [ "$status" -eq 0 ]
   grep -qF -- "detach $MOUNT" "$VW_STUB_LOG"
-  [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]   # сессия закрыта
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*  # сессия держит долг по индексации
 }
 
 @test "ttl fire does NOT detach a busy vault without force" {
@@ -99,7 +99,7 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   STUB_LSOF_BUSY=1 run_vw _ttl_fire "$MOUNT"
   [ "$status" -eq 0 ]
   grep -qF -- "detach -force $MOUNT" "$VW_STUB_LOG"
-  [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*
 }
 
 @test "ttl fire on a vault with no session is a quiet success" {
@@ -151,7 +151,7 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   STUB_LSOF_BUSY=0 STUB_DETACH_LEAVES_DIR=1 run_vw _ttl_fire "$MOUNT"
   [ "$status" -eq 0 ]
   [ -d "$MOUNT" ]                                  # каталог на месте
-  [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]    # сессия всё равно закрыта корректно
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*  # долг по индексации сохранён, не потерян
 }
 
 @test "ttl fire keeps session state when the mount table cannot be read" {

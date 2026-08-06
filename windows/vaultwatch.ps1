@@ -20,7 +20,7 @@
 # обратимые исключения на время сессии и честно отчитывается о пределах. BETA: логика покрыта
 # Pester (системные эффекты мокаются); поведение на реальном железе широко не обкатано.
 
-$VERSION = '0.1.12'
+$VERSION = '0.1.13'
 
 # --- настраиваемые пути (зеркало bash VW_*/ST_HOOK_DIR; переопределяемы в тестах) ---
 $script:VW_STATE_DIR = if ($env:VW_STATE_DIR) { $env:VW_STATE_DIR } else {
@@ -82,6 +82,8 @@ function T {
         'en:watching'      { return "watching $A (Windows Search excluded; backup snapshots reported, not removed)." }
         'ru:watching'      { return "слежу за $A (исключён из Windows Search; backup-снапшоты репортятся, не удаляются)." }
         'en:already_watching' { return "already watching $A — run vaultwatch stop first (a repeat start would lose the saved pre-session state)." }
+        'en:restore_finished' { return "indexing restored for $A — the previous session could not do it (the volume was already gone) and kept the debt until now." }
+        'ru:restore_finished' { return "индексация восстановлена для $A — прошлая сессия не смогла (том уже был отмонтирован) и держала долг до сих пор." }
         'ru:already_watching' { return "уже слежу за $A — сначала vaultwatch stop (повторный start потерял бы сохранённое до-сессионное состояние)." }
         'en:cloud_outside' { return "$A active — vault is OUTSIDE its sync folder" }
         'ru:cloud_outside' { return "$A активен — vault ВНЕ его синк-папки" }
@@ -104,6 +106,8 @@ function T {
         'en:ttl_detach_fail' { return "TTL: dismount $A failed — vault may still be open. Session state kept." }
         'ru:ttl_detach_fail' { return "TTL: dismount $A не удался — vault может быть открыт. Состояние сохранено." }
         'en:restore_incomplete' { return "Session state kept for $A — restore incomplete. Re-mount vault and run vaultwatch stop." }
+        'en:restore_search_fail' { return "could not bring indexing back for $A — the debt is carried into this session and will be settled when it stops." }
+        'ru:restore_search_fail' { return "не удалось вернуть индексацию для $A — долг перенесён в эту сессию и будет погашен при её остановке." }
         'ru:restore_incomplete' { return "Состояние сохранено для $A — восстановление неполное. Перемонтируй vault и запусти vaultwatch stop." }
         'en:rep_header'    { return 'vaultwatch — session report' }
         'ru:rep_header'    { return 'vaultwatch — session report' }
@@ -113,8 +117,8 @@ function T {
         'ru:rep_search_on' { return "  Windows Search:  индексация снова включена для $A" }
         'en:rep_search_keep' { return '  Windows Search:  was already excluded before session — left as-is' }
         'ru:rep_search_keep' { return '  Windows Search:  было исключено до сессии — оставлено как есть' }
-        'en:rep_search_na' { return '  Windows Search:  NOT re-enabled — the volume is not mounted. NotContentIndexed lives on the volume itself: mount it and run "vaultwatch stop" to bring indexing back.' }
-        'ru:rep_search_na' { return '  Windows Search:  НЕ включена обратно — том не смонтирован. NotContentIndexed живёт на самом томе: смонтируй его и выполни "vaultwatch stop", чтобы вернуть индексацию.' }
+        'en:rep_search_na' { return '  Windows Search:  NOT re-enabled yet — the volume is not mounted. NotContentIndexed lives on the volume itself, so the session is kept: open the vault again (or mount it and run "vaultwatch stop") and indexing comes back.' }
+        'ru:rep_search_na' { return '  Windows Search:  ПОКА не включена обратно — том не смонтирован. NotContentIndexed живёт на самом томе, поэтому сессия сохранена: открой сейф снова (или смонтируй том и выполни "vaultwatch stop") — индексация вернётся.' }
         'en:rep_cloud_none' { return '  cloud daemons:   none active' }
         'ru:rep_cloud_none' { return '  cloud daemons:   активных нет' }
         'en:rep_snap_none' { return '  VSS shadows:     none observed (vssadmin list shadows)' }
@@ -498,12 +502,37 @@ function Invoke-VwStart {
     # Уже есть сессия для этого mount? Повторный start перезаписал бы сохранённое до-сессионное
     # состояние текущим (Search уже excluded) → stop не восстановит исходное (Search OFF навсегда).
     # Идемпотентно отказываемся (P2-6, паритет с bash).
-    if (Test-Path -LiteralPath (Get-VwStateFile -Mount $mount)) {
-        Write-VwWarn (T 'already_watching' $mount); return
+    $carrySearchEnabled = $false
+    $sfExisting = Get-VwStateFile -Mount $mount
+    if (Test-Path -LiteralPath $sfExisting) {
+        # Сессия с невыполненным восстановлением: прошлый stop не смог вернуть индексацию,
+        # потому что том к тому моменту уже отмонтировали (штатный путь — securetrash
+        # закрывает сейф ДО вызова post-close хука). Атрибут живёт на самом томе и переживает
+        # перемонтирование, поэтому долг ждал именно этого момента: том снова перед нами.
+        # Гасим и продолжаем обычный start — иначе исключение осталось бы навсегда,
+        # а сессия-призрак блокировала бы слежение. Зеркало bash.
+        $stPending = Read-VwState -Path $sfExisting
+        if ($stPending['pending_restore'] -eq '1' -and -not (Test-VwVaultGone -Mount $mount)) {
+            if (Enable-VwSearchIndex -Path $mount) {
+                Write-VwInfo (T 'restore_finished' $mount)
+            } else {
+                # Погасить не удалось. Долг НЕ теряем: до нас индексация была ВКЛЮЧЕНА, и новая
+                # сессия обязана унести это знание — иначе её stop «восстановит» состояние
+                # «было выключено», и NotContentIndexed останется на томе навсегда, молча.
+                Write-VwWarn (T 'restore_search_fail' $mount)
+                $carrySearchEnabled = $true
+            }
+            Remove-Item -LiteralPath $sfExisting -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-VwWarn (T 'already_watching' $mount); return
+        }
     }
 
     # Windows Search: запомнить состояние, затем исключить каталог.
     $searchWas = Get-VwSearchState -Path $mount
+    # Непогашенный долг сильнее того, что мы видим сейчас: сейчас «исключено» именно потому,
+    # что исключили мы, а снять не смогли.
+    if ($carrySearchEnabled) { $searchWas = 'enabled' }
     $searchSet = 0
     if ($searchWas -ne 'disabled') { Disable-VwSearchIndex -Path $mount; $searchSet = 1 }
 
@@ -597,7 +626,20 @@ function Invoke-VwStop {
     if ($nsnap -gt 0) { Write-Output (T 'rep_snap_some' "$nsnap") } else { Write-Output (T 'rep_snap_none') }
     Write-Output (T 'rep_swap')
 
-    if ($restoreOk) { Remove-Item -LiteralPath $sf -Force -ErrorAction SilentlyContinue }
+    if ($searchNa) {
+        # Восстановление ещё должны: исключение ставили мы, а снять его можно только на
+        # смонтированном томе. Сессию НЕ удаляем — иначе совет из отчёта невыполним, а
+        # следующий start ничего не знает о долге и атрибут остаётся на томе навсегда.
+        # Файл переписываем: таймер и страж уже сняты, остаётся сам долг. Зеркало bash.
+        Set-Content -LiteralPath $sf -Encoding utf8 -Value @(
+            "mount=$mount"
+            "started=$started"
+            "search_was=enabled"
+            "search_set=1"
+            "pending_restore=1"
+        )
+    }
+    elseif ($restoreOk) { Remove-Item -LiteralPath $sf -Force -ErrorAction SilentlyContinue }
     else {
         # Ненулевой код обязателен: stop, не восстановивший исключения, — не успех.
         # Иначе post-close хук securetrash и планировщик считали бы сессию закрытой,

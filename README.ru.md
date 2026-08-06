@@ -13,7 +13,7 @@
 открытый plaintext может утечь (Spotlight, Time Machine), и **восстанавливает всё при
 закрытии**. Запускается автоматически из хуков `securetrash vault open/close`.
 
-> **Статус: ранний (v0.1.12, work in progress).** Готовы интеграция (хуки + вендоринг),
+> **Статус: ранний (v0.1.13, work in progress).** Готовы интеграция (хуки + вендоринг),
 > **сторожевое ядро `start`/`stop`** (Spotlight off, Time Machine exclude, cloud-detect,
 > session report) и **авто-выход `--ttl`** через **launchd LaunchAgent** (managed-таймер,
 > виден в `launchctl list`, чисто снимается через bootout).
@@ -49,10 +49,10 @@ curl -fsSL https://github.com/Di-kairos/vaultwatch/releases/latest/download/inst
 > Ed25519 над `SHA256SUMS`: её проверяют и сниппет выше, и `install.sh` — по ключу,
 > пришитому в этом репо; без проверки установщик отказывает (см. `SECURITY.md`).
 > Остаточный риск — один проектный ключ на все пять тулов, см.
-> [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.12` вместо `latest`.
+> [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.13` вместо `latest`.
 
-> Текущий публичный релиз — **v0.1.12** (подписан, с `install.sh` + `SHA256SUMS`).
-> Для воспроизводимости фиксируй его: `VW_VERSION=0.1.12` вместо `latest`.
+> Текущий публичный релиз — **v0.1.13** (подписан, с `install.sh` + `SHA256SUMS`).
+> Для воспроизводимости фиксируй его: `VW_VERSION=0.1.13` вместо `latest`.
 
 ## Использование
 

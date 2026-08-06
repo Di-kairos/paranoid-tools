@@ -190,7 +190,9 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   : >"$STUB_MOUNTS"                                # том ушёл из таблицы, каталог остался
   STUB_MDUTIL_FAIL=1 run_vw stop "$MOUNT"
   [ "$status" -eq 0 ]
-  [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]    # сессия закрыта, а не подвисла
+  # Сессия остаётся именно как долг: индексацию выключали мы, вернуть её можно только на
+  # смонтированном томе, а настройка живёт на самом томе и переживает перемонтирование.
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*
 }
 
 @test "stop does not claim it re-enabled indexing on a volume that is not mounted" {
@@ -245,4 +247,61 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   [ "$status" -eq 0 ]
   ! grep -q "mdutil -i off" "$VW_STUB_LOG"
   ! grep -q "removeexclusion" "$VW_STUB_LOG"
+}
+
+@test "the next start settles an indexing debt left by a close that happened after unmount" {
+  # Штатный путь: securetrash закрывает сейф (detach) и ТОЛЬКО ПОТОМ зовёт post-close хук,
+  # поэтому stop почти всегда видит том уже ушедшим и вернуть индексацию не может.
+  # Настройка живёт на самом томе и переживает перемонтирование — значит долг обязан
+  # пережить закрытие сессии и погаситься там, где том снова доступен: на следующем start.
+  STUB_SPOTLIGHT=enabled bash "$SCRIPT" start "$MOUNT" >/dev/null
+  : >"$STUB_MOUNTS"                                # том ушёл — как после vault close
+  run_vw stop "$MOUNT"
+  [ "$status" -eq 0 ]
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*  # долг записан
+
+  # Сейф открыли снова: том в таблице, mdutil снова достижим.
+  printf '/dev/disk9s1 on %s (apfs, local, nodev, nosuid, journaled, nobrowse)\n' "$MOUNT" >"$STUB_MOUNTS"
+  : >"$VW_STUB_LOG"
+  run_vw start "$MOUNT"
+  [ "$status" -eq 0 ]
+  grep -qF -- "mdutil -i on $MOUNT" "$VW_STUB_LOG"  # долг погашен именно здесь
+  ! grep -q '^pending_restore=1$' "$VW_STATE_DIR"/* # и снят с учёта
+}
+
+@test "a session with nothing owed is still cleared when the volume is gone" {
+  # Если индексация была выключена ДО нас, восстанавливать нечего — долга нет,
+  # и сессия обязана закрыться, иначе призрак блокировал бы слежение.
+  STUB_SPOTLIGHT=disabled bash "$SCRIPT" start "$MOUNT" >/dev/null
+  : >"$STUB_MOUNTS"
+  run_vw stop "$MOUNT"
+  [ "$status" -eq 0 ]
+  [ -z "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]
+}
+
+@test "a debt is not lost when the restore itself fails at the next start" {
+  # Погасить долг может не получиться (mdutil отказал). Тогда истинное до-сессионное
+  # состояние — «индексация была ВКЛЮЧЕНА» — обязано переехать в новую сессию: иначе её stop
+  # «восстановит» состояние «было выключено», и исключение останется на томе навсегда, молча.
+  STUB_SPOTLIGHT=enabled bash "$SCRIPT" start "$MOUNT" >/dev/null
+  : >"$STUB_MOUNTS"
+  run_vw stop "$MOUNT"
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*
+
+  printf '/dev/disk9s1 on %s (apfs, local, nodev, nosuid, journaled, nobrowse)\n' "$MOUNT" >"$STUB_MOUNTS"
+  # mdutil -i on проваливается, а состояние тома читается как «выключено» — самый коварный
+  # случай: наивный start запомнил бы «до нас было выключено».
+  STUB_MDUTIL_FAIL=1 STUB_SPOTLIGHT=disabled run_vw start "$MOUNT"
+  [ "$status" -eq 0 ]
+  grep -q '^spotlight_was=enabled$' "$VW_STATE_DIR"/*
+}
+
+@test "status names the mount of a session that still owes a restore" {
+  # Долг без имени тома — это долг, который пользователь не найдёт.
+  STUB_SPOTLIGHT=enabled bash "$SCRIPT" start "$MOUNT" >/dev/null
+  : >"$STUB_MOUNTS"
+  run_vw stop "$MOUNT"
+  run_vw status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$MOUNT"* ]]
 }

@@ -63,6 +63,53 @@ Describe 'start — guards a vault and records session state' {
         ($f | Get-Content -Raw) | Should -Match 'ttl_secs=1800'
     }
 
+    It 'settles an indexing debt left by a close that happened after unmount' {
+        # Штатный путь: securetrash закрывает сейф (detach) и ТОЛЬКО ПОТОМ зовёт post-close
+        # хук, поэтому stop почти всегда видит том ушедшим и снять NotContentIndexed не может.
+        # Атрибут живёт на самом томе и переживает перемонтирование — значит долг обязан
+        # пережить закрытие сессии и погаситься там, где том снова доступен: на следующем start.
+        Mock Enable-VwSearchIndex { $true }
+        Mock Test-VwVaultGone { $false }
+        $resolved = (Resolve-Path $script:Mount).Path
+        $sf = Get-VwStateFile -Mount $resolved
+        New-Item -ItemType Directory -Path $script:VW_STATE_DIR -Force | Out-Null
+        Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'pending_restore=1')
+
+        Invoke-VwStart -ArgList @($resolved) -Self 'self.ps1' | Out-Null
+
+        Should -Invoke Enable-VwSearchIndex -Times 1 -Exactly   # долг погашен именно здесь
+        (Get-Content -LiteralPath $sf -Raw) | Should -Not -Match 'pending_restore=1'
+        (Get-Content -LiteralPath $sf -Raw) | Should -Match 'search_set=1'   # и началась новая сессия
+    }
+
+    It 'does not lose the debt when the restore itself fails' {
+        # Погасить долг может не получиться. Тогда истинное до-сессионное состояние —
+        # «индексация была включена» — обязано переехать в новую сессию: иначе её stop
+        # «восстановит» состояние «было исключено», и NotContentIndexed останется навсегда.
+        Mock Enable-VwSearchIndex { $false }
+        Mock Get-VwSearchState { 'disabled' }   # самый коварный случай
+        Mock Test-VwVaultGone { $false }
+        $resolved = (Resolve-Path $script:Mount).Path
+        $sf = Get-VwStateFile -Mount $resolved
+        New-Item -ItemType Directory -Path $script:VW_STATE_DIR -Force | Out-Null
+        Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'pending_restore=1')
+
+        Invoke-VwStart -ArgList @($resolved) -Self 'self.ps1' | Out-Null
+
+        (Get-Content -LiteralPath $sf -Raw) | Should -Match 'search_was=enabled'
+    }
+
+    It 'still refuses a repeat start when the session owes nothing' {
+        Mock Enable-VwSearchIndex { $true }
+        $resolved = (Resolve-Path $script:Mount).Path
+        $sf = Get-VwStateFile -Mount $resolved
+        New-Item -ItemType Directory -Path $script:VW_STATE_DIR -Force | Out-Null
+        Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1')
+        Invoke-VwStart -ArgList @($resolved) -Self 'self.ps1' | Out-Null
+        Should -Invoke Disable-VwSearchIndex -Times 0 -Exactly
+        Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly
+    }
+
     It 'rejects a bad --ttl duration' {
         { Invoke-VwStart -ArgList @('--ttl', 'nope', $script:Mount) -Self 'x' } | Should -Throw
     }
@@ -154,7 +201,7 @@ Describe 'stop — restores and reports' {
     # AUDIT_2026-08-03 P0-4: Explorer-eject → guard вызывает stop, когда тома уже НЕТ.
     # Restore для несуществующего тома = N/A (не ошибка); state-файл обязан очиститься,
     # иначе следующий start на этот mount вечно отвечает already_watching.
-    It 'eject: mount is gone -> restore N/A, state cleared, no false failure (P0-4)' {
+    It 'eject: mount is gone -> restore stays owed, session kept, no false failure (P0-4)' {
         $resolved = (Resolve-Path $script:Mount).Path
         $sf = Get-VwStateFile -Mount $resolved
         Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
@@ -162,13 +209,15 @@ Describe 'stop — restores and reports' {
         Remove-Item -LiteralPath $script:Mount -Recurse -Force   # том «изъят» до stop
         Invoke-VwStop -ArgList @($resolved) | Out-Null
         Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly
-        (Test-Path -LiteralPath $sf) | Should -BeFalse
+        # Долг остаётся: исключение ставили мы, снять его можно только на смонтированном
+        # томе. Сессия сохраняется как pending_restore, иначе следующий start о нём не знает.
+        (Get-Content -LiteralPath $sf -Raw) | Should -Match 'pending_restore=1'
     }
 
     # Сейф, примонтированный в ПАПКУ: после eject папка остаётся. `Test-Path` считал такой
     # сейф открытым — stop дёргал снятие NotContentIndexed на пустой папке, ловил отказ
     # и навсегда оставлял сессию, блокируя следующий start.
-    It 'eject leaves the folder mountpoint behind -> still restore N/A, state cleared' {
+    It 'eject leaves the folder mountpoint behind -> restore stays owed, session kept' {
         $resolved = (Resolve-Path $script:Mount).Path
         $sf = Get-VwStateFile -Mount $resolved
         Set-Content -LiteralPath $sf -Value @("mount=$resolved", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
@@ -177,7 +226,9 @@ Describe 'stop — restores and reports' {
         Invoke-VwStop -ArgList @($resolved) | Out-Null
         (Test-Path -LiteralPath $resolved) | Should -BeTrue     # папка на месте
         Should -Invoke Enable-VwSearchIndex -Times 0 -Exactly
-        (Test-Path -LiteralPath $sf) | Should -BeFalse          # сессия закрыта, а не подвисла
+        # Сессия остаётся долгом, а не исчезает: снять атрибут можно только на смонтированном
+        # томе, а сам атрибут живёт на томе и переживает перемонтирование.
+        (Get-Content -LiteralPath $sf -Raw) | Should -Match 'pending_restore=1'
     }
 
     It 'does not claim it re-enabled indexing on a volume that is not mounted' {
@@ -254,7 +305,10 @@ Describe '_ttl_fire — auto-exit' {
         Mock Get-VwMountPoints { @('C:\') }        # dismount сработал — тома в таблице нет
         Invoke-VwTtlFire -ArgList @($script:Mount) | Out-Null
         Should -Invoke Invoke-VwDismount -Times 1 -Exactly
-        (Test-Path -LiteralPath $script:Sf) | Should -BeFalse   # stop очистил state
+        # Исключение ставили МЫ, снять его можно только на смонтированном томе — значит долг
+        # остаётся. Сессия сохраняется именно как долг (pending_restore): иначе следующий start
+        # о нём не знает и NotContentIndexed остаётся на томе навсегда. Зеркало bash.
+        (Get-Content -LiteralPath $script:Sf -Raw) | Should -Match 'pending_restore=1'
     }
 
     It 'does NOT dismount a busy mount without --force' {
@@ -273,7 +327,10 @@ Describe '_ttl_fire — auto-exit' {
         Mock Get-VwMountPoints { @('C:\') }
         Invoke-VwTtlFire -ArgList @($script:Mount) | Out-Null
         (Test-Path -LiteralPath $script:Mount) | Should -BeTrue   # папка на месте
-        (Test-Path -LiteralPath $script:Sf) | Should -BeFalse     # сессия всё равно закрыта
+        # Исключение ставили МЫ, снять его можно только на смонтированном томе — значит долг
+        # остаётся. Сессия сохраняется именно как долг (pending_restore): иначе следующий start
+        # о нём не знает и NotContentIndexed остаётся на томе навсегда. Зеркало bash.
+        (Get-Content -LiteralPath $script:Sf -Raw) | Should -Match 'pending_restore=1'
     }
 
     It 'keeps the session when the volume table cannot be read after dismount' {
@@ -364,7 +421,10 @@ Describe 'unmount-guard _guard_fire — restore только если том и�
         Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=0', 'ttl_force=0')
         Mock Get-VwMountPoints { @('C:\') }
         Invoke-VwGuardFire -ArgList @($script:Mount) | Out-Null
-        (Test-Path -LiteralPath $script:Sf) | Should -BeFalse   # сессия снята
+        # Исключение ставили МЫ, снять его можно только на смонтированном томе — значит долг
+        # остаётся. Сессия сохраняется именно как долг (pending_restore): иначе следующий start
+        # о нём не знает и NotContentIndexed остаётся на томе навсегда. Зеркало bash.
+        (Get-Content -LiteralPath $script:Sf -Raw) | Should -Match 'pending_restore=1'
     }
 
     It 'restores when the volume is gone but its folder is left behind' {
@@ -374,7 +434,10 @@ Describe 'unmount-guard _guard_fire — restore только если том и�
         Mock Get-VwMountPoints { @('C:\') }
         Invoke-VwGuardFire -ArgList @($script:Mount) | Out-Null
         (Test-Path -LiteralPath $script:Mount) | Should -BeTrue
-        (Test-Path -LiteralPath $script:Sf) | Should -BeFalse
+        # Исключение ставили МЫ, снять его можно только на смонтированном томе — значит долг
+        # остаётся. Сессия сохраняется именно как долг (pending_restore): иначе следующий start
+        # о нём не знает и NotContentIndexed остаётся на томе навсегда. Зеркало bash.
+        (Get-Content -LiteralPath $script:Sf -Raw) | Should -Match 'pending_restore=1'
     }
 
     It 'keeps the exclusion while the volume table cannot be read' {

@@ -74,8 +74,16 @@ function Invoke-VwVerifier {
     # и валидная подпись отвалилась бы как «incorrect signature» (зеркало ghostdraft).
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = (Get-VwVerifier)
-    foreach ($a in @('-Y','verify','-f',$AllowedSigners,'-I',$Principal,'-n','file','-s',$SigFile)) {
-        $psi.ArgumentList.Add($a)
+    $vArgs = @('-Y','verify','-f',$AllowedSigners,'-I',$Principal,'-n','file','-s',$SigFile)
+    # `ArgumentList` появился только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
+    # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README —
+    # его не имеет: обращение к нему уронило бы установку на шаге проверки подписи.
+    # Там кладём строку сами. Каждый аргумент в кавычках (TEMP бывает с пробелом),
+    # хвостовые обратные слэши удваиваются — иначе слэш экранирует закрывающую кавычку.
+    if ($psi.PSObject.Properties.Name -contains 'ArgumentList') {
+        foreach ($a in $vArgs) { $psi.ArgumentList.Add($a) }
+    } else {
+        $psi.Arguments = (($vArgs | ForEach-Object { '"' + (($_ -replace '(\\*)"','$1$1\"') -replace '(\\+)$','$1$1') + '"' }) -join ' ')
     }
     $psi.RedirectStandardInput  = $true
     $psi.RedirectStandardOutput = $true

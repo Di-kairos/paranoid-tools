@@ -84,7 +84,10 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   _mark_unmounted; rmdir "$MOUNT"         # имитируем размонтаж: mountpoint исчез
   run_vw _guard_fire "$MOUNT"
   [ "$status" -eq 0 ]
-  ! ls "$VW_STATE_DIR"/* >/dev/null 2>&1  # сессия снята — restore прошёл без смонтированного тома
+  # Индексацию выключали МЫ, а включить её можно только на смонтированном томе — значит
+  # долг остаётся. Сессия сохраняется именно как долг (`pending_restore`): иначе следующий
+  # start ничего о нём не знает и исключение остаётся на томе навсегда.
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*
 }
 
 @test "_guard_fire restores when the volume is gone but its directory is left behind" {
@@ -95,7 +98,10 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   [ -d "$MOUNT" ]
   run_vw _guard_fire "$MOUNT"
   [ "$status" -eq 0 ]
-  ! ls "$VW_STATE_DIR"/* >/dev/null 2>&1  # сессия снята, исключение восстановлено
+  # Индексацию выключали МЫ, а включить её можно только на смонтированном томе — значит
+  # долг остаётся. Сессия сохраняется именно как долг (`pending_restore`): иначе следующий
+  # start ничего о нём не знает и исключение остаётся на томе навсегда.
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*
 }
 
 @test "_guard_fire keeps the exclusion while the mount table cannot be read" {
@@ -112,7 +118,10 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   _mark_mounted "$MOUNT Backup"           # настоящий том ушёл, соседний на месте
   run_vw _guard_fire "$MOUNT"
   [ "$status" -eq 0 ]
-  ! ls "$VW_STATE_DIR"/* >/dev/null 2>&1  # том действительно исчез → сессия снята
+  # Индексацию выключали МЫ, а включить её можно только на смонтированном томе — значит
+  # долг остаётся. Сессия сохраняется именно как долг (`pending_restore`): иначе следующий
+  # start ничего о нём не знает и исключение остаётся на томе навсегда.
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*
 }
 
 @test "_guard_fire with no session is a quiet success" {
