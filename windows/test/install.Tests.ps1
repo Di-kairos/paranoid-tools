@@ -21,7 +21,9 @@ BeforeAll {
         $sh = "#!/bin/sh`ncat >/dev/null 2>&1`nexit $ExitCode`n"
         $shPath = Join-Path $Dir 'ssh-keygen'
         Set-Content -LiteralPath $shPath -Value $sh -Encoding ascii -NoNewline
-        if (-not $IsWindows) { & chmod +x $shPath }
+        # $env:OS, не $IsWindows: последняя определена только в PowerShell 6+, под Windows
+        # PowerShell 5.1 она $null — и тест уходил в Unix-ветку прямо на Windows.
+        if ($env:OS -ne 'Windows_NT') { & chmod +x $shPath }
     }
 
     # Мок ssh-keygen, который СОХРАНЯЕТ полученный stdin в файл (путь — в PT_TEST_STDIN_CAPTURE).
@@ -42,7 +44,7 @@ exit 0
         $sh = "#!/bin/sh`nexec pwsh -NoProfile -File '$capture'`n"
         $shPath = Join-Path $Dir 'ssh-keygen'
         Set-Content -LiteralPath $shPath -Value $sh -Encoding ascii -NoNewline
-        if (-not $IsWindows) { & chmod +x $shPath }
+        if ($env:OS -ne 'Windows_NT') { & chmod +x $shPath }
     }
 
     # Болтливый стаб: сыплет в stdout/stderr заведомо больше буфера трубы и выходит с 0.
@@ -63,7 +65,7 @@ exit 0
         $sh = "#!/bin/sh`nexec pwsh -NoProfile -File '$noisy'`n"
         $shPath = Join-Path $Dir 'ssh-keygen'
         Set-Content -LiteralPath $shPath -Value $sh -Encoding ascii -NoNewline
-        if (-not $IsWindows) { & chmod +x $shPath }
+        if ($env:OS -ne 'Windows_NT') { & chmod +x $shPath }
     }
 
     # Запуск установщика в дочернем pwsh: env-настройки внутри -Command, чтобы не текли в тест-сессию.
@@ -181,7 +183,7 @@ Describe 'install.ps1 signature gate' {
             -Value "@echo off`r`nexit /b 1`r`n"
         $shPath = Join-Path $script:StubDir 'ssh-keygen'
         Set-Content -LiteralPath $shPath -Value "#!/bin/sh`nexit 1`n" -Encoding ascii -NoNewline
-        if (-not $IsWindows) { & chmod +x $shPath }
+        if ($env:OS -ne 'Windows_NT') { & chmod +x $shPath }
 
         $out = & pwsh -NoProfile -Command (
             (script:PrefixPathEnv $script:StubDir) +
