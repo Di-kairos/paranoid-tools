@@ -132,7 +132,9 @@ Describe 'Get-PtVaultwatchSessions — чтение session-файлов vaultwa
     It 'TTL-сессия: remaining = started + ttl_secs - now' {
         Set-Content -LiteralPath (Join-Path $vwDir '_Volumes_SecretVault') -Value @(
             'mount=/Volumes/SecretVault', 'started=1000', 'ttl_secs=3600', 'ttl_force=0')
-        $s = Get-PtVaultwatchSessions -Now 1900
+        # @() обязательно: под Windows PowerShell 5.1 у одиночного [pscustomobject] нет
+        # автосвойства .Count (в PS7 есть) — без обёртки сравнение получает $null.
+        $s = @(Get-PtVaultwatchSessions -Now 1900)
         $s.Count        | Should -Be 1
         $s[0].Mount     | Should -Be '/Volumes/SecretVault'
         $s[0].Remaining | Should -Be 2700
@@ -169,7 +171,7 @@ Describe 'Get-PtVaultwatchSessions — чтение session-файлов vaultwa
                                        [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
         try {
             { Get-PtVaultwatchSessions -Now 1900 } | Should -Not -Throw
-            (@(Get-PtVaultwatchSessions -Now 1900) | Where-Object { $_.Mount -eq '/Volumes/Good' }).Count | Should -Be 1
+            @(@(Get-PtVaultwatchSessions -Now 1900) | Where-Object { $_.Mount -eq '/Volumes/Good' }).Count | Should -Be 1
         } finally { $lock.Dispose() }
     }
 }
@@ -333,7 +335,8 @@ Describe 'Onboarding' {
 
 Describe 'Cross-platform l10n parity' {
     It 'ps1 key set equals Swift key set' {
-        $swiftPath = Join-Path $PSScriptRoot '..' '..' 'macos' 'ParanoidBar.swift'
+        # Join-Path принимает больше двух сегментов только в PS7; под 5.1 — ровно два.
+        $swiftPath = Join-Path (Join-Path (Join-Path (Join-Path $PSScriptRoot '..') '..') 'macos') 'ParanoidBar.swift'
         $swift = Get-Content -LiteralPath $swiftPath -Raw
         $swiftKeys = [regex]::Matches($swift, '(?m)^\s*"([a-z0-9_]+)":\s*\(') |
             ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
@@ -345,7 +348,7 @@ Describe 'Cross-platform l10n parity' {
         # Ловим статически: все литеральные ссылки в обоих исходниках обязаны быть в таблице.
         # Динамические ссылки (Get-PtL -Key $var / L(okKey...)) регексы намеренно не матчат.
         $table = @($PtStrings.en.Keys)
-        $psSrc = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'paranoid-tray.ps1') -Raw
+        $psSrc = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
         $psRefs = [regex]::Matches($psSrc, "Get-PtL\s+'?([a-z][a-z0-9_]*)'?") |
             ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
         $psRefs | Should -Not -BeNullOrEmpty
@@ -377,7 +380,9 @@ Describe 'Panic hotkey' {
         Get-PtHotkeySpec -Preset 'off' | Should -BeNullOrEmpty
         Get-PtHotkeySpec -Preset 'garbage' | Should -BeNullOrEmpty
     }
-    It 'compiles the PtHotkeyWindow helper (windows-only)' -Skip:(-not $IsWindows) {
+    # $env:OS, не $IsWindows: последняя определена только в PowerShell 6+, под Windows
+    # PowerShell 5.1 она $null — и тест уходил в Unix-ветку прямо на Windows.
+    It 'compiles the PtHotkeyWindow helper (windows-only)' -Skip:($env:OS -ne 'Windows_NT') {
         # тот же Add-Type сниппет, что в Start-PtTray (идемпотентен: тип уже загружен -> ловим и проверяем)
         try {
             Add-Type -ReferencedAssemblies System.Windows.Forms, System.Windows.Forms.Primitives -TypeDefinition @'
