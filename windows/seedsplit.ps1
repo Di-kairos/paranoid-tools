@@ -1,4 +1,4 @@
-# seedsplit.ps1 — распределить секрет на доли (Shamir Secret Sharing), Windows-порт (BETA).
+﻿# seedsplit.ps1 — распределить секрет на доли (Shamir Secret Sharing), Windows-порт (BETA).
 # Зеркало macOS-версии (bash). Baseline: Windows PowerShell 5.1 (без PS7-only синтаксиса).
 #
 # Совместимость с bash-версией — БАЙТ-В-БАЙТ: тот же формат доли SSS3, те же таблицы GF(256)

@@ -1,4 +1,4 @@
-# Pester 5 — install.ps1 (Windows-порт seedsplit). Проверяем integrity- и signature-gate без сети:
+﻿# Pester 5 — install.ps1 (Windows-порт seedsplit). Проверяем integrity- и signature-gate без сети:
 # SEEDSPLIT_BASE_URL указывает на локальный каталог-«релиз», установка идёт во временный
 # каталог, правка PATH отключена. Покрытие: happy-path, провал на расхождении хеша,
 # провал при отсутствии записи в SHA256SUMS, а также подпись релиза (valid/invalid/

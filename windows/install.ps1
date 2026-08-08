@@ -1,4 +1,4 @@
-# install.ps1 — установщик seedsplit для Windows (BETA) с проверкой целостности.
+﻿# install.ps1 — установщик seedsplit для Windows (BETA) с проверкой целостности.
 #
 # Тянет seedsplit.ps1 и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и сверяет SHA256
 # ДО установки. Закрывает supply-chain риск «irm|iex из main без проверки»: содержимое
