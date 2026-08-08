@@ -11,7 +11,9 @@
 
 Describe 'ps1 encoding' {
     It 'every .ps1 with non-ASCII bytes starts with a UTF-8 BOM' {
-        $root = Resolve-Path (Join-Path $PSScriptRoot '..' '..')
+        # Join-Path с тремя аргументами — PS7-only; в Windows PowerShell 5.1 у него
+        # ровно два позиционных параметра, и третий валит тест ParameterBindingException.
+        $root = Resolve-Path (Join-Path (Join-Path $PSScriptRoot '..') '..')
         $bad = @()
         # foreach, а не ForEach-Object: последний исполняется в дочерней области,
         # и `$bad +=` внутри него потерялся бы вместе с результатом теста.
