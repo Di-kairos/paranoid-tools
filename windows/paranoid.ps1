@@ -1,4 +1,4 @@
-# paranoid.ps1 — интерактивный лаунчер экосистемы Paranoid Tools, Windows-зеркало (BETA).
+﻿# paranoid.ps1 — интерактивный лаунчер экосистемы Paranoid Tools, Windows-зеркало (BETA).
 # Зеркало macOS-версии (bash `paranoid`). Baseline: Windows PowerShell 5.1.
 #
 # ЧЕСТНО: тонкий лаунчер, не новый инструмент. Не содержит крипты и НЕ трогает секреты —

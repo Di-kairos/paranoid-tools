@@ -1,4 +1,4 @@
-# Pester — логика system-tray агента (paranoid-tray.ps1). Дот-сорс под ST_NO_MAIN=1: определяет
+﻿# Pester — логика system-tray агента (paranoid-tray.ps1). Дот-сорс под ST_NO_MAIN=1: определяет
 # функции, НЕ запуская WinForms-цикл. WinForms на Linux/macOS-CI недоступен, поэтому тестируем
 # чистую логику: спецификацию меню (динамический пункт сейфа по состоянию) и диспетчер CLI.
 
