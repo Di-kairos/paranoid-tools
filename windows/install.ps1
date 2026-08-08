@@ -1,4 +1,4 @@
-# install.ps1 — установщик securetrash для Windows (BETA) с проверкой целостности.
+﻿# install.ps1 — установщик securetrash для Windows (BETA) с проверкой целостности.
 #
 # Тянет securetrash.ps1, SHA256SUMS и SHA256SUMS.sig из РЕЛИЗНОГО тега (не из ветки
 # main), сверяет SHA256 ДО установки И проверяет ed25519-подпись SHA256SUMS вшитым

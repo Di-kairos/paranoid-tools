@@ -1,4 +1,4 @@
-# Pester 5 тесты для securetrash.ps1 (Windows-порт, BETA).
+﻿# Pester 5 тесты для securetrash.ps1 (Windows-порт, BETA).
 # Все Windows-specific cmdlet/exe замоканы — проверяется только диспетчер,
 # i18n и ветвление. Реальное поведение BitLocker/VHDX/VeraCrypt НЕ верифицируется.
 

@@ -1,4 +1,4 @@
-# securetrash.ps1 — честное безопасное удаление файлов на Windows (BETA-порт).
+﻿# securetrash.ps1 — честное безопасное удаление файлов на Windows (BETA-порт).
 # Зеркало macOS-версии (bash). Baseline: Windows PowerShell 5.1 (без PS7-only синтаксиса).
 # ВАЖНО: порт помечен BETA — логика проверена через Pester, поведение
 # BitLocker/VHDX/VeraCrypt на реальном железе НЕ верифицировано.
