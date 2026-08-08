@@ -721,4 +721,13 @@ public class PtHotkeyWindow : NativeWindow {
     $timer.Stop()
 }
 
-if (-not $env:ST_NO_MAIN) { Start-PtTray }
+if (-not $env:ST_NO_MAIN) {
+    # Трей — pwsh 7 и только он: хоткей-хелпер компилируется со ссылкой на
+    # System.Windows.Forms.Primitives, а этой сборки в .NET Framework (Windows PowerShell 5.1)
+    # нет. Без этой проверки запуск под 5.1 вываливал ошибку компилятора C# вместо ответа.
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        [Console]::Error.WriteLine("[x] paranoid-tray requires PowerShell 7+ (pwsh); running under $($PSVersionTable.PSVersion). Start it with: pwsh -File paranoid-tray.ps1")
+        exit 1
+    }
+    Start-PtTray
+}

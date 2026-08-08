@@ -353,7 +353,7 @@ Describe 'Cross-platform l10n parity' {
             ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
         $psRefs | Should -Not -BeNullOrEmpty
         @($psRefs | Where-Object { $_ -notin $table }) | Should -BeNullOrEmpty
-        $swiftPath = Join-Path $PSScriptRoot '..' '..' 'macos' 'ParanoidBar.swift'
+        $swiftPath = Join-Path (Join-Path (Join-Path (Join-Path $PSScriptRoot '..') '..') 'macos') 'ParanoidBar.swift'
         $swift = Get-Content -LiteralPath $swiftPath -Raw
         # no_such_key — сентинел Swift-selftest'а на fallback L(); в таблице его быть не должно.
         $swiftRefs = [regex]::Matches($swift, 'L\("([a-z0-9_]+)"') |
@@ -382,7 +382,10 @@ Describe 'Panic hotkey' {
     }
     # $env:OS, не $IsWindows: последняя определена только в PowerShell 6+, под Windows
     # PowerShell 5.1 она $null — и тест уходил в Unix-ветку прямо на Windows.
-    It 'compiles the PtHotkeyWindow helper (windows-only)' -Skip:($env:OS -ne 'Windows_NT') {
+    # Под Windows PowerShell 5.1 хелпер не соберётся и не должен: он ссылается на
+    # System.Windows.Forms.Primitives, а этой сборки в .NET Framework нет. Сам трей туда
+    # и не пускает — отвечает честным «нужен pwsh 7» вместо ошибки компилятора.
+    It 'compiles the PtHotkeyWindow helper (windows-only)' -Skip:($env:OS -ne 'Windows_NT' -or $PSVersionTable.PSVersion.Major -lt 6) {
         # тот же Add-Type сниппет, что в Start-PtTray (идемпотентен: тип уже загружен -> ловим и проверяем)
         try {
             Add-Type -ReferencedAssemblies System.Windows.Forms, System.Windows.Forms.Primitives -TypeDefinition @'
