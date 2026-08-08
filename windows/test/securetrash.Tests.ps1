@@ -933,7 +933,13 @@ Describe 'honest wording (#1, #11, #12)' {
 
 Describe 'shred: LiteralPath + best-effort wipe (#1a, #7)' {
 
-    It 'shred enumerates with LiteralPath and calls cipher wipe' {
+    # -Skip под Windows PowerShell 5.1 — расхождение платформ, не дыра в покрытии.
+    # Тест берёт имя со звёздочкой, чтобы доказать: перечисляем через -LiteralPath и не
+    # ловим лишнего. Но [System.IO.Path]::GetFullPath на .NET Framework (5.1) БРОСАЕТ на
+    # `*`/`?`, а на .NET Core (7) — нет. Test-StProtectedPath ловит исключение и честно
+    # закрывается (`return $true`), поэтому под 5.1 shred отказывает раньше Remove-Item.
+    # Отказ безопасный, и в реальности недостижимый: NTFS запрещает `*` в имени файла.
+    It 'shred enumerates with LiteralPath and calls cipher wipe' -Skip:($PSVersionTable.PSVersion.Major -lt 6) {
         $env:ST_ASSUME_YES = '1'
         $script:ST_LOCALE = 'en'
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -eq 'C:\secret*.txt' }

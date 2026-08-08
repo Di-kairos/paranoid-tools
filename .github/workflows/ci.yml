@@ -74,6 +74,11 @@ jobs:
       - name: Pester under Windows PowerShell 5.1
         shell: powershell
         run: |
+          # The `powershell` shell template sets $ErrorActionPreference = 'stop', and 5.1
+          # turns a child process's stderr into an ErrorRecord when a test merges 2>&1 —
+          # so a fail-closed test reading the installer's honest stderr would blow up on
+          # the harness rather than on the assertion. The tests check exit codes explicitly.
+          $ErrorActionPreference = 'Continue'
           $r = Invoke-Pester windows/test -Output Detailed -PassThru
           if ($r.FailedCount -gt 0) { throw "$($r.FailedCount) Pester test(s) failed" }
       - name: Smoke — the tool actually answers under 5.1

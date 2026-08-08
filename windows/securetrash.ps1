@@ -915,7 +915,10 @@ function Remove-StItemSafe {
 # их не трогает) — guard ловит путь как задан; для CLI локального удаления это приемлемо.
 function Test-StProtectedPath {
     param([string]$Path)
-    try { $full = [System.IO.Path]::GetFullPath($Path) } catch { return $true }  # не распарсили → fail-closed
+    # Не распарсили → fail-closed. На .NET Framework (Windows PowerShell 5.1) сюда попадают
+    # и пути со звёздочкой: GetFullPath там бросает на `*`/`?`, а на .NET Core (7) — нет.
+    # Такое имя файла NTFS всё равно не даст создать, так что отказ никого не блокирует.
+    try { $full = [System.IO.Path]::GetFullPath($Path) } catch { return $true }
     if (-not $full) { return $true }
     $norm = $full.TrimEnd('\')
     if ($norm -match '^[A-Za-z]:$') { $norm = "$norm\" }   # "C:" → "C:\" (корень диска)
