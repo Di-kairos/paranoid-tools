@@ -57,7 +57,7 @@ Requires **PowerShell 5.1+** (Windows PowerShell or PowerShell 7).
 | `vault reset [size]` | Empty the vault for real: crypto-shred its contents, then recreate it empty (keeps the container). |
 | `vault status` | Read-only: is the container open (and where it is mounted), closed, or missing. |
 | `vault destroy-old` | Crypto-shreds a container left set aside by an interrupted `reset`. |
-| `version` | `securetrash 0.5.5 (Windows, beta)`. |
+| `version` | `securetrash 0.5.6 (Windows, beta)`. |
 
 Flags: `--yes` skips confirmation prompts (for scripts). `version`/`help` also accept the
 `-v`/`--version` and `-h`/`--help` spellings, same as the macOS version.
