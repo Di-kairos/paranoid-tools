@@ -75,8 +75,10 @@ jobs:
       - name: Smoke — the 5.1 gate refuses honestly
         shell: powershell
         run: |
+          # Child process, not dot-invocation: the refusal is written straight to the
+          # process's stderr with [Console]::Error, which in-process redirection cannot catch.
           $ErrorActionPreference = 'Continue'
-          $out = (& .\windows\vaultwatch.ps1 version 2>&1 | Out-String)
+          $out = (& powershell.exe -NoProfile -File .\windows\vaultwatch.ps1 version 2>&1 | Out-String)
           if ($LASTEXITCODE -eq 0) { throw "vaultwatch must refuse to run under Windows PowerShell 5.1" }
           if ($out -notmatch 'PowerShell 7') { throw "the refusal must name PowerShell 7, got: $out" }
           Write-Host "refused as designed: $out"
