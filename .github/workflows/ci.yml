@@ -69,8 +69,14 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $r = Invoke-Pester windows/test -Output Detailed -PassThru
           if ($r.FailedCount -gt 0) { throw "$($r.FailedCount) Pester test(s) failed" }
-      - name: Smoke — the tool actually answers under 5.1
+      # vaultwatch is the one tool that refuses 5.1 on purpose: TTL auto-dismount and the
+      # vault hooks call pwsh.exe, so running here would promise a guard that never fires.
+      # The refusal itself is the contract — assert it, and assert it names PowerShell 7.
+      - name: Smoke — the 5.1 gate refuses honestly
         shell: powershell
         run: |
-          .\windows\vaultwatch.ps1 version
-          .\windows\vaultwatch.ps1 --help
+          $ErrorActionPreference = 'Continue'
+          $out = (& .\windows\vaultwatch.ps1 version 2>&1 | Out-String)
+          if ($LASTEXITCODE -eq 0) { throw "vaultwatch must refuse to run under Windows PowerShell 5.1" }
+          if ($out -notmatch 'PowerShell 7') { throw "the refusal must name PowerShell 7, got: $out" }
+          Write-Host "refused as designed: $out"
