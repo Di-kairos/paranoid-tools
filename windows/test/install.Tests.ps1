@@ -1,4 +1,4 @@
-# Pester 5 — install.ps1 (Windows-порт vaultwatch). Integrity-gate без сети:
+﻿# Pester 5 — install.ps1 (Windows-порт vaultwatch). Integrity-gate без сети:
 # VAULTWATCH_BASE_URL → локальный каталог-«релиз», установка во временный каталог,
 # правка PATH отключена. Покрытие: happy-path, провал на расхождении хеша, провал
 # при отсутствии записи в SHA256SUMS (fail-closed).

@@ -1,4 +1,4 @@
-# Pester 5 — логика vaultwatch.ps1 (Windows-порт). Дот-сорс под ST_NO_MAIN=1: определяет
+﻿# Pester 5 — логика vaultwatch.ps1 (Windows-порт). Дот-сорс под ST_NO_MAIN=1: определяет
 # функции, не запуская диспетчер. vaultwatch трогает Search/Task Scheduler/BitLocker/VSS,
 # поэтому эти примитивы МОКАЮТСЯ: тест проверяет оркестровку (state write/read на start/stop/
 # status, TTL-планирование, restore, _ttl_fire, парсинг длительности, hooks). CLI — через pwsh.

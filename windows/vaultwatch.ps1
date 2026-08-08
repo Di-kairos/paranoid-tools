@@ -1,4 +1,4 @@
-# vaultwatch.ps1 — честный сторож открытого vault (Paranoid Tools), Windows-порт (BETA).
+﻿# vaultwatch.ps1 — честный сторож открытого vault (Paranoid Tools), Windows-порт (BETA).
 # Зеркало macOS-версии (bash). Требует PowerShell 7+ (pwsh): TTL-таск и хуки зовут pwsh.exe,
 # под Windows PowerShell 5.1 не работают — старт fail-closed (см. Assert-VwPs7).
 #
