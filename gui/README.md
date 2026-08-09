@@ -20,7 +20,7 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
 
 | Platform | File | Status |
 |----------|------|--------|
-| macOS | `macos/ParanoidBar.swift` + `macos/build.sh` | **Source compiles** with `swiftc` (Command Line Tools). AppKit `NSStatusItem` menu-bar agent: monochrome SF-Symbol status glyph (adapts to light/dark menu bar), live vault/FileVault status, **vaultwatch session + TTL countdown** (in the glyph + menu), Status/PANIC/Vault▸(open·close·empty·destroy)/launcher, **Start at login** toggle (LaunchAgent), runs CLIs via Terminal. |
+| macOS | `macos/ParanoidBar.swift` + `macos/build.sh` | **Signed + notarized** (Developer ID, hardened runtime, ticket stapled); source compiles with `swiftc` (Command Line Tools). AppKit `NSStatusItem` menu-bar agent: monochrome SF-Symbol status glyph (adapts to light/dark menu bar), live vault/FileVault status, **vaultwatch session + TTL countdown** (in the glyph + menu), Status/PANIC/Vault▸(open·close·empty·destroy)/launcher, **Start at login** toggle (LaunchAgent), runs CLIs via Terminal. |
 | Windows | `windows/paranoid-tray.ps1` (+ Pester) | **Runnable PowerShell** (no compile). `NotifyIcon` tray, same menu + **vaultwatch TTL countdown** (tooltip + menu headers) + **Start at login** toggle (HKCU Run), runs CLIs in a new console. Menu/status/autostart/vaultwatch logic Pester-tested. |
 
 **Phase B polish (product-grade UX, both platforms, full feature parity):**
@@ -61,14 +61,14 @@ cd macos
 ./build.sh            # → ./ParanoidBar  (run it: a 🔒 appears in the menu bar)
 ./build.sh --bundle   # → ParanoidBar.app (LSUIElement: menu-bar agent, no Dock icon)
 
-# distribution (needs an Apple Developer account — see below):
+# release build — signed + notarized (needs an Apple Developer account; see below):
 ./build.sh --bundle --sign "Developer ID Application: NAME (TEAMID)" --notarize <profile>
 ./build.sh --bundle --sign -   # ad-hoc: exercises the codesign path locally (NOT distributable)
 ```
-`build.sh` is distribution-ready: `--sign` runs `codesign` with hardened runtime + `--verify`;
-`--notarize <profile>` zips, submits via `notarytool --wait`, then staples + validates.
-`--version X.Y.Z` stamps the bundle. Only the real Developer-ID sign + notary submission need the
-account; the pipeline mechanics are exercised by the ad-hoc path.
+`--sign` runs `codesign` with hardened runtime + `--verify`; `--notarize <profile>` zips, submits
+via `notarytool --wait`, then staples + validates. `--version X.Y.Z` stamps the bundle. Only the
+real Developer-ID sign + notary submission need the account; without one, the ad-hoc path still
+exercises the pipeline mechanics.
 
 **Windows**
 ```powershell
@@ -77,24 +77,44 @@ pwsh -File windows/paranoid-tray.ps1   # a Shield icon appears in the tray; righ
 
 ## Signing and distribution
 
-The macOS pipeline (`build.sh --sign --notarize`) is written and works; what is missing is a
-Developer ID certificate and a notarization credential, so the current build is unsigned and
-Gatekeeper will say so. The Windows tray ships as a `.ps1`, which would need Authenticode
-signing. Until that lands, run the GUI from this repo — the CLIs it drives are signed and
-verified at install time regardless.
+**macOS is signed and notarized.** `ParanoidBar.app` is signed with a Developer ID Application
+certificate under hardened runtime and a secure timestamp, notarized by Apple, and the notary
+ticket is stapled into the bundle — so Gatekeeper accepts it offline too, on a machine that has
+never seen this app:
+
+```
+spctl --assess --type execute ParanoidBar.app   → accepted, source=Notarized Developer ID
+xcrun stapler validate ParanoidBar.app          → the validate action worked
+codesign -dvv                                   → flags=0x10000(runtime), Developer ID Application
+```
+
+Reproduce a release build yourself (the identity string comes from
+`security find-identity -v -p codesigning`, the notary profile from
+`xcrun notarytool store-credentials`):
+
+```bash
+cd macos
+./build.sh --bundle --sign "Developer ID Application: NAME (TEAMID)" \
+           --notarize <profile> --version X.Y.Z
+```
+
+The app bundle is **not** committed — it is a build artifact (`.gitignore`), rebuilt from source.
+
+**Windows is not signed yet.** The tray ships as a `.ps1`, which needs an Authenticode
+code-signing certificate from a commercial CA — a separate purchase from the Apple account, not
+covered by it. Until that lands, run the Windows GUI from this repo; the CLIs it drives are
+signed and verified at install time regardless.
 
 ## Not done yet (honest scope — the rest of Phase B)
 
-- **Signing / distribution** — Apple Developer Program enrollment + Developer ID cert +
-  notarization (macOS), and a Windows code-signing cert for Authenticode-signing the `.ps1`
-  (see the readiness table above). The pipelines are built and ready; only the credentials/cert
-  are missing.
-- **Packaging** — a signed `.app` / `.dmg` and a signed Windows launch shim, so the GUI can be
-  installed like anything else instead of run from a clone.
+- **Windows code signing** — an Authenticode certificate for the tray `.ps1` (see above). The
+  macOS half of this item is done.
+- **Packaging** — a `.dmg` for the signed `.app` and a signed Windows launch shim, so the GUI can
+  be installed like anything else instead of run from a clone.
 
 UX polish is done: hotkey, notifications, onboarding, RU/EN, and the settings pane (vault-volume
 override, poll interval, language, hotkey preset — see the table above) all shipped in Phase B.
-What remains is distribution (signing/notarization/code-signing) — not UX.
+What remains is packaging and the Windows certificate — not UX.
 
 The GUI is free, like the CLIs, and stays that way: no paid tier, no feature held back for one.
 If it is useful to you, the project takes donations — nothing else is being sold.

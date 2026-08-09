@@ -81,6 +81,29 @@ HEAD каждого тула = тег + `chore(formula)` + `docs`-bump верс�
 `ssh-ed25519 …scn2U` опубликован в каждом `SECURITY.md`, вшит в `install.sh` (авто-verify).
 Приватный ключ — в GH Secrets (`RELEASE_SIGNING_KEY`) + офлайн-бэкап в securetrash vault.
 
+## GUI signing (macOS — закрыто 2026-08-09, s34)
+
+Apple Developer Program оплачен и активен → `ParanoidBar.app` **подписан и нотаризован**.
+Identity `Developer ID Application: Daniel Diamant (TA24A89R8H)` (Xcode → Accounts → Manage
+Certificates), notary-профиль в keychain — `paranoid-notary` (`xcrun notarytool
+store-credentials`, app-specific password). Сборка релиза:
+
+```bash
+cd gui/macos && ./build.sh --bundle \
+  --sign "Developer ID Application: Daniel Diamant (TA24A89R8H)" \
+  --notarize paranoid-notary --version 0.1.0
+```
+
+Проверено независимо от вывода скрипта: `spctl --assess` → `accepted, source=Notarized
+Developer ID`; `stapler validate` → ok (тикет вшит, Gatekeeper проходит **офлайн**);
+`codesign -dvv` → `flags=0x10000(runtime)`, secure timestamp, `TeamIdentifier=TA24A89R8H`;
+`codesign --test-requirement="=notarized"` → satisfied. Submission `315fba5f-edce-456e-82ff-4cd6ec217810`,
+status `Accepted`.
+
+Бандл — build-артефакт, в git не лежит (`.gitignore`), пересобирается из исходника.
+**Windows-трей не подписан:** Authenticode требует сертификат коммерческого CA — отдельная
+покупка, Apple-аккаунтом не покрывается. Остаётся хвостом вместе с упаковкой (`.dmg` + шим).
+
 ## Vendoring pin
 
 Все 4 тула (vaultwatch/panic/ghostdraft/seedsplit) вендорят `securetrash/lib/common.sh`
