@@ -65,6 +65,11 @@ cd macos
 ./build.sh --bundle --sign "Developer ID Application: NAME (TEAMID)" --notarize <profile> --dmg
 ./build.sh --bundle --sign -   # ad-hoc: exercises the codesign path locally (NOT distributable)
 ```
+`--bundle` also puts `macos/ParanoidBar.icns` into the bundle's `Resources` and points
+`CFBundleIconFile` at it, so Finder and the disk image show the project's mark — the terminal
+square with the prompt chevron from `assets/logo.svg` — instead of the generic app icon. The
+`.icns` carries every size from 16 to 1024 (@1x and @2x), each drawn from the vector rather than
+downscaled, so the small ones stay sharp.
 `--sign` runs `codesign` with hardened runtime + `--verify`; `--notarize <profile>` zips, submits
 via `notarytool --wait`, then staples + validates. `--dmg` builds a compressed `hdiutil` image
 holding the `.app` next to an `/Applications` symlink, then signs, notarizes and staples the
@@ -73,8 +78,11 @@ inner app's ticket does not cover that. The image also carries its window layout
 icon view, 128px icons, and an engraved background with an arrow pointing the app at the
 `/Applications` symlink. Finder is the only thing that writes that layout (it lives in the volume's
 `.DS_Store`), so the build mounts a writable image, drives Finder over Automation, and only then
-compresses it to UDZO. In a headless session — CI or ssh, where Automation is refused — the step
-prints a warning and the image is still built, just without the layout. `--version X.Y.Z` stamps
+compresses it to UDZO. Between mounting and laying out it waits for Finder to actually see the
+volume: `hdiutil attach` returns before DiskArbitration has told Finder about it, and asking too
+early fails with `-1728` — which looks exactly like a refused Automation prompt, except the image
+comes out signed, notarized and unstyled. In a headless session — CI or ssh, where Automation is
+refused for real — the step prints a warning and the image is still built, just without the layout. `--version X.Y.Z` stamps
 both. Only the real Developer-ID
 sign + notary submission need the account; without one, the ad-hoc path still exercises the
 pipeline mechanics.

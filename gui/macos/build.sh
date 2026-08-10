@@ -29,6 +29,7 @@ APP="ParanoidBar"
 BUNDLE="$APP.app"
 VERSION="${VERSION:-0.1.0}"
 BACKGROUND="dmg-background.tiff"   # 640×400 @1x+@2x, фон окна образа
+ICON="ParanoidBar.icns"            # знак из assets/logo.svg, 16…1024 (@1x+@2x)
 
 # --- разбор аргументов ---
 DO_BUNDLE=0
@@ -61,8 +62,9 @@ echo "Built ./$APP"
 
 # --- 2. бандл ---
 rm -rf "$BUNDLE"
-mkdir -p "$BUNDLE/Contents/MacOS"
+mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$APP" "$BUNDLE/Contents/MacOS/$APP"
+cp "$ICON" "$BUNDLE/Contents/Resources/$ICON"
 cat > "$BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -73,6 +75,7 @@ cat > "$BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>ParanoidBar</string>
+  <key>CFBundleIconFile</key><string>${ICON}</string>
   <key>NSHumanReadableCopyright</key><string>Di-kairos · MIT</string>
   <key>LSUIElement</key><true/>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
@@ -150,6 +153,15 @@ rm -f "$RW"
 hdiutil create -volname "$APP" -srcfolder "$STAGE" -ov -format UDRW -quiet "$RW"
 hdiutil attach "$RW" -quiet
 MOUNTED="$MNT"
+
+# Finder узнаёт о томе через DiskArbitration, а hdiutil attach возвращается раньше: на быстрой
+# машине раскладка успевает спросить Finder до того, как том у него появился, и падает с
+# -1728 ("Can't get disk") — образ выходит валидным, но неоформленным. Ждём появления тома
+# ИМЕННО у Finder: /Volumes/... к этому моменту уже есть и ничего не доказывает.
+for _ in $(seq 20); do
+  [[ "$(osascript -e "tell application \"Finder\" to exists disk \"$APP\"" 2>/dev/null)" == "true" ]] && break
+  sleep 0.5
+done
 
 # Finder управляется через Automation — на первом запуске система спросит разрешение,
 # в headless-сессии (CI, ssh) откажет. Оформление косметическое: не вышло — образ
