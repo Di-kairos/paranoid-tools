@@ -69,7 +69,13 @@ cd macos
 via `notarytool --wait`, then staples + validates. `--dmg` builds a compressed `hdiutil` image
 holding the `.app` next to an `/Applications` symlink, then signs, notarizes and staples the
 image **separately** — Gatekeeper checks the `.dmg` as its own artifact when you open it, and the
-inner app's ticket does not cover that. `--version X.Y.Z` stamps both. Only the real Developer-ID
+inner app's ticket does not cover that. The image also carries its window layout: a fixed 640×400
+icon view, 128px icons, and an engraved background with an arrow pointing the app at the
+`/Applications` symlink. Finder is the only thing that writes that layout (it lives in the volume's
+`.DS_Store`), so the build mounts a writable image, drives Finder over Automation, and only then
+compresses it to UDZO. In a headless session — CI or ssh, where Automation is refused — the step
+prints a warning and the image is still built, just without the layout. `--version X.Y.Z` stamps
+both. Only the real Developer-ID
 sign + notary submission need the account; without one, the ad-hoc path still exercises the
 pipeline mechanics.
 
