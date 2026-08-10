@@ -53,6 +53,14 @@ Windows tray menu/dispatch/autostart/hotkey/notification/localization/onboarding
 Pester-tested in CI (`gui/windows/test` runs on `windows-latest`). The two mirror each other and
 the bash launcher's grouping.
 
+## Download (macOS)
+
+Signed, notarized, stapled — [`ParanoidBar-0.1.0.dmg`](https://github.com/Di-kairos/paranoid-tools/releases/download/gui-v0.1.0/ParanoidBar-0.1.0.dmg)
+(`gui-v0.1.0`, sha256 `da80707bb0e63a9deb3a05a0387ef64b75db6b6d2c28c25a5170d293b445b00a`). Open it,
+drag the app onto `/Applications`. It drives the five CLIs, so install those first — see the
+[root README](../README.md#install). Building it yourself is below; the Windows tray has no
+release yet and runs from this clone.
+
 ## Build / run
 
 **macOS**

@@ -108,6 +108,38 @@ verify" claim in the badge, executable. More on what is tested and how: [docs/TE
 four carry a formula in their repo but are not published in the tap yet — install those with
 the commands above.
 
+### The macOS app (menu bar)
+
+`ParanoidBar.app` is a menu-bar front end for the five CLIs — it runs them, it does not replace
+them, and it is useless without them, so install the tools above first. Download the image from
+the [GUI release](https://github.com/Di-kairos/paranoid-tools/releases/tag/gui-v0.1.0), open it,
+drag the app onto `/Applications`:
+
+```bash
+curl -LO https://github.com/Di-kairos/paranoid-tools/releases/download/gui-v0.1.0/ParanoidBar-0.1.0.dmg
+shasum -a 256 ParanoidBar-0.1.0.dmg
+# da80707bb0e63a9deb3a05a0387ef64b75db6b6d2c28c25a5170d293b445b00a
+```
+
+It is signed with a Developer ID certificate and notarized by Apple, ticket stapled — so it opens
+without the "unidentified developer" dance, and Gatekeeper accepts it **offline**, on a machine
+that has never seen it. Verify that yourself before you run it:
+
+```bash
+spctl --assess --type open --context context:primary-signature ParanoidBar-0.1.0.dmg
+#   → accepted, source=Notarized Developer ID
+xcrun stapler validate ParanoidBar-0.1.0.dmg
+```
+
+Unlike the CLI releases, the image carries no Ed25519-signed `SHA256SUMS`: that key signs
+artifacts built in CI, and this one has to be built on the machine holding the Apple signing key.
+Apple's signature and the stapled ticket are the chain you verify here — plus the checksum above,
+and the source, which builds the same image with `gui/macos/build.sh`. The app is a menu-bar agent:
+no Dock icon, a glyph appears at the right of the menu bar. macOS 13+.
+
+**Windows tray:** not signed yet (Authenticode is a separate purchase from a commercial CA), so
+it ships as source only — run it from a clone, see [gui/README.md](gui/README.md).
+
 ### Uninstall
 
 ```bash
