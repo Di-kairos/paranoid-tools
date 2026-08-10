@@ -188,6 +188,9 @@ The `--hard` variants are the more thorough ones — and the more disruptive: a 
 Dropbox/iCloud daemon stays dead until you start it again. Run `panic status` once to see
 exactly what each would do on your machine.
 
+The GUI ships as a signed, notarized `.dmg` — download and verification steps are in the
+[root README](README.md#the-macos-app-menu-bar).
+
 **6. Back up the secret — in pieces.**
 
 ```bash

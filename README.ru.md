@@ -115,6 +115,39 @@ securetrash, vaultwatch, panic и ghostdraft построены на прими�
 У остальных четырёх формула лежит в их репозиториях, но в tap ещё не опубликована — ставь
 их командами выше.
 
+### Приложение для macOS (меню-бар)
+
+`ParanoidBar.app` — обёртка над теми же пятью CLI: она их запускает, а не заменяет, и без них
+бесполезна, так что сначала поставь инструменты командой выше. Образ лежит в
+[GUI-релизе](https://github.com/Di-kairos/paranoid-tools/releases/tag/gui-v0.1.0): открой его и
+перетащи приложение на `/Applications`.
+
+```bash
+curl -LO https://github.com/Di-kairos/paranoid-tools/releases/download/gui-v0.1.0/ParanoidBar-0.1.0.dmg
+shasum -a 256 ParanoidBar-0.1.0.dmg
+# da80707bb0e63a9deb3a05a0387ef64b75db6b6d2c28c25a5170d293b445b00a
+```
+
+Приложение подписано сертификатом Developer ID и нотаризовано Apple, тикет вшит в образ —
+Gatekeeper пропускает его без плясок с «неустановленным разработчиком», в том числе офлайн и на
+машине, которая видит его впервые. Не верь на слово — проверь до запуска:
+
+```bash
+spctl --assess --type open --context context:primary-signature ParanoidBar-0.1.0.dmg
+#   → accepted, source=Notarized Developer ID
+xcrun stapler validate ParanoidBar-0.1.0.dmg
+```
+
+Честная оговорка: Ed25519-подписи `SHA256SUMS`, как у релизов CLI, у образа нет. Тем ключом
+подписывается то, что собирает CI, а образ обязан собираться там, где хранится ключ Apple.
+Цепочка доверия здесь — подпись Apple, вшитый тикет, контрольная сумма выше и открытый исходник:
+`gui/macos/build.sh` собирает тот же образ. Значка в Dock у приложения нет — это агент
+меню-бара, иконка появляется справа сверху. Нужна macOS 13+.
+
+**Трей для Windows** пока не подписан (Authenticode — отдельная покупка у коммерческого CA,
+аккаунтом Apple не покрывается), поэтому раздаётся только исходником — запуск из клона, см.
+[gui/README.md](gui/README.md).
+
 ### Удаление
 
 ```bash
