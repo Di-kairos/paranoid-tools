@@ -22,3 +22,5 @@ tri-mozga-out/
 # GUI Фаза B — build-артефакты (исходники в gui/, бинарь/бандл собираются локально)
 gui/macos/ParanoidBar
 gui/macos/ParanoidBar.app/
+gui/macos/*.dmg
+gui/macos/*.zip

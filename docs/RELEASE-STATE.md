@@ -91,7 +91,7 @@ store-credentials`, app-specific password). Сборка релиза:
 ```bash
 cd gui/macos && ./build.sh --bundle \
   --sign "Developer ID Application: Daniel Diamant (TA24A89R8H)" \
-  --notarize paranoid-notary --version 0.1.0
+  --notarize paranoid-notary --dmg --version 0.1.0
 ```
 
 Проверено независимо от вывода скрипта: `spctl --assess` → `accepted, source=Notarized
@@ -100,9 +100,16 @@ Developer ID`; `stapler validate` → ok (тикет вшит, Gatekeeper про
 `codesign --test-requirement="=notarized"` → satisfied. Submission `315fba5f-edce-456e-82ff-4cd6ec217810`,
 status `Accepted`.
 
-Бандл — build-артефакт, в git не лежит (`.gitignore`), пересобирается из исходника.
+**`.dmg` — 2026-08-10, s34.** `--dmg` собирает сжатый образ (`hdiutil`, UDZO) с `.app` и
+симлинком на `/Applications`, подписывает и нотаризует его **отдельным заходом**: Gatekeeper
+проверяет образ как самостоятельный артефакт при открытии, тикет вложенного `.app` этого не
+покрывает. Submission `17b23554-273e-4a6d-9018-3d285eb9af27`, Accepted; `ParanoidBar-0.1.0.dmg`,
+105 KB. Проверено монтированием готового образа: внутри `.app` со стейпленным тикетом
+(`spctl` accepted, `stapler validate` ok, `=notarized` satisfied) плюс симлинк для drag-n-drop.
+
+Бандл и `.dmg` — build-артефакты, в git не лежат (`.gitignore`), пересобираются из исходника.
 **Windows-трей не подписан:** Authenticode требует сертификат коммерческого CA — отдельная
-покупка, Apple-аккаунтом не покрывается. Остаётся хвостом вместе с упаковкой (`.dmg` + шим).
+покупка, Apple-аккаунтом не покрывается. Остаётся хвостом вместе с шимом под Windows.
 
 ## Vendoring pin
 

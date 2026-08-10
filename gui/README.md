@@ -61,14 +61,17 @@ cd macos
 ./build.sh            # → ./ParanoidBar  (run it: a 🔒 appears in the menu bar)
 ./build.sh --bundle   # → ParanoidBar.app (LSUIElement: menu-bar agent, no Dock icon)
 
-# release build — signed + notarized (needs an Apple Developer account; see below):
-./build.sh --bundle --sign "Developer ID Application: NAME (TEAMID)" --notarize <profile>
+# release build — signed + notarized .dmg (needs an Apple Developer account; see below):
+./build.sh --bundle --sign "Developer ID Application: NAME (TEAMID)" --notarize <profile> --dmg
 ./build.sh --bundle --sign -   # ad-hoc: exercises the codesign path locally (NOT distributable)
 ```
 `--sign` runs `codesign` with hardened runtime + `--verify`; `--notarize <profile>` zips, submits
-via `notarytool --wait`, then staples + validates. `--version X.Y.Z` stamps the bundle. Only the
-real Developer-ID sign + notary submission need the account; without one, the ad-hoc path still
-exercises the pipeline mechanics.
+via `notarytool --wait`, then staples + validates. `--dmg` builds a compressed `hdiutil` image
+holding the `.app` next to an `/Applications` symlink, then signs, notarizes and staples the
+image **separately** — Gatekeeper checks the `.dmg` as its own artifact when you open it, and the
+inner app's ticket does not cover that. `--version X.Y.Z` stamps both. Only the real Developer-ID
+sign + notary submission need the account; without one, the ad-hoc path still exercises the
+pipeline mechanics.
 
 **Windows**
 ```powershell
@@ -88,6 +91,16 @@ xcrun stapler validate ParanoidBar.app          → the validate action worked
 codesign -dvv                                   → flags=0x10000(runtime), Developer ID Application
 ```
 
+**The `.dmg` is signed and notarized too**, in its own right — verified by mounting the finished
+image and checking what is actually inside it, not just the file on disk:
+
+```
+spctl --assess --type open --context context:primary-signature ParanoidBar-X.Y.Z.dmg
+                                                → accepted, source=Notarized Developer ID
+mounted: ParanoidBar.app + an /Applications symlink (drag-n-drop install)
+the mounted app: accepted · stapler validate ok · codesign --test-requirement="=notarized" ok
+```
+
 Reproduce a release build yourself (the identity string comes from
 `security find-identity -v -p codesigning`, the notary profile from
 `xcrun notarytool store-credentials`):
@@ -95,10 +108,11 @@ Reproduce a release build yourself (the identity string comes from
 ```bash
 cd macos
 ./build.sh --bundle --sign "Developer ID Application: NAME (TEAMID)" \
-           --notarize <profile> --version X.Y.Z
+           --notarize <profile> --dmg --version X.Y.Z
 ```
 
-The app bundle is **not** committed — it is a build artifact (`.gitignore`), rebuilt from source.
+Neither the app bundle nor the `.dmg` is committed — both are build artifacts (`.gitignore`),
+rebuilt from source.
 
 **Windows is not signed yet.** The tray ships as a `.ps1`, which needs an Authenticode
 code-signing certificate from a commercial CA — a separate purchase from the Apple account, not
@@ -107,14 +121,13 @@ signed and verified at install time regardless.
 
 ## Not done yet (honest scope — the rest of Phase B)
 
-- **Windows code signing** — an Authenticode certificate for the tray `.ps1` (see above). The
-  macOS half of this item is done.
-- **Packaging** — a `.dmg` for the signed `.app` and a signed Windows launch shim, so the GUI can
-  be installed like anything else instead of run from a clone.
+- **Windows code signing** — an Authenticode certificate for the tray `.ps1` (see above), and a
+  signed launch shim so the Windows GUI installs like anything else instead of running from a
+  clone. The macOS half of this item — signing, notarization and a `.dmg` — is done.
 
 UX polish is done: hotkey, notifications, onboarding, RU/EN, and the settings pane (vault-volume
 override, poll interval, language, hotkey preset — see the table above) all shipped in Phase B.
-What remains is packaging and the Windows certificate — not UX.
+What remains is the Windows certificate — not UX, and not macOS.
 
 The GUI is free, like the CLIs, and stays that way: no paid tier, no feature held back for one.
 If it is useful to you, the project takes donations — nothing else is being sold.
