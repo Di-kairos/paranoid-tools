@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# mock: reports an SSD on APFS
+echo "   Solid State:               Yes"
+echo "   File System Personality:   APFS"

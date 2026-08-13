@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Мок macOS `open`: вместо запуска Finder логируем аргументы.
+echo "$@" >> "${HOME}/open_calls.log"
+exit 0

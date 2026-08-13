@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# mock: reports a spinning HDD
+echo "   Solid State:               No"
+echo "   File System Personality:   HFS+"

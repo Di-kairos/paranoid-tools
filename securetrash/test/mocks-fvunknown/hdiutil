@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+echo "$@" >> "${HOME}/hdiutil_calls.log"
+case "$1" in
+  create)
+    # ST_MOCK_CREATE_FAIL=1 → create падает (нет места / отказ hdiutil), ничего не создав.
+    [[ "${ST_MOCK_CREATE_FAIL:-0}" == "1" ]] && exit 1
+    # Создаём контейнер в форме, которую принимает _is_sparsebundle (каталог +
+    # Info.plist), иначе тесты про «новый сейф на месте» проходили бы вхолостую.
+    for a in "$@"; do last="$a"; done
+    mkdir -p "$last" 2>/dev/null && : > "$last/Info.plist" 2>/dev/null || true ;;
+  attach) : ;;
+  detach)
+    # ST_MOCK_DETACH_FAIL=1 → detach падает (том «занят»), маркер не ставим.
+    [[ "${ST_MOCK_DETACH_FAIL:-0}" == "1" ]] && exit 1
+    # успешный detach → помечаем «отцеплен», чтобы последующий info это отразил.
+    touch "${HOME}/.st_detached" 2>/dev/null || true ;;
+  info)
+    # ST_MOCK_INFO_FAIL=1 → hdiutil info недоступен → состояние unknown.
+    [[ "${ST_MOCK_INFO_FAIL:-0}" == "1" ]] && exit 1
+    # `info -plist`: ST_MOCK_VAULT_ATTACHED=1 И не было detach → образ примонтирован.
+    if [[ "${2:-}" == "-plist" ]]; then
+      # ST_MOCK_OLD_ATTACHED=1 — примонтирован именно отставленный контейнер .old.
+      if [[ "${ST_MOCK_OLD_ATTACHED:-0}" == "1" ]]; then
+        cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>images</key>
+  <array>
+    <dict>
+      <key>image-path</key><string>${HOME}/SecureVault.sparsebundle.old</string>
+      <key>system-entities</key>
+      <array>
+        <dict>
+          <key>dev-entry</key><string>/dev/disk98</string>
+          <key>mount-point</key><string>/Volumes/OldVault</string>
+        </dict>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>
+EOF
+      elif [[ "${ST_MOCK_VAULT_ATTACHED:-0}" == "1" && ! -e "${HOME}/.st_detached" ]]; then
+        cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>images</key>
+  <array>
+    <dict>
+      <key>image-path</key><string>${HOME}/SecureVault.sparsebundle</string>
+      <key>system-entities</key>
+      <array>
+        <dict>
+          <key>dev-entry</key><string>/dev/disk99</string>
+          <key>mount-point</key><string>/Volumes/SecretVault</string>
+        </dict>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>
+EOF
+      else
+        cat <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>images</key>
+  <array/>
+</dict>
+</plist>
+EOF
+      fi
+    fi
+    ;;
+esac
+exit 0

@@ -1,0 +1,58 @@
+name: "\U0001FA9F Windows hardware test report"
+description: Run the Windows port on real hardware and report what happened (helps leave beta)
+title: "[win-hw] "
+labels: ["windows", "hardware-test", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The Windows port passes logic tests with **mocked** cmdlets but has not
+        been validated on real BitLocker/VHDX hardware. Your report directly
+        helps the Windows port leave beta. Thank you.
+
+        ⚠️ Run this only on a machine where creating and destroying a small
+        throwaway VHDX vault is safe. **Never** point it at a disk with data you
+        care about. Do not paste real passwords.
+  - type: input
+    id: version
+    attributes:
+      label: securetrash version
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Windows version + edition
+      description: BitLocker requires Pro/Enterprise/Education.
+      placeholder: "Windows 11 Pro 23H2"
+    validations:
+      required: true
+  - type: input
+    id: bitlocker
+    attributes:
+      label: BitLocker status
+      placeholder: "Enabled on C: / TPM present"
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Test run results
+      description: Run each step and note pass/fail + any output.
+      value: |
+        - [ ] check
+        - [ ] vault create
+        - [ ] vault open
+        - [ ] write a file into the vault
+        - [ ] vault close
+        - [ ] vault destroy
+        - [ ] confirmed the container is gone afterwards
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Output / anomalies
+      description: Anything unexpected. Redact sensitive values.
+      render: shell

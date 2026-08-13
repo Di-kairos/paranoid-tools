@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        securetrash stays small and dependency-free on purpose. Proposals that
+        keep it honest and readable are most likely to land.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The use case, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: deps
+    attributes:
+      label: Does this add a runtime dependency?
+      description: The core is pure Bash / pure PowerShell with zero runtime deps.
+      options:
+        - "No"
+        - "Yes (please justify above)"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

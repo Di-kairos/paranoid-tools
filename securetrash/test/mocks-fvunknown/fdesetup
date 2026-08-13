@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# fdesetup недоступен/непонятный вывод → ветка unknown в _fv_state.
+echo "fdesetup: could not connect to the FileVault service" >&2
+exit 1

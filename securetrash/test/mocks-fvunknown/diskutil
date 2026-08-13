@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "   Solid State:               Yes"
+echo "   File System Personality:   APFS"

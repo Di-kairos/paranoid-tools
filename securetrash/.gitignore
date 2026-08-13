@@ -1,0 +1,19 @@
+.claude/
+.env*
+.DS_Store
+*.sparsebundle
+node_modules/
+
+# three-brain (ТриМозга) local output ledger
+tri-mozga-out/
+
+# graphify knowledge-graph build output (lives on X10, regenerable)
+graphify-out/
+
+# dev-kitchen artifacts (live on X10, not part of the public repo)
+CLAUDE.md
+ECOSYSTEM.md
+PROGRESS.md
+docs/sessions/
+docs/promo/
+docs/superpowers/

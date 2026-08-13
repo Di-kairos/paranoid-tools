@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# mock: non-macOS platform
+echo "Linux"

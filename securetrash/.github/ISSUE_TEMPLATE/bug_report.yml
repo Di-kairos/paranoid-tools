@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in securetrash behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not** paste real passwords, vault contents,
+        or anything sensitive. For an exploitable security flaw, use
+        *Security → Report a vulnerability* instead of a public issue.
+  - type: input
+    id: version
+    attributes:
+      label: securetrash version
+      description: Output of `securetrash version`.
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Windows (beta)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS version
+      placeholder: "macOS 15.5 / Windows 11 23H2"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands you ran.
+      placeholder: |
+        1. securetrash vault create 10m
+        2. securetrash vault open
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+      placeholder: |
+        Expected: vault mounts at /Volumes/SecretVault
+        Actual: command exits with "..."
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: Paste command output. Redact anything sensitive.
+      render: shell

@@ -1,0 +1,902 @@
+#!/usr/bin/env bash
+# securetrash — честное безопасное удаление файлов на macOS.
+set -euo pipefail
+
+VERSION="0.5.6"
+
+# --- language detection ---
+# Выбор языка вывода. По умолчанию английский (en); русский — opt-in.
+# Приоритет: ST_LANG=ru* → ru. Иначе автодетект по $LANG/$LC_ALL (ru* → ru).
+# Иначе — en. Результат фиксируется один раз в глобальной ST_LOCALE.
+# Заранее выставленный ST_LOCALE уважается (хост — лаунчер/GUI — может переопределить).
+_detect_locale() {
+  local want="${ST_LANG:-}"
+  if [[ -n "$want" ]]; then
+    case "$want" in ru*) echo "ru"; return ;; *) echo "en"; return ;; esac
+  fi
+  local sys="${LC_ALL:-${LANG:-}}"
+  case "$sys" in ru*) echo "ru" ;; *) echo "en" ;; esac
+}
+ST_LOCALE="${ST_LOCALE:-$(_detect_locale)}"
+
+# t — локализованные строки. Ключ → строка по $ST_LOCALE.
+# Динамические части подставляются через printf из позиционных аргументов.
+t() {
+  local key="$1"; shift
+  case "$ST_LOCALE:$key" in
+    en:only_macos)       echo "securetrash runs on macOS only." ;;
+    ru:only_macos)       echo "securetrash работает только на macOS." ;;
+
+    en:confirm_suffix)   echo "[type yes]" ;;
+    ru:confirm_suffix)   echo "[введите yes]" ;;
+
+    en:usage)
+      cat <<'EOF'
+Usage: securetrash <command> [args]
+
+Commands:
+  check                       Audit the environment and give an honest verdict on guarantees
+  setup                       Create ~/SecureTrash, an alias, and check FileVault
+  empty                       Empty ~/SecureTrash
+  shred <path>...             Delete a file/folder (best-effort; on SSD NOT a guarantee — see check)
+  vault create|open|close|reset|destroy|status|destroy-old   Encrypted container (crypto-shred)
+  version                     Show the version
+
+Flags:
+  --yes                       Skip the confirmation prompt (same as ST_ASSUME_YES=1)
+EOF
+      ;;
+    ru:usage)
+      cat <<'EOF'
+Usage: securetrash <command> [args]
+
+Commands:
+  check                       Аудит окружения и честный вердикт о гарантиях
+  setup                       Создать ~/SecureTrash, alias, проверить FileVault
+  empty                       Опустошить ~/SecureTrash
+  shred <path>...             Удалить файл/папку (best-effort; на SSD НЕ гарантия — см. check)
+  vault create|open|close|reset|destroy|status|destroy-old   Зашифрованный контейнер (crypto-shred)
+  version                     Показать версию
+
+Флаги:
+  --yes                       Пропустить подтверждение (то же, что ST_ASSUME_YES=1)
+EOF
+      ;;
+
+    en:setup_dir_ready)  printf 'Folder ready: %s' "$1" ;;
+    ru:setup_dir_ready)  printf 'Папка готова: %s' "$1" ;;
+
+    en:alias_present)    echo "alias sectrash is already installed." ;;
+    ru:alias_present)    echo "alias sectrash уже установлен." ;;
+
+    en:alias_added)      echo "alias sectrash added to ~/.zshrc (restart your terminal)." ;;
+    ru:alias_added)      echo "alias sectrash добавлен в ~/.zshrc (перезапусти терминал)." ;;
+
+    en:fv_off_setup)     echo "FileVault is OFF — turn it on, otherwise deletion on SSD gives no guarantees." ;;
+    ru:fv_off_setup)     echo "FileVault ВЫКЛЮЧЕН — включи его, иначе удаление на SSD не даёт гарантий." ;;
+
+    en:check_header)     echo "=== SecureTrash: environment audit ===" ;;
+    ru:check_header)     echo "=== SecureTrash: аудит окружения ===" ;;
+
+    en:fv_on)            echo "FileVault: ON — disk is encrypted, base protection present." ;;
+    ru:fv_on)            echo "FileVault: ВКЛЮЧЕН — диск зашифрован, базовая защита есть." ;;
+
+    en:fv_off_check)     echo "FileVault is OFF — the main protection is missing! Enable it: System Settings → Privacy & Security → FileVault." ;;
+    ru:fv_off_check)     echo "FileVault ВЫКЛЮЧЕН — главная защита отсутствует! Включи: System Settings → Privacy & Security → FileVault." ;;
+    en:fv_unknown_check) echo "FileVault: unknown — could not determine status; assume the disk is NOT protected." ;;
+    ru:fv_unknown_check) echo "FileVault: неизвестно — не удалось определить статус; считай, что диск НЕ защищён." ;;
+
+    en:disk_ssd)         echo "  Disk: SSD/APFS." ;;
+    ru:disk_ssd)         echo "  Диск: SSD/APFS." ;;
+
+    en:ssd_no_guarantee) echo "Overwriting (rm -P) on SSD gives NO guarantees (wear leveling, COW, TRIM)." ;;
+    ru:ssd_no_guarantee) echo "Перезапись (rm -P) на SSD НЕ даёт гарантий (wear leveling, COW, TRIM)." ;;
+
+    en:ssd_real_guarantee) echo "Real guarantee on SSD: FileVault + crypto-shred via 'securetrash vault'." ;;
+    ru:ssd_real_guarantee) echo "Реальная гарантия на SSD: FileVault + crypto-shred через 'securetrash vault'." ;;
+
+    en:disk_hdd)         echo "  Disk: HDD." ;;
+    ru:disk_hdd)         echo "  Диск: HDD." ;;
+
+    en:hdd_effective)    echo "On HDD, overwriting (shred/empty) is best-effort and usually helps — but it is NOT a guarantee (no control over bad/remapped sectors)." ;;
+    ru:hdd_effective)    echo "На HDD перезапись (shred/empty) — best-effort и обычно помогает, но это НЕ гарантия (нет контроля над bad/remapped-секторами)." ;;
+
+    en:disk_unknown)     echo "  Disk: type could not be determined." ;;
+    ru:disk_unknown)     echo "  Диск: тип определить не удалось." ;;
+
+    en:unknown_no_guarantee) echo "Could not determine the disk type — assume NO erasure guarantee from overwriting. Rely on FileVault + vault." ;;
+    ru:unknown_no_guarantee) echo "Тип диска определить не удалось — считайте, что перезапись НЕ даёт гарантии. Полагайтесь на FileVault + vault." ;;
+
+    en:check_verdict)    echo "Verdict: for secrets, use 'securetrash vault' (preventively)." ;;
+    ru:check_verdict)    echo "Итог: для секретов используй 'securetrash vault' (превентивно)." ;;
+
+    en:snap_present)     printf 'Local APFS snapshots: %s. A snapshot taken while the file was still outside the vault holds a FULL copy of it, and shred cannot reach into one. A single file cannot be removed from a snapshot — only the whole snapshot: sudo tmutil deletelocalsnapshots <date>, where <date> is the YYYY-MM-DD-HHMMSS part of the name from tmutil listlocalsnapshots /. Files kept inside the vault are safe from this: a snapshot captures the container as ciphertext.' "$1" ;;
+    ru:snap_present)     printf 'Локальных снимков APFS: %s. Снимок, сделанный пока файл ещё лежал вне сейфа, хранит его ПОЛНУЮ копию, и shred туда не дотянется. Убрать из снимка один файл нельзя — только снимок целиком: sudo tmutil deletelocalsnapshots <дата>, где <дата> — часть YYYY-MM-DD-HHMMSS из имени в tmutil listlocalsnapshots /. На то, что лежит В СЕЙФЕ, это не действует: снимок захватывает контейнер шифротекстом.' "$1" ;;
+    en:snap_none)        echo "Local APFS snapshots: none right now. They appear on their own once Time Machine (or a backup tool like CCC/Arq) runs, so a file left outside the vault can end up inside one later. Files created inside the vault are unaffected." ;;
+    ru:snap_none)        echo "Локальных снимков APFS сейчас нет. Они появляются сами, как только отработает Time Machine (или бэкап-утилита вроде CCC/Arq), — файл вне сейфа может попасть в снимок позже. На созданное внутри сейфа это не влияет." ;;
+    en:snap_unknown)     echo "Could not read local snapshots (tmutil unavailable) — assume a snapshot may hold a copy of anything that was outside the vault." ;;
+    ru:snap_unknown)     echo "Не удалось прочитать локальные снимки (tmutil недоступен) — считай, что копия того, что лежало вне сейфа, может быть в снимке." ;;
+
+    en:ssd_note)         echo "SSD: overwriting is not a guarantee. Real protection is FileVault." ;;
+    ru:ssd_note)         echo "SSD: перезапись не гарантия. Реальная защита — FileVault." ;;
+
+    en:ssd_fv_off_note)  echo "And FileVault is OFF — data may be recoverable." ;;
+    ru:ssd_fv_off_note)  echo "И FileVault ВЫКЛЮЧЕН — данные могут быть восстановимы." ;;
+
+    en:hdd_note)         echo "HDD: overwrite attempted (best-effort). On APFS/SSD this is NOT a guarantee — rely on FileVault + vault." ;;
+    ru:hdd_note)         echo "HDD: перезапись выполнена (best-effort). На APFS/SSD это НЕ гарантия — полагайтесь на FileVault + vault." ;;
+
+    en:unknown_note)     echo "Disk type unknown: overwrite attempted but no erasure guarantee. Rely on FileVault + vault." ;;
+    ru:unknown_note)     echo "Тип диска неизвестен: перезапись выполнена, но гарантии стирания нет. Полагайтесь на FileVault + vault." ;;
+
+    en:shred_need_path)  echo "shred: provide a path." ;;
+    ru:shred_need_path)  echo "shred: укажи путь." ;;
+
+    en:not_found)        printf 'Not found: %s' "$1" ;;
+    ru:not_found)        printf 'Не найдено: %s' "$1" ;;
+
+    en:shred_confirm)    printf 'Permanently delete %s?' "$1" ;;
+    ru:shred_confirm)    printf 'Удалить безвозвратно %s?' "$1" ;;
+
+    en:shred_protected)  printf 'Refusing to shred a protected system path: %s' "$1" ;;
+    ru:shred_protected)  printf 'Отказ: защищённый системный путь не удаляем: %s' "$1" ;;
+
+    en:cancelled)        echo "Cancelled." ;;
+    ru:cancelled)        echo "Отменено." ;;
+
+    en:deleted)          printf 'Deleted: %s' "$1" ;;
+    ru:deleted)          printf 'Удалено: %s' "$1" ;;
+
+    en:empty_no_dir)     printf 'No %s folder (run '\''securetrash setup'\'').' "$1" ;;
+    ru:empty_no_dir)     printf 'Нет папки %s (запусти '\''securetrash setup'\'').' "$1" ;;
+
+    en:empty_already)    echo "Folder is already empty." ;;
+    ru:empty_already)    echo "Папка уже пуста." ;;
+
+    en:empty_confirm)    printf 'Empty %s permanently?' "$1" ;;
+    ru:empty_confirm)    printf 'Опустошить %s безвозвратно?' "$1" ;;
+
+    en:emptied)          printf 'Folder emptied: %s' "$1" ;;
+    ru:emptied)          printf 'Папка опустошена: %s' "$1" ;;
+
+    en:vault_pass)       echo "Container password: " ;;
+    ru:vault_pass)       echo "Пароль контейнера: " ;;
+
+    en:vault_exists)     printf 'Container already exists: %s' "$1" ;;
+    ru:vault_exists)     printf 'Контейнер уже существует: %s' "$1" ;;
+
+    en:vault_created)    printf 'Container created: %s (size %s).' "$1" "$2" ;;
+    ru:vault_created)    printf 'Контейнер создан: %s (размер %s).' "$1" "$2" ;;
+
+    en:vault_preventive) echo "Vault protects only what is created/moved INSIDE it. Plaintext that already existed outside is not erased by this — for that you need FileVault. While mounted, contents can still leak via Spotlight, swap, Time Machine or cloud sync." ;;
+    ru:vault_preventive) echo "Vault защищает только то, что создано/перемещено ВНУТРЬ. Уже лежавший снаружи plaintext этим не стирается — для него нужен FileVault. Пока контейнер смонтирован, содержимое может утечь через Spotlight, swap, Time Machine или облачную синхронизацию." ;;
+
+    en:vault_no_container_open) echo "No container. Run 'securetrash vault create' first." ;;
+    ru:vault_no_container_open) echo "Нет контейнера. Сначала 'securetrash vault create'." ;;
+
+    en:vault_mounted)    printf 'Mounted: %s' "$1" ;;
+    ru:vault_mounted)    printf 'Смонтировано: %s' "$1" ;;
+
+    en:vault_detach_fail) echo "Could not unmount (not open?)." ;;
+    ru:vault_detach_fail) echo "Не удалось размонтировать (не открыт?)." ;;
+
+    en:vault_closed)     echo "Unmounted — data is encrypted again." ;;
+    ru:vault_closed)     echo "Размонтировано — данные снова зашифрованы." ;;
+
+    en:vault_no_container) printf 'No container: %s' "$1" ;;
+    ru:vault_no_container) printf 'Нет контейнера: %s' "$1" ;;
+
+    en:vault_bad_container) printf 'Not a valid vault container (expected an encrypted sparsebundle): %s' "$1" ;;
+    ru:vault_bad_container) printf 'Невалидный контейнер (ожидается зашифрованный sparsebundle): %s' "$1" ;;
+    en:vault_bad_size) printf 'Invalid size: %s (use e.g. 500m, 1g, 2t)' "$1" ;;
+    ru:vault_bad_size) printf 'Неверный размер: %s (например 500m, 1g, 2t)' "$1" ;;
+
+    en:vault_create_fail) printf 'Could not create the container (%s).' "$1" ;;
+    ru:vault_create_fail) printf 'Не удалось создать контейнер (%s).' "$1" ;;
+
+    en:vault_aside_exists) printf 'A previous container is still set aside at %s — an interrupted reset, or your own backup. It holds real data, so it will not be removed automatically. Move or delete it yourself, then run reset again.' "$1" ;;
+    ru:vault_aside_exists) printf 'Рядом лежит отставленный контейнер %s — прерванный reset или твой бэкап. В нём реальные данные, автоматически он не удаляется. Убери или удали его сам, затем повтори reset.' "$1" ;;
+
+    en:vault_aside_notice) printf 'Note: %s is on disk — a container set aside by an interrupted reset. Your older data is in there, not in the active vault. Open it to get the data back: hdiutil attach %s. Destroy it for good: securetrash vault destroy-old.' "$1" "$1" ;;
+    ru:vault_aside_notice) printf 'Внимание: на диске лежит %s — контейнер, отставленный прерванным reset. Прежние данные там, а не в активном сейфе. Открыть и забрать данные: hdiutil attach %s. Уничтожить насовсем: securetrash vault destroy-old.' "$1" "$1" ;;
+
+    en:vault_old_none)   printf 'Nothing is set aside: %s does not exist.' "$1" ;;
+    ru:vault_old_none)   printf 'Отставленного контейнера нет: %s не существует.' "$1" ;;
+
+    en:vault_old_confirm) printf 'DESTROY the set-aside container and everything inside (%s)?' "$1" ;;
+    ru:vault_old_confirm) printf 'УНИЧТОЖИТЬ отставленный контейнер и всё внутри (%s)?' "$1" ;;
+
+    en:vault_old_destroyed) printf 'Set-aside container removed (crypto-shred): %s.' "$1" ;;
+    ru:vault_old_destroyed) printf 'Отставленный контейнер удалён (crypto-shred): %s.' "$1" ;;
+
+    en:vault_reset_rolled_back) printf 'Reset rolled back: the previous vault is back in place (%s). Nothing was destroyed.' "$1" ;;
+    ru:vault_reset_rolled_back) printf 'Reset откачен: прежний сейф вернулся на место (%s). Ничего не уничтожено.' "$1" ;;
+
+    en:vault_restore_fail) printf 'Could not move the vault back. Your data is NOT lost — it is at %s. Move it to %s manually.' "$1" "$2" ;;
+    ru:vault_restore_fail) printf 'Не удалось вернуть сейф на место. Данные НЕ потеряны — они в %s. Перенеси их в %s вручную.' "$1" "$2" ;;
+
+    en:vault_aside_busy) printf 'The old container at %s appears to be MOUNTED — refusing to crypto-shred a live decrypted volume. Eject it, then delete %s yourself. The new vault is already in place.' "$1" "$1" ;;
+    ru:vault_aside_busy) printf 'Старый контейнер %s выглядит СМОНТИРОВАННЫМ — не уничтожаю живой расшифрованный том. Извлеки его и удали %s сам. Новый сейф уже на месте.' "$1" "$1" ;;
+
+    en:vault_aside_left) printf 'The new vault was created, but the old container could NOT be removed: %s is still on disk and is still decryptable with the old password. Delete it yourself — until then the crypto-shred promise does not hold.' "$1" ;;
+    ru:vault_aside_left) printf 'Новый сейф создан, но старый контейнер удалить НЕ удалось: %s остался на диске и по-прежнему расшифровывается старым паролем. Удали его сам — до этого обещание crypto-shred не выполнено.' "$1" ;;
+
+    en:vault_destroy_confirm) printf 'DESTROY the container and everything inside (%s)?' "$1" ;;
+    ru:vault_destroy_confirm) printf 'УНИЧТОЖИТЬ контейнер и всё внутри (%s)?' "$1" ;;
+
+    en:vault_destroyed)  echo "Container removed (crypto-shred). Recovery now depends on password strength and that no copies/backups/snapshots remain." ;;
+    ru:vault_destroyed)  echo "Контейнер удалён (crypto-shred). Восстановление теперь зависит от стойкости пароля и того, что не осталось копий/бэкапов/снимков." ;;
+
+    en:vault_destroy_busy) echo "Vault is still MOUNTED and could not be unmounted — refusing to delete while the volume is decrypted and live. Close it first: 'securetrash vault close', then destroy." ;;
+    ru:vault_destroy_busy) echo "Контейнер ещё СМОНТИРОВАН и размонтировать не удалось — не удаляю, пока том расшифрован и активен. Сначала закрой: 'securetrash vault close', потом destroy." ;;
+
+    en:vault_already_open) printf 'Already open: %s' "$1" ;;
+    ru:vault_already_open) printf 'Уже открыт: %s' "$1" ;;
+
+    en:vault_status_open) printf 'Container is OPEN (mounted at %s).' "$1" ;;
+    ru:vault_status_open) printf 'Контейнер ОТКРЫТ (смонтирован: %s).' "$1" ;;
+
+    en:vault_status_closed) printf 'Container exists but is CLOSED (not mounted): %s' "$1" ;;
+    ru:vault_status_closed) printf 'Контейнер существует, но ЗАКРЫТ (не смонтирован): %s' "$1" ;;
+
+    en:vault_usage)      echo "vault: provide create|open|close|reset|destroy|status|destroy-old" ;;
+    ru:vault_usage)      echo "vault: укажи create|open|close|reset|destroy|status|destroy-old" ;;
+    en:vault_reset_confirm) printf 'RESET the vault — destroy %s and EVERYTHING inside, then create a fresh empty one?' "$1" ;;
+    ru:vault_reset_confirm) printf 'СБРОСИТЬ сейф — уничтожить %s и ВСЁ внутри, затем создать новый пустой?' "$1" ;;
+    en:vault_reset_done) echo "Vault reset — old container crypto-shredded, fresh empty vault created. (Old contents are unrecoverable only if your password was strong and no copies/backups/snapshots remain.)" ;;
+    ru:vault_reset_done) echo "Сейф сброшен — старый контейнер crypto-shred, создан новый пустой. (Старое невосстановимо только если пароль был стойким и не осталось копий/бэкапов/снимков.)" ;;
+
+    en:vault_hook_failed) printf 'vault %s hook failed (ignored)' "$1" ;;
+    ru:vault_hook_failed) printf 'хук vault %s завершился с ошибкой (игнорирую)' "$1" ;;
+
+    en:unknown_cmd)      printf 'Unknown command: %s' "$1" ;;
+    ru:unknown_cmd)      printf 'Неизвестная команда: %s' "$1" ;;
+
+    *) echo "$key" ;;
+  esac
+}
+
+# --- output helpers ---
+if [[ -t 1 ]]; then
+  C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'; C_RST=$'\033[0m'
+else
+  C_RED=""; C_GRN=""; C_YEL=""; C_RST=""
+fi
+info()  { echo "${C_GRN}✓${C_RST} $*"; }
+warn()  { echo "${C_YEL}!${C_RST} $*" >&2; }
+err()   { echo "${C_RED}✗${C_RST} $*" >&2; }
+
+# Спросить подтверждение. ST_ASSUME_YES=1 обходит вопрос (для скриптов/тестов).
+confirm() {
+  local prompt="$1"
+  local ans
+  if [[ "${ST_ASSUME_YES:-0}" == "1" ]]; then return 0; fi
+  read -r -p "$prompt $(t confirm_suffix): " ans
+  [[ "$ans" == "yes" ]]
+}
+
+# --- platform detection ---
+# Диск под путём — SSD? (diskutil info: "Solid State: Yes")
+is_ssd() {
+  local path="${1:-/}"
+  diskutil info "$path" 2>/dev/null | grep -qi "Solid State:.*Yes"
+}
+
+# Тип диска под путём: ssd | hdd | unknown.
+# unknown — если diskutil не дал внятного ответа (нет поля "Solid State").
+# Честность важнее догадок: неизвестный тип НЕ приравниваем к HDD-эффективному.
+_disk_kind() {
+  local path="${1:-/}"
+  local out
+  out="$(diskutil info "$path" 2>/dev/null)"
+  if grep -qi "Solid State:.*Yes" <<<"$out"; then
+    echo "ssd"
+  elif grep -qi "Solid State:.*No" <<<"$out"; then
+    echo "hdd"
+  else
+    echo "unknown"
+  fi
+}
+
+# Tri-state FileVault: on / off / unknown. Отличает «выключено» от «не смогли определить»
+# (fdesetup недоступен / непонятный вывод), чтобы `check` не выдавал ложное «ВЫКЛЮЧЕН», когда
+# статус на деле неизвестен. Зеркало канонической `lib/common.sh:_fv_state` — securetrash
+# предшествует библиотеке и не потребляет её, поэтому копия держится синхронной вручную.
+_fv_state() {
+  command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
+  local s; s="$(fdesetup status 2>/dev/null)"
+  if   grep -qi "FileVault is On"  <<<"$s"; then echo on
+  elif grep -qi "FileVault is Off" <<<"$s"; then echo off
+  else echo unknown; fi
+}
+
+# FileVault включён? Двоичная обёртка над _fv_state для мест, где «не определили»
+# безопасно трактовать как «не включён» (fail-closed).
+filevault_on() {
+  [[ "$(_fv_state)" == on ]]
+}
+
+require_macos() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    err "$(t only_macos)"
+    exit 1
+  fi
+}
+
+usage() {
+  t usage
+}
+
+# Папка-«корзина» SecureTrash. HOME читается при старте процесса.
+TRASH_DIR="${HOME}/SecureTrash"
+
+# Зашифрованный sparsebundle-контейнер и точка его монтирования.
+# ST_VAULT_PATH / ST_VAULT_VOLUME позволяют GUI/TUI (лаунчер paranoid читает те же env)
+# указать нестандартный сейф — иначе status/open/reset/destroy молча работали бы с дефолтом,
+# пока UI показывает кастомный (см. AUDIT_2026-07-03 P0-1). Дефолты совпадают с лаунчером.
+VAULT_PATH="${ST_VAULT_PATH:-${HOME}/SecureVault.sparsebundle}"
+VAULT_VOLUME="${ST_VAULT_VOLUME:-/Volumes/SecretVault}"
+
+# Каталог хуков жизненного цикла vault. Через них утилиты экосистемы Paranoid
+# Tools (vaultwatch/panic) подключаются к open/close, не правя ядро securetrash.
+ST_HOOK_DIR="${ST_HOOK_DIR:-${HOME}/.securetrash/hooks}"
+
+# Запустить хук события (post-open/post-close), если он есть и исполняем.
+# Падение хука НЕ роняет vault-операцию: хук — необязательная интеграция, только warn.
+_run_vault_hook() {
+  local event="$1"; shift
+  local hook="${ST_HOOK_DIR}/${event}"
+  [[ -x "$hook" ]] || return 0
+  "$hook" "$@" || warn "$(t vault_hook_failed "$event")"
+}
+
+cmd_version() { echo "securetrash $VERSION"; }
+
+# Подготовка окружения: папка-корзина, alias, предупреждение про FileVault.
+cmd_setup() {
+  require_macos
+  # 0700: в папке может полежать plaintext до empty — ограничиваем доступ владельцем.
+  mkdir -p "$TRASH_DIR" && chmod 700 "$TRASH_DIR"
+  info "$(t setup_dir_ready "$TRASH_DIR")"
+
+  local zshrc="${HOME}/.zshrc"
+  local alias_line="alias sectrash='securetrash empty'"
+  if [[ -f "$zshrc" ]] && grep -q "alias sectrash=" "$zshrc"; then
+    info "$(t alias_present)"
+  else
+    echo "$alias_line" >> "$zshrc"
+    info "$(t alias_added)"
+  fi
+
+  if ! filevault_on; then
+    warn "$(t fv_off_setup)"
+  fi
+}
+
+# Аудит окружения: честный вердикт о гарантиях удаления.
+cmd_check() {
+  require_macos
+  t check_header
+
+  case "$(_fv_state)" in
+    on)  info "$(t fv_on)" ;;
+    off) warn "$(t fv_off_check)" ;;
+    *)   warn "$(t fv_unknown_check)" ;;   # не определили → консервативно, считаем незащищённым
+  esac
+
+  case "$(_disk_kind /)" in
+    ssd)
+      t disk_ssd
+      warn "$(t ssd_no_guarantee)"
+      info "$(t ssd_real_guarantee)"
+      ;;
+    hdd)
+      t disk_hdd
+      info "$(t hdd_effective)"
+      ;;
+    *)
+      t disk_unknown
+      warn "$(t unknown_no_guarantee)"
+      ;;
+  esac
+
+  _snapshot_note
+
+  echo
+  t check_verdict
+}
+
+# Удалить один путь: снять write-protection, перезаписать (best-effort), удалить.
+_shred_path() {
+  local target="$1"
+  # -- защищает от имён, начинающихся с дефиса (иначе их съест парсер опций).
+  chmod -R u+w -- "$target" 2>/dev/null || true
+  # -P: на HDD перезапись (best-effort); на SSD безвреден, но не гарантия.
+  rm -rfP -- "$target"
+}
+
+# Сколько локальных снимков Time Machine держит система. Снимок, застигший файл ДО
+# удаления, хранит его ЦЕЛИКОМ — никакой shred туда не дотянется, а удалить из снимка
+# один файл нельзя, только снимок целиком. Считаем только `com.apple.TimeMachine.*`:
+# `com.apple.os.update-*` — откатные точки установщика, не история документов.
+# Печатает число или "unknown", если tmutil недоступен/отказал (fail-closed по смыслу).
+# Точка монтирования тома, на котором лежит путь. Пусто, если определить не вышло.
+_mount_point() {
+  df -P -- "${1:-/}" 2>/dev/null | awk 'NR==2{for(i=6;i<=NF;i++) printf "%s%s", $i, (i<NF?" ":"")}'
+}
+
+_snapshot_count() {
+  local out n mp
+  # Считаем снимки ТОГО тома, где лежала цель, а не всегда загрузочного.
+  mp="${1:-/}"
+  # Не определили том — честнее сказать «неизвестно», чем посчитать снимки
+  # загрузочного диска и выдать бодрое «снимков нет» для чужого тома.
+  [[ -n "$mp" ]] || { printf 'unknown'; return; }
+  out="$(tmutil listlocalsnapshots "$mp" 2>/dev/null)" || { printf 'unknown'; return; }
+  # Считаем ВСЕ снимки, кроме заголовка и откатных точек установщика. Списком
+  # `com.apple.TimeMachine.*` считать нельзя: снимки Carbon Copy Cloner, Arq и
+  # прочих держат ровно такую же полную копию, а allowlist их бы не заметил и
+  # выдал бы бодрое «снимков нет» — fail-open ровно там, где нельзя.
+  n="$(printf '%s\n' "$out" | grep -c '^com\.apple\.os\.update-\|^Snapshots for' || true)"
+  local total; total="$(printf '%s\n' "$out" | grep -c '[^[:space:]]' || true)"
+  printf '%s' "$(( ${total:-0} - ${n:-0} ))"
+}
+
+# Честное примечание про снимки: главный канал, по которому «стёртый» файл выживает.
+_snapshot_note() {
+  local n; n="$(_snapshot_count "${1:-/}")"
+  case "$n" in
+    unknown) warn "$(t snap_unknown)" ;;
+    0)       info "$(t snap_none)" ;;
+    *)       warn "$(t snap_present "$n")" ;;
+  esac
+}
+
+# Честное примечание о гарантиях по типу диска под конкретным путём.
+# Принимает путь цели (по умолчанию /), чтобы судить о томе цели, а не всегда о /.
+_honest_disk_note() {
+  local target="${1:-/}"
+  # Точка монтирования может быть снята заранее (shred удаляет цель до заметки).
+  local mp="${2:-}"; [[ -n "$mp" ]] || mp="$(_mount_point "$target")"
+  case "$(_disk_kind "$target")" in
+    ssd)
+      warn "$(t ssd_note)"
+      if ! filevault_on; then err "$(t ssd_fv_off_note)"; fi
+      ;;
+    hdd)
+      info "$(t hdd_note)"
+      ;;
+    *)
+      warn "$(t unknown_note)"
+      if ! filevault_on; then err "$(t ssd_fv_off_note)"; fi
+      ;;
+  esac
+  # Снимки бьют мимо типа диска: даже на HDD с честной перезаписью копия в снимке
+  # переживает shred. Поэтому предупреждение идёт после вердикта по диску, не вместо.
+  _snapshot_note "$mp"
+}
+
+# Физический канонический путь: режет trailing-slash, резолвит .. и симлинки,
+# ВКЛЮЧАЯ финальный компонент (если это директория или симлинк на директорию).
+# Это важно для guard: `shred /tmp/s` где s→/System должен видеть /System.
+# Возвращает непустую строку или код !=0, если путь недоступен.
+_abspath() {
+  local p="$1"
+  while [[ "$p" == */ && "$p" != "/" ]]; do p="${p%/}"; done
+  if [[ -d "$p" ]]; then
+    ( cd -P -- "$p" 2>/dev/null && pwd -P )
+    return
+  fi
+  local d b
+  d="$(cd -P -- "$(dirname -- "$p")" 2>/dev/null && pwd -P)" || return 1
+  b="$(basename -- "$p")"
+  printf '%s/%s' "${d%/}" "$b"
+}
+
+# Защищённый системный путь? Отказываемся shred'ить корни ОС и системные деревья
+# (дети пользователя вроде ~/file и user-temp разрешены). Защита от `shred /` и т.п.
+# Сравнение по канонизированному физическому пути + case-insensitive (APFS по
+# умолчанию нечувствителен к регистру) + prefix для системных поддеревьев.
+_is_protected_path() {
+  local canon chome restore rc=1
+  canon="$(_abspath "$1")" || return 1
+  [[ -n "$canon" ]] || return 1
+  # $HOME сам может содержать симлинк-компоненты (напр. /var → /private/var).
+  chome="$(cd -P -- "$HOME" 2>/dev/null && pwd -P)" || chome="$HOME"
+  restore="$(shopt -p nocasematch)"
+  shopt -s nocasematch
+  case "$canon" in
+    # Корни ОС и сам $HOME — проверяем ПЕРВЫМИ, до temp-исключения (иначе $HOME,
+    # лежащий под /var/folders в тестах, проскочил бы как user-temp).
+    / | "$HOME" | "$chome" \
+      | /Users | /Volumes | /Applications | /Library | /System \
+      | /usr | /bin | /sbin | /etc | /var | /private | /opt | /cores | /Network | /dev )
+      rc=0 ;;
+    # Пользовательские temp-деревья разрешаем явно (иначе /private/var/* их съест).
+    /private/var/folders/* | /private/tmp/* )
+      rc=1 ;;
+    # Системные поддеревья — по префиксу (после канонизации /etc→/private/etc и т.п.).
+    /System/* | /Library/* | /bin/* | /sbin/* \
+      | /usr/bin/* | /usr/sbin/* | /usr/lib/* | /usr/libexec/* | /usr/share/* \
+      | /private/etc | /private/etc/* | /private/var | /private/var/* )
+      rc=0 ;;
+  esac
+  # Прямые дочерние пути /Volumes (т.е. /Volumes/<name>) — корни точек монтирования,
+  # опасность как у самого /Volumes: shred рекурсивно сотрёт весь том или vault.
+  # Паттерн /Volumes/* в case совпадает и с /Volumes/<name>/file — поэтому отдельно.
+  if [[ "$canon" == /Volumes/* ]]; then
+    local _vr="${canon#/Volumes/}"
+    [[ -n "$_vr" && "$_vr" != */* ]] && rc=0
+  fi
+  eval "$restore"
+  return "$rc"
+}
+
+# Безвозвратно удалить указанные пути с честным примечанием о гарантиях.
+cmd_shred() {
+  require_macos
+  if [[ $# -eq 0 ]]; then err "$(t shred_need_path)"; exit 1; fi
+  # Нормализуем trailing-slash: иначе `rm -rfP -- symlink/` пошёл бы в target,
+  # а guard проверял бы путь без слеша. Один и тот же путь для guard и для rm.
+  local -a paths=()
+  local p
+  for p in "$@"; do
+    while [[ "$p" == */ && "$p" != "/" ]]; do p="${p%/}"; done
+    paths+=("$p")
+  done
+  for arg in "${paths[@]}"; do
+    if _is_protected_path "$arg"; then err "$(t shred_protected "$arg")"; exit 1; fi
+    if [[ ! -e "$arg" ]]; then err "$(t not_found "$arg")"; exit 1; fi
+  done
+  if ! confirm "$(t shred_confirm "${paths[*]}")"; then warn "$(t cancelled)"; exit 1; fi
+  # Точку монтирования снимаем ДО удаления: после rm путь не существует и df на
+  # него уже не ответит — заметка про снимки считала бы не тот том (или ничего).
+  local target_mp; target_mp="$(_mount_point "${paths[0]}")"
+  for arg in "${paths[@]}"; do _shred_path "$arg"; info "$(t deleted "$arg")"; done
+  # Тип диска судим по тому первой цели, а не всегда по /.
+  _honest_disk_note "${paths[0]}" "$target_mp"
+}
+
+# Опустошить папку-корзину, сохранив саму папку.
+cmd_empty() {
+  require_macos
+  if [[ ! -d "$TRASH_DIR" ]]; then err "$(t empty_no_dir "$TRASH_DIR")"; exit 1; fi
+  if [[ -z "$(ls -A "$TRASH_DIR")" ]]; then info "$(t empty_already)"; exit 0; fi
+  if ! confirm "$(t empty_confirm "$TRASH_DIR")"; then warn "$(t cancelled)"; exit 1; fi
+  # ${TRASH_DIR:?} страхует от расширения в /* при пустой переменной.
+  # -- защищает от файлов с именами, начинающимися с дефиса.
+  chmod -R u+w -- "${TRASH_DIR:?}"/* 2>/dev/null || true
+  ( shopt -s dotglob nullglob; rm -rfP -- "${TRASH_DIR:?}"/* )
+  info "$(t emptied "$TRASH_DIR")"
+  _honest_disk_note "$TRASH_DIR"
+}
+
+# Прочитать пароль контейнера: из ST_VAULT_PASS (тесты/скрипты) или интерактивно.
+_vault_pass() {
+  if [[ -n "${ST_VAULT_PASS:-}" ]]; then printf '%s' "$ST_VAULT_PASS"; return; fi
+  read -r -s -p "$(t vault_pass)" p; echo >&2; printf '%s' "$p"
+}
+
+# Найти whole-disk dev-node (/dev/diskN) образа, привязанного именно к VAULT_PATH.
+# Парсим `hdiutil info -plist` через PlistBuddy: надёжнее, чем угадывать по точке
+# монтирования (имя тома может коллизионно стать "SecretVault 1"). Пусто, если
+# образ не примонтирован или определить не удалось — вызывающий делает fallback.
+# Состояние контейнера — **tri-state**, печатает одно из:
+#   "mounted\t<dev>"  — образ примонтирован, dev-node известен
+#   "unmounted"       — образ точно НЕ примонтирован
+#   "unknown"         — определить не удалось (ошибка hdiutil/mktemp/plist)
+# Это критично для destroy: при "unknown" нельзя удалять вслепую (fail-closed),
+# иначе непределённое состояние трактовалось бы как «не смонтирован» → rm.
+_vault_state() {
+  local plist tmp want path pc i dev target
+  # Путь по умолчанию — боевой контейнер; reset проверяет ещё и отставленный .old,
+  # иначе смонтированный из .old том остался бы незамеченным перед crypto-shred.
+  target="${1:-$VAULT_PATH}"
+  want="$(_abspath "$target" 2>/dev/null || printf '%s' "$target")"
+  plist="$(hdiutil info -plist 2>/dev/null)" || { echo unknown; return; }
+  [[ -n "$plist" ]] || { echo unknown; return; }
+  tmp="$(mktemp)" || { echo unknown; return; }
+  trap 'rm -f "$tmp"' RETURN
+  printf '%s' "$plist" > "$tmp"
+  # Не распарсился как plist → состояние неизвестно, а не «пусто».
+  /usr/libexec/PlistBuddy -c 'Print :images' "$tmp" >/dev/null 2>&1 || { echo unknown; return; }
+  i=0
+  while path="$(/usr/libexec/PlistBuddy -c "Print :images:$i:image-path" "$tmp" 2>/dev/null)"; do
+    # Сравниваем и raw, и канонизированный путь (симлинки в $HOME).
+    pc="$(_abspath "$path" 2>/dev/null || printf '%s' "$path")"
+    if [[ "$path" == "$target" || "$pc" == "$want" ]]; then
+      dev="$(/usr/libexec/PlistBuddy -c "Print :images:$i:system-entities:0:dev-entry" "$tmp" 2>/dev/null)" || dev=""
+      if [[ -n "$dev" ]]; then printf 'mounted\t%s\n' "$dev"; return; fi
+      echo unknown; return   # образ найден, но без dev-entry — странно → fail-closed
+    fi
+    i=$((i+1))
+  done
+  echo unmounted
+}
+
+# Тонкая обёртка: dev-node примонтированного образа или пусто (для open/status,
+# где fail-open не разрушителен). Для destroy используем _vault_state напрямую.
+_vault_dev() {
+  local s; s="$(_vault_state)"
+  [[ "$s" == mounted$'\t'* ]] && printf '%s' "${s#mounted$'\t'}"
+  return 0
+}
+
+# Размонтировать контейнер ТОЛЬКО по точному dev-node нашего образа. Без fallback
+# на точку монтирования: чужой/stale том с тем же именем детачить нельзя.
+# Код возврата: 0 — detach выполнен; !=0 — образ не опознан как смонтированный.
+_vault_detach() {
+  local dev; dev="$(_vault_dev)"
+  if [[ -n "$dev" ]]; then
+    hdiutil detach "$dev" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
+# Похоже ли на валидный sparsebundle-контейнер (а не произвольный файл/симлинк)?
+_is_sparsebundle() {
+  [[ ! -L "$1" && -d "$1" && -e "$1/Info.plist" ]]
+}
+
+# Валидация размера контейнера в синтаксисе hdiutil (число + опц. единица b/k/m/g/t).
+# Критично для reset: без этого опечатка уничтожала старый сейф ДО падения create
+# на невалидном размере (AUDIT_2026-07-03 P2-2). Валидируем ПЕРЕД destroy.
+_assert_valid_size() {
+  if ! [[ "$1" =~ ^[0-9]+[bkmgtBKMGT]?$ ]]; then err "$(t vault_bad_size "$1")"; exit 1; fi
+  # Ноль проходит regex, но `reset 0` уничтожил бы сейф и упал на create (паритет с ps1).
+  if [[ "$1" =~ ^0+[bkmgtBKMGT]?$ ]]; then err "$(t vault_bad_size "$1")"; exit 1; fi
+}
+
+# --- общие низкоуровневые операции (переиспользуются create/destroy/reset) ---
+# Путь «отставленного» старого контейнера. `${VAULT_PATH:?}` — страховка от пустого
+# ST_VAULT_PATH, иначе путь выродился бы в ".old" в текущем каталоге.
+_vault_aside_path() { printf '%s.old' "${VAULT_PATH:?}"; }
+
+# Откат reset'а: вернуть отставленный сейф на штатное место. Идемпотентен —
+# ST_RESET_ASIDE гасится, так что повторный вызов (INT → exit → EXIT) не сработает.
+ST_RESET_ASIDE=""
+_vault_reset_rollback() {
+  local rc=$? aside="${ST_RESET_ASIDE:-}"
+  [[ -n "$aside" ]] || return $rc
+  ST_RESET_ASIDE=""
+  # Флаг взводится ДО mv, поэтому «отставленного» контейнера может ещё не быть —
+  # тогда откатывать нечего и сейф всё это время лежал на штатном месте.
+  [[ -e "$aside" ]] || return $rc
+  rm -rf -- "$VAULT_PATH" 2>/dev/null || true   # недоделанный новый контейнер
+  # Если убрать недоделанный контейнер не вышло (залоченный band, AV, chflags uchg),
+  # `mv` положил бы старый сейф ВНУТРЬ него и вернул 0 — молчаливая потеря данных
+  # (следующий destroy снёс бы всё дерево). Путь обязан быть свободен.
+  if [[ ! -e "$VAULT_PATH" ]] && mv -- "$aside" "$VAULT_PATH" 2>/dev/null; then
+    warn "$(t vault_reset_rolled_back "$VAULT_PATH")"
+  else
+    # Худший случай: вернуть не смогли. Обязаны назвать точный путь, иначе
+    # пользователь считает сейф пропавшим, а он лежит рядом под другим именем.
+    err "$(t vault_restore_fail "$aside" "$VAULT_PATH")"
+  fi
+  return $rc
+}
+
+# Попытка создать контейнер. Возвращает код возврата hdiutil, НЕ выходит из скрипта:
+# вызывающий (reset) должен успеть откатить отставленный старый сейф.
+_vault_create_try() {
+  local size="${1:-1g}"
+  _vault_pass | hdiutil create -size "$size" -type SPARSEBUNDLE -fs APFS \
+    -encryption AES-256 -stdinpass -volname SecretVault "$VAULT_PATH"
+}
+
+# Создать контейнер. БЕЗ проверки существования — её делает вызывающий (create проверяет;
+# reset вызывает после того, как старый контейнер отставлен в сторону).
+_vault_create_now() {
+  local size="${1:-1g}"
+  # Путь до вызова свободен (create это проверил, reset отставил старый в .old). Значит всё,
+  # что появится по нему при провале hdiutil, — наш недоделанный контейнер: он не открывается,
+  # но занимает место сейфа, и следующий create откажется «сейф уже есть». Убираем только его.
+  local existed=0; [[ -e "$VAULT_PATH" ]] && existed=1
+  if ! _vault_create_try "$size"; then
+    if (( ! existed )) && [[ -e "$VAULT_PATH" ]]; then rm -rf "${VAULT_PATH:?}"; fi
+    err "$(t vault_create_fail "$VAULT_PATH")"
+    exit 1
+  fi
+  info "$(t vault_created "$VAULT_PATH" "$size")"
+  warn "$(t vault_preventive)"
+}
+# Валидируемость для уничтожения: контейнер есть И это настоящий sparsebundle (не файл).
+# Проверяем ДО confirm-промпта, чтобы не спрашивать про несуществующий/чужой путь.
+_vault_assert_destroyable() {
+  if [[ ! -e "$VAULT_PATH" ]]; then err "$(t vault_no_container "$VAULT_PATH")"; exit 1; fi
+  if ! _is_sparsebundle "$VAULT_PATH"; then err "$(t vault_bad_container "$VAULT_PATH")"; exit 1; fi
+}
+# Механизм уничтожения БЕЗ confirm (его делает вызывающий по-своему: destroy и reset
+# подтверждают разными формулировками). Удаляем backing-файл ТОЛЬКО когда достоверно
+# знаем, что том не смонтирован: mounted → отцепить по точному dev-node; unknown →
+# fail-closed (abort). Перед rm повторно требуем достоверный unmounted (закрывает
+# detach-verify и почти всю TOCTOU-гонку).
+_vault_unmount_or_die() {
+  local st dev
+  st="$(_vault_state)"
+  case "$st" in
+    mounted*)
+      dev="${st#mounted$'\t'}"
+      hdiutil detach "$dev" 2>/dev/null || { err "$(t vault_destroy_busy)"; exit 1; }
+      ;;
+    unmounted) ;;
+    *) err "$(t vault_destroy_busy)"; exit 1 ;;
+  esac
+  [[ "$(_vault_state)" == unmounted ]] || { err "$(t vault_destroy_busy)"; exit 1; }
+}
+
+_vault_destroy_now() {
+  _vault_unmount_or_die
+  rm -rfP -- "$VAULT_PATH"
+  info "$(t vault_destroyed)"
+}
+
+# Управление зашифрованным контейнером: create|open|close|reset|destroy|status.
+cmd_vault() {
+  require_macos
+  # Уцелевший .old — след прерванного reset. Пользователь должен узнать, ГДЕ его
+  # данные, а не гадать: status покажет «сейф закрыт», а сейф-то другой.
+  if [[ -e "$VAULT_PATH.old" ]]; then warn "$(t vault_aside_notice "$VAULT_PATH.old")"; fi
+  local sub="${1:-}"; shift || true
+  case "$sub" in
+    create)
+      _assert_valid_size "${1:-1g}"
+      if [[ -e "$VAULT_PATH" ]]; then err "$(t vault_exists "$VAULT_PATH")"; exit 1; fi
+      _vault_create_now "${1:-1g}"
+      ;;
+    open)
+      if [[ ! -e "$VAULT_PATH" ]]; then err "$(t vault_no_container_open)"; exit 1; fi
+      # Уже смонтирован (по точному dev-node)? Не дублируем attach.
+      if [[ -n "$(_vault_dev)" ]]; then
+        info "$(t vault_already_open "$VAULT_VOLUME")"; exit 0
+      fi
+      # -mountpoint фиксирует точку (иначе при занятом /Volumes/SecretVault
+      # macOS смонтирует как "SecretVault 1" и close/destroy/status промахнутся).
+      # По умолчанию том ВИДЕН в Finder/сайдбаре и на рабочем столе: иначе пользователь,
+      # закрыв окно, не понимает где сейф и легко забывает его смонтированным — а открытый
+      # vault «под угрозой», это бóльший риск, чем сама видимость. Видимость даёт и штатный
+      # выход: «извлечь» из Finder автоматически размонтирует том. Спрятать (старое поведение,
+      # -nobrowse — вне сайдбара/рабочего стола): ST_VAULT_HIDDEN=1.
+      local attach_opts
+      attach_opts=( -mountpoint "$VAULT_VOLUME" )
+      if [[ "${ST_VAULT_HIDDEN:-0}" == "1" ]]; then attach_opts+=( -nobrowse ); fi
+      _vault_pass | hdiutil attach "$VAULT_PATH" -stdinpass "${attach_opts[@]}"
+      info "$(t vault_mounted "$VAULT_VOLUME")"
+      # Точка интеграции: vaultwatch стартует отсюда, получая точку монтирования.
+      _run_vault_hook post-open "$VAULT_VOLUME"
+      # Сразу всплыть окном тома, чтобы пользователь видел, куда класть файлы (как при
+      # двойном клике по dmg). Полезно и при ST_VAULT_HIDDEN=1, когда тома нет в сайдбаре.
+      # Отключить: ST_VAULT_NO_REVEAL=1.
+      if [[ "${ST_VAULT_NO_REVEAL:-0}" != "1" ]] && command -v open >/dev/null 2>&1; then
+        open "$VAULT_VOLUME" >/dev/null 2>&1 || true
+      fi
+      ;;
+    close)
+      _vault_detach || { err "$(t vault_detach_fail)"; exit 1; }
+      info "$(t vault_closed)"
+      # Точка интеграции: vaultwatch гасится отсюда, восстанавливая исключения.
+      _run_vault_hook post-close "$VAULT_VOLUME"
+      ;;
+    status)
+      if [[ ! -e "$VAULT_PATH" ]]; then err "$(t vault_no_container "$VAULT_PATH")"; exit 1; fi
+      if [[ -n "$(_vault_dev)" ]]; then
+        info "$(t vault_status_open "$VAULT_VOLUME")"
+      else
+        info "$(t vault_status_closed "$VAULT_PATH")"
+      fi
+      ;;
+    destroy)
+      _vault_assert_destroyable
+      if ! confirm "$(t vault_destroy_confirm "$VAULT_PATH")"; then warn "$(t cancelled)"; exit 1; fi
+      _vault_destroy_now
+      ;;
+    reset)
+      # «Очистить сейф, сам сейф оставить» с РЕАЛЬНОЙ гарантией: in-place перезапись на
+      # SSD — best-effort (тот же ключ продолжает расшифровывать остаточные band-блоки).
+      # Единственный честный способ — crypto-shred контейнера (выкинуть ключ) + создать
+      # новый пустой (новый ключ → старое мертво навсегда). Один confirm на всю операцию.
+      local reset_size="${1:-1g}"
+      _assert_valid_size "$reset_size"   # ДО destroy: невалидный размер не должен губить сейф
+      _vault_assert_destroyable
+      # Уцелевший .old — это ДАННЫЕ пользователя (прерванный reset или его ручной
+      # бэкап). Снести его молча нельзя. Отказ идёт ДО confirm: незачем спрашивать
+      # «уничтожить всё?», чтобы следом сказать «нет».
+      if [[ -e "$(_vault_aside_path)" ]]; then err "$(t vault_aside_exists "$(_vault_aside_path)")"; exit 1; fi
+      if ! confirm "$(t vault_reset_confirm "$VAULT_PATH")"; then warn "$(t cancelled)"; exit 1; fi
+      # Между «старого сейфа уже нет» и «новый готов» не должно быть окна: раньше
+      # destroy шёл первым, и падение create (нет места, отказ hdiutil, Ctrl-C на
+      # промпте пароля) оставляло пользователя вообще без сейфа. Теперь старый
+      # контейнер отставляется в .old, новый создаётся на его месте, и только после
+      # успеха старый крипто-шредится. Откат навешен trap'ом, а не только на ветку
+      # ошибки: Ctrl-C приходит именно на промпте пароля, уже ПОСЛЕ переноса.
+      local aside; aside="$(_vault_aside_path)"
+      _vault_unmount_or_die       # переименовывать можно только отцепленный том
+      # Взводим ДО mv: сигнал, пришедший между переносом и установкой trap'а, иначе
+      # оставил бы сейф в .old без отката. Rollback сам проверяет, что переносить.
+      ST_RESET_ASIDE="$aside"
+      trap '_vault_reset_rollback' EXIT
+      trap '_vault_reset_rollback; exit 130' INT TERM HUP QUIT
+      mv -- "$VAULT_PATH" "$aside" || { err "$(t vault_create_fail "$VAULT_PATH")"; exit 1; }
+      if ! _vault_create_try "$reset_size"; then
+        err "$(t vault_create_fail "$VAULT_PATH")"
+        exit 1                    # откат сделает EXIT-trap
+      fi
+      ST_RESET_ASIDE=""           # новый сейф на месте — откатывать больше нечего
+      trap - EXIT INT TERM HUP QUIT
+      # Пока шёл create, пользователь мог смонтировать том из .old (Finder видит файл).
+      # Шредить вслепую нельзя — это снесло бы backing store живого расшифрованного тома.
+      if [[ "$(_vault_state "$aside")" != unmounted ]]; then
+        err "$(t vault_aside_busy "$aside")"; exit 1
+      fi
+      if ! rm -rfP -- "$aside"; then
+        # Новый сейф уже создан, но старый НЕ уничтожен: молчать нельзя — обещание
+        # crypto-shred не выполнено, рядом лежит расшифровываемая копия.
+        err "$(t vault_aside_left "$aside")"; exit 1
+      fi
+      info "$(t vault_destroyed)"
+      info "$(t vault_created "$VAULT_PATH" "$reset_size")"
+      warn "$(t vault_preventive)"
+      info "$(t vault_reset_done)"
+      ;;
+    destroy-old)
+      # Единственный штатный способ убрать контейнер, отставленный прерванным reset.
+      # Отдельная команда, а не часть destroy: destroy бьёт по активному сейфу, и
+      # смешивать две разные цели в одном подтверждении — прямой путь к промаху.
+      local old_path; old_path="$(_vault_aside_path)"
+      if [[ ! -e "$old_path" ]]; then err "$(t vault_old_none "$old_path")"; exit 1; fi
+      if ! _is_sparsebundle "$old_path"; then err "$(t vault_bad_container "$old_path")"; exit 1; fi
+      # Ранняя проверка — чтобы не спрашивать про том, который заведомо занят.
+      if [[ "$(_vault_state "$old_path")" != unmounted ]]; then
+        err "$(t vault_aside_busy "$old_path")"; exit 1
+      fi
+      if ! confirm "$(t vault_old_confirm "$old_path")"; then warn "$(t cancelled)"; exit 1; fi
+      # И ПОВТОРНО перед rm: confirm ждёт ввода сколько угодно, а мы сами советуем
+      # «hdiutil attach, забери данные» — пользователь вполне может смонтировать .old
+      # прямо пока висит промпт. Снести backing store живого тома нельзя.
+      if [[ "$(_vault_state "$old_path")" != unmounted ]]; then
+        err "$(t vault_aside_busy "$old_path")"; exit 1
+      fi
+      rm -rfP -- "$old_path"
+      info "$(t vault_old_destroyed "$old_path")"
+      ;;
+    *)
+      err "$(t vault_usage)"; exit 1 ;;
+  esac
+}
+
+main() {
+  # --yes где угодно в аргументах == ST_ASSUME_YES=1. Флаг вырезаем из списка,
+  # остальные аргументы сохраняем в исходном порядке.
+  local args=()
+  local a
+  for a in "$@"; do
+    if [[ "$a" == "--yes" ]]; then
+      ST_ASSUME_YES=1
+    else
+      args+=("$a")
+    fi
+  done
+  set -- "${args[@]:-}"
+  # Если после вырезания не осталось аргументов, ${args[@]:-} даёт одну пустую
+  # строку — нормализуем к настоящему «нет аргументов».
+  if [[ $# -eq 1 && -z "${1:-}" ]]; then set --; fi
+
+  local cmd="${1:-}"
+  if [[ -z "$cmd" ]]; then usage; exit 1; fi
+  shift || true
+  case "$cmd" in
+    version|-v|--version) cmd_version "$@" ;;
+    help|-h|--help)  usage ;;
+    check) cmd_check "$@" ;;
+    setup) cmd_setup "$@" ;;
+    shred) cmd_shred "$@" ;;
+    empty) cmd_empty "$@" ;;
+    vault) cmd_vault "$@" ;;
+    *) t unknown_cmd "$cmd" >&2; echo >&2; usage >&2; exit 1 ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
