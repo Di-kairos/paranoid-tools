@@ -39,8 +39,11 @@ bash install.sh            # installs all 5 + the paranoid launcher
 Each tool is pulled from its own **signed release** with verify-then-run: the installer
 checks the Ed25519 signature over `SHA256SUMS`, then the checksum of the tool's own
 `install.sh`, and only then runs it — which in turn verifies the binary before
-installing. Every artifact pulled from the network is verified before it runs (you
-launch the top-level `bash install.sh` yourself, after reading it).
+installing. Every artifact pulled from the network is verified before it runs. Two
+things are not network artifacts and are therefore not covered by that sentence: the
+top-level `install.sh` (you launch it yourself, after reading it) and the `paranoid`
+launcher, which is installed straight from the clone in front of you — both are part of
+the repository you can read, not downloads.
 
 There is also a signed and notarized **[macOS menu-bar app](#the-macos-app-menu-bar)**,
 and a **[Windows path](#windows)** (PowerShell 7). Homebrew covers `securetrash` today

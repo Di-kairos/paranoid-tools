@@ -65,10 +65,39 @@ def chk4(body: str) -> str:
     return hashlib.sha256(body.encode()).hexdigest()[:4]
 
 
-def split_sss2(secret: bytes, n: int, t: int) -> list[str]:
-    """Независимый split в формате SSS2 (без RS-parity — её bash дочитывает как legacy)."""
+# --- Reed-Solomon RS(k+4, k), генераторный многочлен (x+α^0)(x+α^1)(x+α^2)(x+α^3),
+#     α = 3 (тот же генератор поля). Систематическое кодирование: parity = остаток
+#     от деления msg·x^4 на g(x). Независимый порт по спецификации формата SSS3.
+RS_PARITY = 4
+RS_CHUNK = 251
+
+_G = [1]
+for _i in range(RS_PARITY):
+    _ai = EXP[_i]
+    _ng = [0] * (len(_G) + 1)
+    for _j, _g in enumerate(_G):
+        _ng[_j] ^= _g
+        _ng[_j + 1] ^= gf_mul(_g, _ai)
+    _G = _ng
+
+
+def rs_parity(msg: bytes) -> bytes:
+    out = bytearray()
+    for off in range(0, len(msg), RS_CHUNK):
+        chunk = msg[off:off + RS_CHUNK]
+        w = list(chunk) + [0] * RS_PARITY
+        for i in range(len(chunk)):
+            coef = w[i]
+            if coef == 0:
+                continue
+            for j in range(1, RS_PARITY + 1):
+                w[i + j] ^= gf_mul(_G[j], coef)
+        out += bytes(w[len(chunk):len(chunk) + RS_PARITY])
+    return bytes(out)
+
+
+def _split_ys(secret: bytes, n: int, t: int) -> dict[int, bytearray]:
     payload = wrap_payload(secret)
-    setid = secrets.token_bytes(4).hex()
     ys = {x: bytearray() for x in range(1, n + 1)}
     for byte in payload:
         coeffs = [byte] + [secrets.randbelow(256) for _ in range(t - 1)]
@@ -77,9 +106,28 @@ def split_sss2(secret: bytes, n: int, t: int) -> list[str]:
             for c in reversed(coeffs):  # Горнер
                 acc = gf_mul(acc, x) ^ c
             ys[x].append(acc)
+    return ys
+
+
+def split_sss2(secret: bytes, n: int, t: int) -> list[str]:
+    """Независимый split в формате SSS2 (без RS-parity — legacy, bash его дочитывает)."""
+    setid = secrets.token_bytes(4).hex()
+    ys = _split_ys(secret, n, t)
     out = []
     for x in range(1, n + 1):
         body = f"SSS2-{setid}-{t}-{x}-{ys[x].hex()}"
+        out.append(f"{body}-{chk4(body)}")
+    return out
+
+
+def split_sss3(secret: bytes, n: int, t: int) -> list[str]:
+    """Независимый split в текущем формате SSS3 (с RS-parity)."""
+    setid = secrets.token_bytes(4).hex()
+    ys = _split_ys(secret, n, t)
+    out = []
+    for x in range(1, n + 1):
+        par = rs_parity(bytes(ys[x])).hex()
+        body = f"SSS3-{setid}-{t}-{x}-{ys[x].hex()}-{par}"
         out.append(f"{body}-{chk4(body)}")
     return out
 
