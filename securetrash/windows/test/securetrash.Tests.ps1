@@ -601,6 +601,7 @@ Describe 'vault: attached is not open, and a failed create leaves nothing behind
         Mock New-StBitLockerVault { throw 'The drive is too small to be protected using BitLocker Drive Encryption. (0x8031006F)' }
         Mock Dismount-StVault { }
         Mock Remove-StVaultContainer { }
+        Mock Test-StAsidePresent { $false }   # plain create: nothing set aside, so create cleans up itself
 
         { Invoke-StVault -VaultArgs @('create', '200m') 6>$null } | Should -Throw
         Should -Invoke Dismount-StVault -Times 1 -Exactly
