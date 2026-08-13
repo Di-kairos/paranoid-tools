@@ -8,10 +8,8 @@ independently versioned releases (`<tool>-vX.Y.Z` tags). A change to a tool belo
 in its directory and follows its `CONTRIBUTING.md`; a change to the launcher, the
 installer, the guides or the GUI follows this one.
 
-**Transparency note:** development is AI-assisted (Claude), directed and reviewed by
-the maintainer. Every change still has to clear the same gates as any human PR —
-shellcheck, bats, Pester, the differential crypto tests — and those gates, not the
-author, are what you should trust.
+**Every change clears the same gates, whoever wrote it** — shellcheck, bats, Pester,
+the differential crypto tests. Those gates, not the author, are what you should trust.
 
 ## Principles (please don't break these)
 

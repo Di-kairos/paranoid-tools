@@ -331,9 +331,7 @@ with `PARANOID_UPDATE_CHECK=1 paranoid`, or export it in your shell rc to keep i
 
 ## How it's built
 
-Development is **AI-assisted** (Claude), directed and reviewed by a human maintainer.
-That is stated here so you don't have to guess from the commit cadence — and it changes
-nothing about the verification story, which never depended on trusting the author: CI on
+The verification story here never depended on trusting the author: CI on
 three shells (bash, pwsh 7, Windows PowerShell 5.1), ~900 tests (bats + Pester)
 including known-answer vectors and a differential cross-check of the crypto against an
 independent implementation, shellcheck-clean sources, Ed25519-signed releases you can
