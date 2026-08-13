@@ -194,10 +194,19 @@ winget install --id Microsoft.PowerShell -e
 pwsh --version      # должно напечатать «PowerShell 7.x»
 ```
 
-**2. Поставь Git** — им скачиваются инструменты, — затем открой новое окно PowerShell 7:
+**2. Поставь Git** — им скачиваются инструменты:
 
 ```powershell
 winget install --id Git.Git -e
+```
+
+Дальше **закрой это окно и открой новое PowerShell 7**. Новый PATH `winget` отдаёт только
+новым процессам, поэтому в том окне, где шла установка, `git` так и останется «не распознан
+как имя командлета». Если окно закрывать не хочется — обнови PATH руками:
+
+```powershell
+$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+            [Environment]::GetEnvironmentVariable('Path','User')
 ```
 
 **3. Поставь инструмент.** Все пять лежат в этом репозитории — клонируй один раз и ставь
@@ -205,6 +214,7 @@ winget install --id Git.Git -e
 `ghostdraft` или `seedsplit`):
 
 ```powershell
+cd $HOME            # клонируй в свой профиль, а не в C:\WINDOWS\system32
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools/securetrash
 pwsh -File windows/install.ps1

@@ -190,10 +190,19 @@ Close that window, then open **"PowerShell 7"** from the Start menu. Confirm the
 pwsh --version      # should print "PowerShell 7.x"
 ```
 
-**2. Install Git** (used to download the tools), then open a fresh PowerShell 7 window:
+**2. Install Git** (used to download the tools):
 
 ```powershell
 winget install --id Git.Git -e
+```
+
+Then **close that window and open a fresh PowerShell 7**. `winget` hands the new PATH to new
+processes only, so in the window you installed from, `git` stays "not recognized as the name of
+a cmdlet". If you would rather keep the window, refresh its PATH by hand:
+
+```powershell
+$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+            [Environment]::GetEnvironmentVariable('Path','User')
 ```
 
 **3. Install a tool.** All five live in this repository — clone once, install the ones
@@ -201,6 +210,7 @@ you want. Example for `securetrash` (swap the directory for `vaultwatch`, `panic
 `ghostdraft`, or `seedsplit`):
 
 ```powershell
+cd $HOME            # clone into your own profile, not C:\WINDOWS\system32
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools/securetrash
 pwsh -File windows/install.ps1
