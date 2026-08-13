@@ -1,11 +1,12 @@
 name: ci-ghostdraft
-# Монорепо: гоняется только при изменениях внутри ghostdraft/ (paths-фильтр).
+# Монорепо: гоняется при изменениях внутри ghostdraft/ и при правке канонического
+# securetrash/lib/common.sh — vendor --check ловит источник, разошедшийся с пином.
 # Перенесён из ghostdraft-репо при миграции; все run-шаги работают из каталога тула.
 on:
   push:
-    paths: ['ghostdraft/**']
+    paths: ['ghostdraft/**', 'securetrash/lib/common.sh']
   pull_request:
-    paths: ['ghostdraft/**']
+    paths: ['ghostdraft/**', 'securetrash/lib/common.sh']
 defaults:
   run:
     working-directory: ghostdraft

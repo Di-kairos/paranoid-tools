@@ -97,6 +97,8 @@ t() {
     ru:guide_hint)     echo "Гайд по-русски: ИНСТРУКЦИЯ.md" ;;
     en:partial_exit)   printf 'Installation is incomplete (%s/%s) — exiting with an error. Override: PT_ALLOW_PARTIAL=1.\n' "$2" "$3" ;;
     ru:partial_exit)   printf 'Установка неполная (%s/%s) — выхожу с ошибкой. Обход: PT_ALLOW_PARTIAL=1.\n' "$2" "$3" ;;
+    en:dev_banner)     echo "!!! PT_DEV=1: UNVERIFIED WORKTREE INSTALL — tools are copied from the local working copy, release signatures are NOT checked. Unset PT_DEV for the signed path." ;;
+    ru:dev_banner)     echo "!!! PT_DEV=1: УСТАНОВКА ИЗ РАБОЧЕЙ КОПИИ БЕЗ ПРОВЕРКИ — инструменты копируются локально, подписи релизов НЕ проверяются. Убери PT_DEV, чтобы вернуть подписанный путь." ;;
     *) echo "$1" ;;
   esac
 }
@@ -224,6 +226,9 @@ install_from_release() {
 mkdir -p "$DEST"
 
 t installing "$DEST"
+# PT_DEV — loud and up front: silently bypassing the signed path is worse
+# than an honest refusal.
+if [[ "${PT_DEV:-0}" == "1" ]]; then t dev_banner >&2; fi
 installed=0
 for t in "${TOOLS[@]}"; do
   local_src="${ROOT}/${t}/${t}"

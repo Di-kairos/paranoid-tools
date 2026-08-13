@@ -1,11 +1,12 @@
 name: ci-seedsplit
-# Монорепо: гоняется только при изменениях внутри seedsplit/ (paths-фильтр).
+# Монорепо: гоняется при изменениях внутри seedsplit/ и при правке канонического
+# securetrash/lib/common.sh — vendor --check ловит источник, разошедшийся с пином.
 # Перенесён из seedsplit-репо при миграции; все run-шаги работают из каталога тула.
 on:
   push:
-    paths: ['seedsplit/**']
+    paths: ['seedsplit/**', 'securetrash/lib/common.sh']
   pull_request:
-    paths: ['seedsplit/**']
+    paths: ['seedsplit/**', 'securetrash/lib/common.sh']
 defaults:
   run:
     working-directory: seedsplit

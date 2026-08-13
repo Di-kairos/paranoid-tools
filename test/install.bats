@@ -106,3 +106,38 @@ teardown() { rm -rf "$TMP"; }
     grep -qE "^\s*t $key .*>&2" "$SCRIPT"
   done
 }
+
+@test "PT_DEV=1 prints the unverified-worktree banner and copies the local file" {
+  # Fake tool source in the layout install.sh expects: $ROOT/<tool>/<tool>.
+  root="$TMP/repo"; mkdir -p "$root/securetrash"
+  cp "$SCRIPT" "$root/install.sh"
+  printf '#!/usr/bin/env bash\necho launcher\n' > "$root/paranoid"
+  printf '#!/usr/bin/env bash\necho fake\n' > "$root/securetrash/securetrash"
+  # curl stub that always fails: the other four tools must fail fast offline.
+  # (rm first: the fakebin entry is a symlink to the system curl — writing
+  # through it would chase the link into /usr/bin.)
+  rm -f "$BINS/curl"
+  printf '#!/usr/bin/env bash\nexit 22\n' > "$BINS/curl"; chmod +x "$BINS/curl"
+  run env -i PATH="$BINS:/usr/bin:/bin" HOME="$TMP" PT_DEST="$TMP/bin" \
+    PT_DEV=1 PT_ALLOW_PARTIAL=1 bash "$root/install.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"UNVERIFIED WORKTREE INSTALL"* ]]
+  [[ "$output" == *"from the working copy"* ]]
+  [ -x "$TMP/bin/securetrash" ]
+}
+
+@test "without PT_DEV a local tool file is ignored in favor of the signed path" {
+  root="$TMP/repo2"; mkdir -p "$root/securetrash"
+  cp "$SCRIPT" "$root/install.sh"
+  printf '#!/usr/bin/env bash\necho launcher\n' > "$root/paranoid"
+  printf '#!/usr/bin/env bash\necho fake\n' > "$root/securetrash/securetrash"
+  rm -f "$BINS/curl"
+  printf '#!/usr/bin/env bash\nexit 22\n' > "$BINS/curl"; chmod +x "$BINS/curl"
+  run env -i PATH="$BINS:/usr/bin:/bin" HOME="$TMP" PT_DEST="$TMP/bin2" \
+    PT_ALLOW_PARTIAL=1 bash "$root/install.sh"
+  # The local copy must NOT be installed; the network path fails (stub curl),
+  # so securetrash is simply absent — that is the honest outcome.
+  [[ "$output" != *"from the working copy"* ]]
+  [[ "$output" != *"UNVERIFIED WORKTREE INSTALL"* ]]
+  [ ! -e "$TMP/bin2/securetrash" ]
+}

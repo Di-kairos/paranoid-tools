@@ -1,11 +1,12 @@
 name: ci-panic
-# Монорепо: гоняется только при изменениях внутри panic/ (paths-фильтр).
+# Монорепо: гоняется при изменениях внутри panic/ и при правке канонического
+# securetrash/lib/common.sh — vendor --check ловит источник, разошедшийся с пином.
 # Перенесён из panic-репо при миграции; все run-шаги работают из каталога тула.
 on:
   push:
-    paths: ['panic/**']
+    paths: ['panic/**', 'securetrash/lib/common.sh']
   pull_request:
-    paths: ['panic/**']
+    paths: ['panic/**', 'securetrash/lib/common.sh']
 defaults:
   run:
     working-directory: panic

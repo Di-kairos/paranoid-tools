@@ -1,11 +1,20 @@
 name: release
-# Монорепо-релизы: push тега `<tool>-vX.Y.Z` собирает SHA256SUMS по файлам этого
-# тула, подписывает их Ed25519-ключом экосистемы и публикует GitHub Release.
-# Ассеты — плоские имена (как в пер-тул релизах до миграции): релиз привязан к
-# тегу, поэтому `install.sh`/`SHA256SUMS` разных тулов не коллидируют.
+# Монорепо-релизы: push тега `<tool>-vX.Y.Z` прогоняет тесты тула, собирает
+# SHA256SUMS по его файлам, подписывает Ed25519-ключом экосистемы и публикует
+# GitHub Release. Ассеты — плоские имена (как в пер-тул релизах до миграции):
+# релиз привязан к тегу, поэтому `install.sh`/`SHA256SUMS` разных тулов не
+# коллидируют.
+#
+# Гейты до подписи (подписываем только то, что проверено):
+#   1. строгая грамматика тега `<tool>-vX.Y.Z` + совпадение с VERSION в скрипте;
+#   2. инсталлеры тула обязаны качать с монорепо (не с архивных репо) — иначе
+#      свежеподписанный релиз молча ставил бы старую версию;
+#   3. shellcheck + bats тула (+ vendor --check) на этом же коммите.
+#      Windows-матрица сюда не влезает по времени — она бежит в ci-<tool>.yml;
+#      перед тегом смотри, что он green.
 #
 # Требует секрет RELEASE_SIGNING_KEY (тот же ed25519-ключ, что был в пяти
-# пер-тул репозиториях; publkey запиннут в install.sh и SECURITY.md).
+# пер-тул репозиториях; pubkey запиннут в install.sh и SECURITY.md).
 # Без ключа выпуск ПРЕРЫВАЕТСЯ — неподписанных релизов не бывает.
 on:
   push:
@@ -25,16 +34,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Derive tool name from the tag
+      - name: Validate the tag and derive the tool name
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          TOOL="${TAG%-v*}"
-          case "$TOOL" in
-            securetrash|vaultwatch|panic|ghostdraft|seedsplit) ;;
-            *) echo "Unknown tool prefix in tag '$TAG'" >&2; exit 1 ;;
-          esac
+          # Строгая грамматика: <tool>-vX.Y.Z, никаких -rc/суффиксов/пустых версий.
+          if [[ ! "$TAG" =~ ^(securetrash|vaultwatch|panic|ghostdraft|seedsplit)-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Tag '$TAG' does not match <tool>-vX.Y.Z — refusing to release." >&2
+            exit 1
+          fi
+          TOOL="${BASH_REMATCH[1]}"
+          VER="${BASH_REMATCH[2]}"
+          # Версия в теге обязана совпадать с VERSION внутри скрипта тула.
+          script_ver="$(grep -Eo '^VERSION="?[0-9]+\.[0-9]+\.[0-9]+"?' "$TOOL/$TOOL" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          if [[ "$script_ver" != "$VER" ]]; then
+            echo "Tag version $VER != script VERSION $script_ver in $TOOL/$TOOL — bump the script first." >&2
+            exit 1
+          fi
           echo "TOOL=$TOOL" >> "$GITHUB_ENV"
+          echo "VER=$VER" >> "$GITHUB_ENV"
+
+      - name: Refuse to ship installers that still point at the archived repos
+        run: |
+          # Релиз из монорепо обязан отдавать install.sh/ps1, качающие ИЗ монорепо.
+          # Иначе свежий подписанный релиз молча ставит старый бинарь из архива.
+          # Чеклист переключения — docs/RELEASE-STATE.md §Монорепо.
+          bad=0
+          for f in "$TOOL/install.sh" "$TOOL/windows/install.ps1"; do
+            if grep -qE "github\.com/Di-kairos/${TOOL}/releases" "$f"; then
+              echo "$f still downloads from the archived Di-kairos/${TOOL} repo." >&2
+              bad=1
+            fi
+          done
+          [ "$bad" -eq 0 ] || exit 1
+
+      - name: Test the tool at this exact commit (lint + bats + vendor check)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats shellcheck
+          cd "$TOOL"
+          shellcheck "$TOOL" install.sh
+          [ -x tools/vendor-common.sh ] && ./tools/vendor-common.sh --check
+          bats test/
 
       - name: Stage release assets (flat basenames)
         run: |
@@ -59,9 +99,9 @@ jobs:
             exit 1
           fi
           umask 077
+          trap 'rm -f signing_key' EXIT
           printf '%s\n' "$SIGNING_KEY" > signing_key
           ssh-keygen -Y sign -f signing_key -n file SHA256SUMS
-          rm -f signing_key
           echo "Подписал SHA256SUMS → SHA256SUMS.sig"
 
       - name: Create GitHub Release with verified assets
