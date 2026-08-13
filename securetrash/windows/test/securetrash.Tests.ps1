@@ -600,11 +600,11 @@ Describe 'vault: attached is not open, and a failed create leaves nothing behind
         Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock New-StBitLockerVault { throw 'The drive is too small to be protected using BitLocker Drive Encryption. (0x8031006F)' }
         Mock Dismount-StVault { }
-        Mock Remove-Item { } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Remove-StVaultContainer { }
 
         { Invoke-StVault -VaultArgs @('create', '200m') 6>$null } | Should -Throw
         Should -Invoke Dismount-StVault -Times 1 -Exactly
-        Should -Invoke Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Should -Invoke Remove-StVaultContainer -Times 1 -Exactly
         # A failed create records no backend: a leftover sidecar would make `open` promise BitLocker.
         Should -Invoke Write-StVaultBackend -Times 0 -Exactly
     }

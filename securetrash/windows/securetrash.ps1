@@ -1061,7 +1061,7 @@ function Invoke-StVaultCreateNow {
             # `status` used to report it as an open vault. Remove it, exactly as the macOS branch
             # does (securetrash: _vault_create_now). Detach first: an attached vhdx cannot be deleted.
             try { Dismount-StVault -Path $vaultPath } catch { }
-            Remove-Item -LiteralPath $vaultPath -Force -Recurse -ErrorAction SilentlyContinue
+            try { Remove-StVaultContainer -Path $vaultPath } catch { }
             Write-StErr (T 'vault_create_fail' $vaultPath)
             Stop-StCommand
         }

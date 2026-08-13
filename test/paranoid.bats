@@ -70,12 +70,25 @@ EOF
   chmod +x "$STUBS/$name"
 }
 
+# A UTF-8 locale that exists on this machine, or empty if there is none. `env -i` wipes the
+# locale, so every test below runs in C unless it asks otherwise — which hid a crash that only
+# happens in UTF-8 (bash 3.2 swallowing the byte after a variable) from the whole suite.
+utf8_locale() {
+  local l
+  for l in C.UTF-8 en_US.UTF-8 en_US.utf8; do
+    if locale -a 2>/dev/null | grep -qix "${l//-/}\|$l"; then printf '%s' "$l"; return; fi
+  done
+  # macOS lists en_US.UTF-8; bash also accepts C.UTF-8 there. Fall back rather than skip.
+  printf '%s' "en_US.UTF-8"
+}
+
 # Run the launcher with the substituted PATH and the given stdin.
 # Usage: run_paranoid "<stdin>" [extra env assignments...]
+# LC_ALL is passed through when the caller sets it (default C, as before).
 run_paranoid() {
   local input="$1"; shift
   run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$HOME" \
-    ST_LOCALE="${ST_LOCALE:-en}" "$@" \
+    LC_ALL="${LC_ALL:-C}" ST_LOCALE="${ST_LOCALE:-en}" "$@" \
     bash -c "printf '%s' \"\$0\" | bash '$SCRIPT'" "$input"
 }
 
@@ -458,6 +471,18 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"update available"* ]]
   [[ "$output" == *"ghostdraft 0.1.7→0.1.9"* ]]
+}
+
+# The same banner, in a UTF-8 locale. Under bash 3.2 (the macOS system bash) an unbraced
+# `$inst→$latest` takes the arrow's first byte as part of the name and dies on set -u — a crash
+# only real users saw, because `env -i` in the harness runs every other test in C.
+@test "update banner survives a UTF-8 locale (bash 3.2 eats the byte after \$var)" {
+  printf 'ghostdraft=v0.1.9\n' >"$TMP/feed"
+  LC_ALL="$(utf8_locale)" run_paranoid $'0\n' PARANOID_UPDATE_CHECK=1 \
+    PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.7
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ghostdraft 0.1.7→0.1.9"* ]]
+  [[ "$output" != *"unbound variable"* ]]
 }
 
 @test "update check is silent when the installed version is already latest" {

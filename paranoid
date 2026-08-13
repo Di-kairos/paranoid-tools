@@ -331,7 +331,9 @@ _update_summary() {
     # We compare only a clean x.y.z (our tags always are); garbage/x.y is skipped,
     # so that an incomplete version cannot yield a false "newer" (parity with the ps1 validation).
     [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-    _ver_gt "$latest" "$inst" && out+="${out:+, }$tool $inst→$latest"
+    # Braces are load-bearing: in a UTF-8 locale bash 3.2 (the macOS system bash) reads the
+    # bytes of the arrow as part of the variable name, so `$inst→` dies under set -u.
+    _ver_gt "$latest" "$inst" && out+="${out:+, }$tool ${inst}→${latest}"
   done
   if [[ -z "${PARANOID_UPDATE_FEED:-}" ]] && mkdir -p "$cache_dir" 2>/dev/null; then
     printf '%s' "$out" >"$cache" 2>/dev/null || true
