@@ -31,14 +31,17 @@ jobs:
         run: bats test/
 
   macos-gui:
-    # The native menu-bar agent gui/macos/ParanoidBar.swift (Swift/AppKit, Phase B). The README
-    # promises "source compiles" — this job catches Swift/AppKit compilation regressions invisible
-    # to the bash/Pester jobs. No packaging/signing (needs an Apple Dev account) — swiftc -O only.
+    # The native menu-bar agent gui/macos/ParanoidBar.swift (Swift/AppKit, Phase B). Runs the
+    # gate gui/README.md names — test.sh = build.sh + `--selftest` — not build.sh alone: the
+    # compiler cannot see a regression in the shell-quoting, locale or notification-decision
+    # logic, and those are pure functions the selftest covers. Safe on a headless runner:
+    # runSelfTests() exits before NSApplication is ever touched. No packaging or signing here
+    # (that needs the Apple Developer account and a machine-bound key).
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Compile menu-bar agent (swiftc)
-        run: bash gui/macos/build.sh
+      - name: Build + selftest the menu-bar agent
+        run: bash gui/macos/test.sh
 
   windows:
     # The Windows mirror `windows/paranoid.ps1` (PowerShell, BETA): Pester checks the orchestration
