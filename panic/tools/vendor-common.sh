@@ -72,13 +72,18 @@ if [[ "${1:-}" == "--check" ]]; then
   # Also verify the SOURCE against the same pin: in the monorepo an edit to
   # securetrash/lib/common.sh without a re-vendor+pin-bump used to slip through
   # (the embedded block still matched the stale pin). Both sides must agree.
-  src_actual="$(shasum -a 256 "$SRC_FILE" | awk '{print $1}')"
-  if [[ "$src_actual" != "$COMMON_SHA256" ]]; then
-    echo "vendor: ИСТОЧНИК разошёлся с пином — securetrash/lib/common.sh правили без ре-вендоринга." >&2
-    echo "  pinned:  $COMMON_SHA256" >&2
-    echo "  source:  $src_actual" >&2
-    echo "  Обнови PIN/COMMON_SHA256 и запусти tools/vendor-common.sh." >&2
-    exit 1
+  # Runs only when the sibling source exists: a standalone copy of the tool
+  # (or a test sandbox) has no monorepo layout — the block check below still
+  # guards the bytes there. In monorepo CI the source is always present.
+  if [[ -f "$SRC_FILE" ]]; then
+    src_actual="$(shasum -a 256 "$SRC_FILE" | awk '{print $1}')"
+    if [[ "$src_actual" != "$COMMON_SHA256" ]]; then
+      echo "vendor: ИСТОЧНИК разошёлся с пином — securetrash/lib/common.sh правили без ре-вендоринга." >&2
+      echo "  pinned:  $COMMON_SHA256" >&2
+      echo "  source:  $src_actual" >&2
+      echo "  Обнови PIN/COMMON_SHA256 и запусти tools/vendor-common.sh." >&2
+      exit 1
+    fi
   fi
   if [[ "$actual" == "$COMMON_SHA256" ]]; then
     echo "vendor: вшитый common.sh синхронен пину ${PIN:0:7} и хешу ✓ (offline)"

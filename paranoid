@@ -181,7 +181,11 @@ t() {
 # --- ecosystem tools: the repo for the install hint ---
 # After the monorepo migration all tools live in a single repository.
 _tool_repo() {
-  echo 'https://github.com/Di-kairos/paranoid-tools'
+  # Unknown names return empty — parity with the Windows mirror's contract.
+  case "$1" in
+    securetrash|vaultwatch|panic|seedsplit|ghostdraft)
+      echo 'https://github.com/Di-kairos/paranoid-tools' ;;
+  esac
 }
 
 _tool_installed() { command -v "$1" >/dev/null 2>&1; }

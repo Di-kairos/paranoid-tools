@@ -159,7 +159,15 @@ function T {
 # After the monorepo migration all tools live in a single repository.
 function Get-PnToolRepo {
     param([string]$Tool)
-    'https://github.com/Di-kairos/paranoid-tools'
+    # Unknown names still return empty — the tests pin that contract.
+    switch ($Tool) {
+        'securetrash' { 'https://github.com/Di-kairos/paranoid-tools' }
+        'vaultwatch'  { 'https://github.com/Di-kairos/paranoid-tools' }
+        'panic'       { 'https://github.com/Di-kairos/paranoid-tools' }
+        'seedsplit'   { 'https://github.com/Di-kairos/paranoid-tools' }
+        'ghostdraft'  { 'https://github.com/Di-kairos/paranoid-tools' }
+        default       { '' }
+    }
 }
 
 function Test-PnTool { param([string]$Tool) [bool](Get-Command $Tool -ErrorAction SilentlyContinue) }
