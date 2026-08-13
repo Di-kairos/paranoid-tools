@@ -1,36 +1,37 @@
-﻿# install.ps1 — установщик securetrash для Windows (BETA) с проверкой целостности.
+﻿# install.ps1 — securetrash installer for Windows (BETA) with an integrity check.
 #
-# Тянет securetrash.ps1, SHA256SUMS и SHA256SUMS.sig из РЕЛИЗНОГО тега (не из ветки
-# main), сверяет SHA256 ДО установки И проверяет ed25519-подпись SHA256SUMS вшитым
-# pubkey (`ssh-keygen -Y verify`, тот же ключ и та же fail-closed логика, что в
-# install.sh). Закрывает supply-chain риск «irm|iex из main без проверки»: хеш ловит
-# повреждение/кэш-подмену, а подпись — подмену САМОГО релиза (переписаны оба файла),
-# т.к. атакующий без приватного ключа не подделает валидную .sig.
-# Fail-closed: нет ssh-keygen / нет .sig / подпись не сошлась → установка прервана.
-# Обход только явным $env:PT_ALLOW_HASH_ONLY='1' (остаётся только целостность SHA256).
+# Pulls securetrash.ps1, SHA256SUMS and SHA256SUMS.sig from the RELEASE tag (not from
+# the main branch), verifies SHA256 BEFORE installing AND checks the ed25519 signature
+# of SHA256SUMS with an embedded pubkey (`ssh-keygen -Y verify`, same key and same
+# fail-closed logic as install.sh). Closes the "irm|iex from main without verification"
+# supply-chain risk: the hash catches corruption/cache substitution, and the signature —
+# substitution of the RELEASE ITSELF (both files rewritten),
+# since an attacker without the private key cannot forge a valid .sig.
+# Fail-closed: no ssh-keygen / no .sig / signature mismatch → install aborted.
+# Bypass only via an explicit $env:PT_ALLOW_HASH_ONLY='1' (only SHA256 integrity remains).
 #
-# Использование (рекомендуется verify-then-run, см. windows/README.md):
+# Usage (verify-then-run recommended, see windows/README.md):
 #   irm https://github.com/Di-kairos/securetrash/releases/latest/download/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/securetrash/releases/latest/download/SHA256SUMS  -OutFile SHA256SUMS
-#   # сверить хеш install.ps1 вручную, прочитать скрипт, затем:
+#   # verify install.ps1's hash by hand, read the script, then:
 #   pwsh -File install.ps1
 #
-# Переменные окружения:
-#   ST_VERSION      — конкретный тег (напр. 0.4.0). По умолчанию latest.
-#   ST_BASE_URL     — источник целиком: http(s) URL ИЛИ локальный каталог (тесты/форки).
-#   ST_INSTALL_DIR  — каталог установки. По умолчанию %LOCALAPPDATA%\Programs\securetrash.
-#   ST_SKIP_PATH    — '1' пропускает правку PATH (для тестов).
-#   PT_ALLOW_HASH_ONLY — '1' разрешает установку без проверки подписи (только SHA256).
-#                        Небезопасный обход fail-closed: аутентичность НЕ подтверждена.
+# Environment variables:
+#   ST_VERSION      — a specific tag (e.g. 0.4.0). Defaults to latest.
+#   ST_BASE_URL     — the source as a whole: http(s) URL OR a local directory (tests/forks).
+#   ST_INSTALL_DIR  — install directory. Defaults to %LOCALAPPDATA%\Programs\securetrash.
+#   ST_SKIP_PATH    — '1' skips the PATH edit (for tests).
+#   PT_ALLOW_HASH_ONLY — '1' allows installing without signature verification (SHA256 only).
+#                        Unsafe fail-closed bypass: authenticity is NOT confirmed.
 #
-# ВНИМАНИЕ: BETA-порт. Логика проверена через Pester, поведение
-# BitLocker/VHDX/VeraCrypt на реальном железе НЕ валидировано.
+# WARNING: BETA port. Logic is tested via Pester; BitLocker/VHDX/VeraCrypt
+# behavior is NOT validated on real hardware.
 
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'Di-kairos/securetrash'
 
-# Источник: явный ST_BASE_URL → конкретный тег ST_VERSION → latest-релиз.
+# Source: explicit ST_BASE_URL → specific ST_VERSION tag → latest release.
 if ($env:ST_BASE_URL) {
     $BaseUrl = $env:ST_BASE_URL
 } elseif ($env:ST_VERSION) {
@@ -48,8 +49,8 @@ $ShimPath   = Join-Path $InstallDir 'securetrash.cmd'
 Write-Host 'SecureTrash (Windows, BETA) installer'
 Write-Host '------------------------------------'
 
-# Скачать файл из релиза: http(s) → Invoke-RestMethod; локальный каталог → копия.
-# Локальный путь поддержан, чтобы тесты гоняли проверку хеша без сети.
+# Download a file from the release: http(s) → Invoke-RestMethod; local directory → copy.
+# The local path is supported so tests can exercise the hash check without a network.
 function Get-ReleaseFile {
     param([string]$Name, [string]$OutFile)
     if ($BaseUrl -match '^https?://') {
@@ -59,7 +60,7 @@ function Get-ReleaseFile {
     }
 }
 
-# Временный каталог под загрузку; чистим в любом случае.
+# Temporary download directory; cleaned up no matter what.
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("securetrash-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
 try {
@@ -70,7 +71,7 @@ try {
     Get-ReleaseFile -Name 'securetrash.ps1' -OutFile $tmpScript
     Get-ReleaseFile -Name 'SHA256SUMS'      -OutFile $tmpSums
 
-    # Ожидаемый хеш для securetrash.ps1 из SHA256SUMS (формат: '<hash>  имя').
+    # Expected hash for securetrash.ps1 from SHA256SUMS (format: '<hash>  name').
     $expected = $null
     foreach ($line in Get-Content -Path $tmpSums) {
         $parts = $line -split '\s+', 2
@@ -91,15 +92,15 @@ try {
     }
     Write-Host 'Checksum OK.'
 
-    # --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
-    # Порт fail-closed логики install.sh. Релизы подписаны выделенным ed25519-ключом
-    # (`ssh-keygen -Y`). Pubkey вшит ниже — ТОТ ЖЕ, что в install.sh; меняется только
-    # при ротации ключа. ssh-keygen поставляется с Windows OpenSSH client.
-    #   * нет ssh-keygen           → отказ (аутентичность непроверяема);
-    #   * .sig отсутствует         → отказ (релизы v0.4.2+ всегда подписаны);
-    #   * .sig есть, но НЕ сошёлся  → отказ (явный признак подмены).
-    # Единственный обход — $env:PT_ALLOW_HASH_ONLY='1' (громкое предупреждение,
-    # остаётся только целостность по SHA256; аутентичность НЕ подтверждена).
+    # --- RELEASE SIGNATURE check (authenticity on top of integrity) ---
+    # Port of install.sh's fail-closed logic. Releases are signed with a dedicated ed25519
+    # key (`ssh-keygen -Y`). The pubkey embedded below is THE SAME as in install.sh; it
+    # changes only on key rotation. ssh-keygen ships with the Windows OpenSSH client.
+    #   * no ssh-keygen            → refusal (authenticity unverifiable);
+    #   * .sig missing             → refusal (v0.4.2+ releases are always signed);
+    #   * .sig present but does NOT verify → refusal (clear sign of substitution).
+    # The only bypass is $env:PT_ALLOW_HASH_ONLY='1' (loud warning,
+    # only SHA256 integrity remains; authenticity is NOT confirmed).
     $SigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
     $SignPrincipal = 'releases@paranoid-tools'
     $hashOnly = ($env:PT_ALLOW_HASH_ONLY -eq '1')
@@ -131,22 +132,22 @@ try {
                 exit 1
             }
         } else {
-            # allowed_signers: тот же формат, что и в install.sh
+            # allowed_signers: same format as in install.sh
             # (`<principal> namespaces="file" <pubkey>`).
             $allowedSigners = Join-Path $Tmp 'allowed_signers'
             Set-Content -Path $allowedSigners -Value "$SignPrincipal namespaces=`"file`" $SigningPubkey" -Encoding ascii
             Write-Host 'Verifying release signature...'
-            # SHA256SUMS подаётся на stdin ТОЧНЫМИ байтами (аналог `< SHA256SUMS` в install.sh):
-            # пайп PowerShell перекодировал бы содержимое (BOM, CRLF) и валидная подпись
-            # отвалилась бы как «incorrect signature». Копируем сырой поток файла.
+            # SHA256SUMS is fed to stdin as EXACT bytes (analog of `< SHA256SUMS` in install.sh):
+            # a PowerShell pipe would re-encode the content (BOM, CRLF) and a valid signature
+            # would bounce as "incorrect signature". We copy the file's raw stream.
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $sshKeygen.Source
             $vArgs = @('-Y','verify','-f',$allowedSigners,'-I',$SignPrincipal,'-n','file','-s',$tmpSig)
-            # `ArgumentList` появился только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
-            # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README —
-            # его не имеет: обращение к нему уронило бы установку на шаге проверки подписи.
-            # Там кладём строку сами. Каждый аргумент в кавычках (TEMP бывает с пробелом),
-            # хвостовые обратные слэши удваиваются — иначе слэш экранирует закрывающую кавычку.
+            # `ArgumentList` only appeared in .NET Core (PowerShell 7). Windows PowerShell 5.1 —
+            # the stock Windows shell and exactly the one that runs the README one-liner —
+            # does not have it: touching it would crash the install at the signature-check step.
+            # There we build the string ourselves. Every argument is quoted (TEMP can contain a
+            # space), trailing backslashes are doubled — otherwise a slash escapes the closing quote.
             if ($psi.PSObject.Properties.Name -contains 'ArgumentList') {
                 foreach ($a in $vArgs) { $psi.ArgumentList.Add($a) }
             } else {
@@ -157,15 +158,15 @@ try {
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute        = $false
             $proc = [System.Diagnostics.Process]::Start($psi)
-            # stdout/stderr вычитываем АСИНХРОННО и ДО WaitForExit: перенаправленный, но не
-            # прочитанный поток упирается в буфер трубы — верификатор встаёт, а установщик
-            # ждёт его вечно. Тихо висящий установщик хуже честного отказа.
+            # stdout/stderr are drained ASYNCHRONOUSLY and BEFORE WaitForExit: a redirected but
+            # unread stream hits the pipe buffer — the verifier stalls, and the installer
+            # waits for it forever. A silently hanging installer is worse than an honest refusal.
             $outTask = $proc.StandardOutput.ReadToEndAsync()
             $errTask = $proc.StandardError.ReadToEndAsync()
-            # Верификатор может завершиться, не дочитав stdin (кривые аргументы, чужой бинарь под
-            # тем же именем). Запись в закрытую трубу — это не наша авария: вердикт всё равно
-            # даёт код возврата, и пользователь должен увидеть честное «подпись не сошлась»,
-            # а не необработанное исключение установщика.
+            # The verifier may exit without reading stdin to the end (bad arguments, a foreign
+            # binary under the same name). Writing into a closed pipe is not our emergency: the
+            # verdict is still given by the exit code, and the user must see an honest "signature
+            # mismatch", not an unhandled installer exception.
             $fs = [System.IO.File]::OpenRead($tmpSums)
             try { $fs.CopyTo($proc.StandardInput.BaseStream) } catch [System.IO.IOException] { } finally { $fs.Close() }
             try { $proc.StandardInput.Close() } catch [System.IO.IOException] { }
@@ -181,7 +182,7 @@ try {
         }
     }
 
-    # Хеш верный → устанавливаем.
+    # Hash is correct → install.
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
@@ -192,7 +193,7 @@ finally {
     Remove-Item -Path $Tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# .cmd-шим, чтобы вызывать просто `securetrash <command>` из cmd/PowerShell.
+# A .cmd shim so that plain `securetrash <command>` works from cmd/PowerShell.
 $shim = @"
 @echo off
 pwsh -NoProfile -File "%~dp0securetrash.ps1" %*
@@ -201,7 +202,7 @@ if errorlevel 1 exit /b %errorlevel%
 Set-Content -Path $ShimPath -Value $shim -Encoding ASCII
 Write-Host "Shim created: $ShimPath"
 
-# Добавить каталог в пользовательский PATH (idempotent). ST_SKIP_PATH=1 — пропустить.
+# Add the directory to the user PATH (idempotent). ST_SKIP_PATH=1 — skip.
 if ($env:ST_SKIP_PATH -ne '1') {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (-not $userPath) { $userPath = '' }

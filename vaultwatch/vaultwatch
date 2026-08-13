@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# vaultwatch — честный сторож открытого vault (экосистема Paranoid Tools).
+# vaultwatch — an honest guard for an open vault (Paranoid Tools ecosystem).
 #
-# Активен ТОЛЬКО пока vault примонтирован: сужает каналы утечки открытого plaintext
-# (Spotlight, Time Machine) и восстанавливает всё при закрытии. Стартует/гаснет из
-# хуков `securetrash vault open/close` (см. install-hooks).
+# Active ONLY while the vault is mounted: narrows the leak channels for open plaintext
+# (Spotlight, Time Machine) and restores everything on close. Started/stopped by the
+# `securetrash vault open/close` hooks (see install-hooks).
 #
-# ЧЕСТНО: vaultwatch НЕ закрывает swap и НЕ телепортирует данные из облаков — он
-# делает обратимые исключения на время сессии и честно отчитывается о пределах
-# (см. README «Scope & limitations»). Полное ядро — в последующих паках.
+# HONEST: vaultwatch does NOT close swap and does NOT teleport data out of clouds — it
+# makes reversible exclusions for the duration of the session and honestly reports its
+# limits (see README "Scope & limitations"). The full core lands in later packs.
 set -euo pipefail
 
 VERSION="0.1.14"
@@ -176,22 +176,22 @@ if [[ -z "${_ST_COMMON_LOADED:-}" ]]; then
 fi
 # === END vendored common ===
 
-# Том ТОЧНО исчез? Спрашиваем таблицу монтирования (`_volume_mounted` из вендоренного
-# common.sh), а не наличие каталога: после реального размонтирования mountpoint нередко
-# остаётся пустым каталогом, и проверка `[[ -d ]]` считала такой сейф открытым. Цена
-# ошибки здесь максимальная: guard молчал, и исключение Spotlight не восстанавливалось
-# НИКОГДА, а сессия висела, блокируя следующий start.
+# Is the volume DEFINITELY gone? We ask the mount table (`_volume_mounted` from the
+# vendored common.sh), not for directory existence: after a real unmount the mountpoint
+# often remains as an empty directory, and a `[[ -d ]]` check treated such a vault as
+# open. The cost of a mistake here is maximal: the guard stayed silent, the Spotlight
+# exclusion was NEVER restored, and the session hung around, blocking the next start.
 #
-# «Исчез» — только код 1 (точно не смонтирован). Код 2 («таблицу прочитать не удалось»)
-# трактуем как «может быть открыт»: снимать защиту с тома, про который мы не знаем,
-# нельзя — лучше оставить исключение и сказать об этом вслух.
+# "Gone" means only code 1 (definitely not mounted). Code 2 ("could not read the mount
+# table") is treated as "might be open": removing protection from a volume we know
+# nothing about is not allowed — better to keep the exclusion and say so out loud.
 _vault_gone() {
   local rc=0
   _volume_mounted "${1:-}" || rc=$?
   (( rc == 1 ))
 }
 
-# --- i18n (таблица строк vaultwatch; общие примитивы — в vendored common) ---
+# --- i18n (vaultwatch string table; shared primitives live in vendored common) ---
 t() {
   local key="$1"; shift
   case "$ST_LOCALE:$key" in
@@ -321,13 +321,13 @@ EOF
 
 usage() { t usage; }
 
-# Каталог хуков — тот же, что читает securetrash (общий контракт экосистемы).
+# Hook directory — the same one securetrash reads (shared ecosystem contract).
 ST_HOOK_DIR="${ST_HOOK_DIR:-${HOME}/.securetrash/hooks}"
 
-# Сигнатура managed-хука: по ней отличаем свои хуки от пользовательских.
+# Managed-hook signature: this is how we tell our hooks from user-owned ones.
 HOOK_SIGNATURE="# managed-by: vaultwatch"
 
-# Абсолютный путь к этому скрипту (вшиваем в хуки, чтобы не зависеть от PATH).
+# Absolute path to this script (embedded into hooks so we don't depend on PATH).
 _self_path() {
   local src="${BASH_SOURCE[0]}"
   local dir
@@ -335,7 +335,7 @@ _self_path() {
   printf '%s/%s' "$dir" "$(basename -- "$src")"
 }
 
-# Записать один managed-хук, не затирая чужой (без нашей сигнатуры).
+# Write one managed hook without clobbering a foreign one (lacking our signature).
 _write_hook() {
   local name="$1" action="$2" self="$3"
   local path="${ST_HOOK_DIR}/${name}"
@@ -343,7 +343,7 @@ _write_hook() {
     warn "$(t hook_skip_foreign "$path")"
     return 0
   fi
-  # Экранируем путь до shell-литерала: устойчиво к пробелам/кавычкам/$ в пути.
+  # Quote the path into a shell literal: robust to spaces/quotes/$ in the path.
   local qself; printf -v qself '%q' "$self"
   cat > "$path" <<EOF
 #!/usr/bin/env bash
@@ -355,8 +355,8 @@ EOF
 }
 
 cmd_install_hooks() {
-  # Установка хуков — просто запись файлов, платформо-независима. macOS требуется
-  # только ядру start/stop (mdutil/tmutil), где require_macos и стоит (pack 3b).
+  # Installing hooks is just writing files — platform-independent. macOS is required
+  # only by the start/stop core (mdutil/tmutil), which is where require_macos sits (pack 3b).
   mkdir -p "$ST_HOOK_DIR"
   local self; self="$(_self_path)"
   _write_hook post-open  start "$self"
@@ -379,18 +379,18 @@ cmd_uninstall_hooks() {
   return 0
 }
 
-# --- ядро сторожа (pack 3b): start / stop ----------------------------------
+# --- guard core (pack 3b): start / stop ----------------------------------
 
-# Каталог состояния сессий. Каждая открытая сессия = один файл (key=value),
-# чтобы stop восстановил РОВНО то, что менял start (а не «всё подряд»).
+# Session state directory. Each open session = one file (key=value), so that
+# stop restores EXACTLY what start changed (rather than "everything in sight").
 VW_STATE_DIR="${VW_STATE_DIR:-${HOME}/.vaultwatch/sessions}"
 
-# Каталог LaunchAgents для --ttl-таймера (launchd-managed). Переопределяем в тестах.
+# LaunchAgents directory for the --ttl timer (launchd-managed). Overridden in tests.
 VW_LAUNCH_DIR="${VW_LAUNCH_DIR:-${HOME}/Library/LaunchAgents}"
 
-# Известные cloud-демоны: "имя_процесса|метка|синк-папка[:ещё-папка]".
-# pgrep -x ищет точное имя процесса; папки — для эвристики inside/outside.
-# Honest: это эвристика (демоны/папки меняются), не телепатия — так и отчитываемся.
+# Known cloud daemons: "process_name|label|sync-folder[:another-folder]".
+# pgrep -x matches the exact process name; folders feed the inside/outside heuristic.
+# Honest: this is a heuristic (daemons/folders change), not telepathy — and we report it as such.
 _cloud_table() {
   cat <<EOF
 Dropbox|Dropbox|${HOME}/Dropbox
@@ -400,10 +400,10 @@ Google Drive|Google Drive|${HOME}/Library/CloudStorage/GoogleDrive:${HOME}/Googl
 EOF
 }
 
-# Путь к state-файлу сессии для данной точки монтирования.
-# Имя файла — санитизированный mount (collision-устойчивость не критична:
-# реально открытых vault единицы, оригинал хранится внутри файла).
-# Есть ли у сессии невыполненный долг по индексации (stop не смог — тома не было)?
+# Path to the session state file for a given mountpoint.
+# The file name is the sanitized mount (collision resistance is not critical:
+# only a handful of vaults are ever open, the original is stored inside the file).
+# Does the session carry an unpaid indexing debt (stop failed — the volume was gone)?
 _state_pending_restore() {
   local sf; sf="$(_state_file "$1")"
   [[ -f "$sf" ]] || return 1
@@ -416,15 +416,15 @@ _state_file() {
   printf '%s/%s' "$VW_STATE_DIR" "$safe"
 }
 
-# child лежит внутри parent? (оба уже канонизированы) — точное совпадение или префикс с '/'.
+# Is child inside parent? (both already canonicalized) — exact match or a '/'-prefixed prefix.
 _is_inside() {
   local child="$1" parent="$2"
   [[ "$child" == "$parent" || "$child" == "$parent/"* ]]
 }
 
-# Cloud-детект (только детект): по строке на активный демон в виде "SEV\tТекст",
-# SEV = ok|warn (warn = vault ВНУТРИ синк-папки — риск утечки). «Честно про
-# эвристику»: смотрим запущенные процессы + расположение папок, не телепатия.
+# Cloud detection (detection only): one line per active daemon as "SEV\tText",
+# SEV = ok|warn (warn = vault is INSIDE the sync folder — leak risk). "Honest about
+# the heuristic": we look at running processes + folder locations, not telepathy.
 _cloud_lines() {
   local mount="$1" proc label folders f inside cf
   while IFS='|' read -r proc label folders; do
@@ -442,7 +442,7 @@ _cloud_lines() {
   done < <(_cloud_table)
 }
 
-# Презентация cloud-детекта для `start`: ok→info, warn→warn.
+# Presentation of the cloud detection for `start`: ok→info, warn→warn.
 _report_cloud_start() {
   local sev text
   while IFS=$'\t' read -r sev text; do
@@ -451,7 +451,7 @@ _report_cloud_start() {
   done < <(_cloud_lines "$1")
 }
 
-# Аргумент-точка монтирования: валиден и канонизирован, или выход с ошибкой.
+# Mountpoint argument: valid and canonicalized, or exit with an error.
 _require_mount() {
   local raw="${1:-}" canon
   if [[ -z "$raw" ]]; then err "$(t need_mount)"; exit 1; fi
@@ -460,7 +460,7 @@ _require_mount() {
   printf '%s' "$canon"
 }
 
-# Длительность ("30m"/"2h"/"45s"/"1d"/голые секунды) → секунды. !=0 при мусоре.
+# Duration ("30m"/"2h"/"45s"/"1d"/bare seconds) → seconds. Non-zero on garbage.
 _parse_duration() {
   local s="${1:-}" n unit
   [[ "$s" =~ ^([0-9]+)([smhd]?)$ ]] || return 1
@@ -473,31 +473,31 @@ _parse_duration() {
   esac
 }
 
-# --- launchd-таймер для --ttl (pack 3d) ------------------------------------
-# Одноразовый job: RunAtLoad=true → при загрузке стартует, спит ttl_secs,
-# вызывает `_ttl_fire <mount>` и завершается (KeepAlive отсутствует → не
-# перезапускается). launchd-managed: виден в `launchctl list`, переживает
-# выход родительской оболочки, чисто снимается через bootout.
+# --- launchd timer for --ttl (pack 3d) ------------------------------------
+# One-shot job: RunAtLoad=true → starts on load, sleeps ttl_secs, calls
+# `_ttl_fire <mount>` and exits (no KeepAlive → it is not restarted).
+# launchd-managed: visible in `launchctl list`, survives the parent shell
+# exiting, and is cleanly removed via bootout.
 
 _ttl_label()      { printf 'com.vaultwatch.ttl.%s' "$(printf '%s' "$1" | tr -c 'a-zA-Z0-9' '_')"; }
 _ttl_plist_path() { printf '%s/%s.plist' "$VW_LAUNCH_DIR" "$(_ttl_label "$1")"; }
 _ttl_domain()     { printf 'gui/%s' "$(id -u)"; }
 
-# Минимальное XML-экранирование для путей внутри plist.
+# Minimal XML escaping for paths inside the plist.
 _xml_escape() {
   local s="$1"
   s="${s//&/&amp;}"; s="${s//</&lt;}"; s="${s//>/&gt;}"; s="${s//\"/&quot;}"
   printf '%s' "$s"
 }
 
-# Записать + загрузить LaunchAgent; печатает Label (для записи в state).
+# Write + load the LaunchAgent; prints the Label (to be recorded in state).
 _ttl_schedule() {
   local mount="$1" secs="$2" label plist self
   label="$(_ttl_label "$mount")"
   plist="$(_ttl_plist_path "$mount")"
   self="$(_self_path)"
   mkdir -p "$VW_LAUNCH_DIR"
-  # ProgramArguments: bash -c с позиционными $1/$2/$3 — спокойно к пробелам в пути.
+  # ProgramArguments: bash -c with positional $1/$2/$3 — unfazed by spaces in the path.
   cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -519,16 +519,16 @@ _ttl_schedule() {
 </plist>
 EOF
   local dom; dom="$(_ttl_domain)"
-  launchctl bootout "$dom" "$plist" >/dev/null 2>&1 || true   # снять возможный stale
+  launchctl bootout "$dom" "$plist" >/dev/null 2>&1 || true   # remove a possible stale one
   if ! launchctl bootstrap "$dom" "$plist" >/dev/null 2>&1; then
     warn "$(t ttl_sched_fail)"
     rm -f "$plist"
-    return 0  # не фатально; warn напечатан, stdout пустой → caller получит пустой label
+    return 0  # not fatal; warn printed, stdout empty → caller gets an empty label
   fi
   printf '%s' "$label"
 }
 
-# Снять LaunchAgent (bootout) и удалить plist. Идемпотентно.
+# Remove the LaunchAgent (bootout) and delete the plist. Idempotent.
 _ttl_remove() {
   local mount="$1" plist dom
   plist="$(_ttl_plist_path "$mount")"
@@ -537,16 +537,17 @@ _ttl_remove() {
   rm -f "$plist"
 }
 
-# --- unmount-guard: авто-restore исключений, если том исчезает мимо `vaultwatch stop` ---
-# Зачем: Finder-eject (или любой detach в обход securetrash post-close hook) оставляет
-# Spotlight-off и Time-Machine-exclusion висеть до следующего явного stop. launchd WatchPaths
-# на mountpoint срабатывает при ЛЮБОМ изменении пути (вкл. его исчезновение при размонтаже),
-# вызывая `_guard_fire <mount>`. Тот рестартует restore ТОЛЬКО если том реально исчез (иначе
-# WatchPaths дёрнулся на запись файла внутри — no-op). WatchPaths, НЕ RunAtLoad: не палить на загрузке.
+# --- unmount-guard: auto-restore of exclusions when the volume vanishes bypassing `vaultwatch stop` ---
+# Why: a Finder eject (or any detach bypassing the securetrash post-close hook) leaves
+# Spotlight-off and the Time Machine exclusion hanging until the next explicit stop. launchd
+# WatchPaths on the mountpoint fires on ANY change to the path (incl. its disappearance on
+# unmount), invoking `_guard_fire <mount>`. That one runs the restore ONLY if the volume is
+# really gone (otherwise WatchPaths fired on a file write inside — no-op). WatchPaths, NOT
+# RunAtLoad: don't fire at load time.
 _guard_label()      { printf 'com.vaultwatch.guard.%s' "$(printf '%s' "$1" | tr -c 'a-zA-Z0-9' '_')"; }
 _guard_plist_path() { printf '%s/%s.plist' "$VW_LAUNCH_DIR" "$(_guard_label "$1")"; }
 
-# Записать + загрузить guard-LaunchAgent; печатает Label (для записи в state).
+# Write + load the guard LaunchAgent; prints the Label (to be recorded in state).
 _guard_schedule() {
   local mount="$1" label plist self dom
   label="$(_guard_label "$mount")"
@@ -578,12 +579,12 @@ EOF
   if ! launchctl bootstrap "$dom" "$plist" >/dev/null 2>&1; then
     warn "$(t guard_sched_fail)"
     rm -f "$plist"
-    return 0   # не фатально: warn напечатан, пустой stdout → caller не пишет guard_label
+    return 0   # not fatal: warn printed, empty stdout → caller does not write guard_label
   fi
   printf '%s' "$label"
 }
 
-# Снять guard-LaunchAgent. Идемпотентно.
+# Remove the guard LaunchAgent. Idempotent.
 _guard_remove() {
   local mount="$1" plist dom
   plist="$(_guard_plist_path "$mount")"
@@ -607,27 +608,29 @@ cmd_start() {
     esac
   done
   local mount; mount="$(_require_mount "$raw")"
-  # Ставится, если долг прошлой сессии погасить не удалось: истинное до-сессионное состояние
-  # индексации — «включена», и новая сессия должна унести это с собой.
+  # Set when the previous session's debt could not be paid off: the true pre-session
+  # indexing state is "enabled", and the new session must carry that along.
   local carry_spot_enabled=0
 
-  # Уже есть сессия для этого mount? Повторный start перезаписал бы сохранённое до-сессионное
-  # состояние текущим (Spotlight уже off, TM уже excluded) → stop не восстановит исходное
-  # (Spotlight OFF навсегда, том вне Time Machine). Идемпотентно отказываемся (P2-6).
+  # Session already exists for this mount? A repeated start would overwrite the saved
+  # pre-session state with the current one (Spotlight already off, TM already excluded) →
+  # stop would not restore the original (Spotlight OFF forever, volume out of Time Machine).
+  # We refuse idempotently (P2-6).
   if [[ -f "$(_state_file "$mount")" ]]; then
-    # Сессия с невыполненным восстановлением: прошлый stop не смог включить индексацию
-    # обратно, потому что том к тому моменту уже отмонтировали (штатный путь — securetrash
-    # закрывает сейф ДО вызова post-close хука). Настройка живёт на самом томе и переживает
-    # перемонтирование, поэтому долг ждал именно этого момента: том снова перед нами.
-    # Гасим долг и продолжаем обычный start — иначе исключение осталось бы навсегда,
-    # а сессия-призрак блокировала бы слежение.
+    # Session with an unfinished restore: the previous stop could not turn indexing back
+    # on because the volume had already been unmounted by then (the normal path — securetrash
+    # closes the vault BEFORE invoking the post-close hook). The setting lives on the volume
+    # itself and survives remounting, so the debt has been waiting for exactly this moment:
+    # the volume is in front of us again. Pay off the debt and continue with a normal start —
+    # otherwise the exclusion would remain forever and the ghost session would block watching.
     if _state_pending_restore "$mount" && ! _vault_gone "$mount"; then
       if mdutil -i on "$mount" >/dev/null 2>&1; then
         info "$(t restore_finished "$mount")"
       else
-        # Погасить не удалось (mdutil отказал). Долг НЕ теряем: до нас индексация была
-        # ВКЛЮЧЕНА, и новая сессия обязана унести это знание с собой, иначе её stop
-        # «восстановит» состояние «было выключено» — и исключение станет вечным, молча.
+        # Could not pay it off (mdutil refused). We do NOT lose the debt: before us,
+        # indexing was ENABLED, and the new session must carry that knowledge along,
+        # otherwise its stop would "restore" a "was disabled" state — and the exclusion
+        # would silently become permanent.
         warn "$(t restore_spot_fail "$mount")"
         carry_spot_enabled=1
       fi
@@ -638,25 +641,25 @@ cmd_start() {
     fi
   fi
 
-  # Spotlight: запоминаем предыдущее состояние, затем выключаем индексацию.
+  # Spotlight: remember the previous state, then turn indexing off.
   local spot_was=unknown
   if mdutil -s "$mount" 2>/dev/null | grep -qi "Indexing enabled"; then
     spot_was=enabled
   elif mdutil -s "$mount" 2>/dev/null | grep -qi "Indexing disabled"; then
     spot_was=disabled
   fi
-  # Непогашенный долг сильнее того, что мы видим сейчас: сейчас «выключено» именно потому,
-  # что выключили мы, а вернуть не смогли.
+  # An unpaid debt trumps what we observe now: it reads "disabled" now precisely because
+  # we disabled it and could not turn it back on.
   [[ "$carry_spot_enabled" == "1" ]] && spot_was=enabled
   mdutil -i off "$mount" >/dev/null 2>&1 || true
 
-  # Time Machine: исключаем, только если ещё не исключён (иначе при stop не трогаем).
+  # Time Machine: exclude only if not excluded yet (otherwise stop leaves it alone).
   local tm_added=0
   if tmutil isexcluded "$mount" 2>/dev/null | grep -qi "\[Included\]"; then
     tmutil addexclusion "$mount" >/dev/null 2>&1 && tm_added=1
   fi
 
-  # Состояние сессии — чтобы stop восстановил ровно изменённое.
+  # Session state — so that stop restores exactly what was changed.
   mkdir -p "$VW_STATE_DIR"
   local sf; sf="$(_state_file "$mount")"
   {
@@ -668,15 +671,15 @@ cmd_start() {
     printf 'ttl_force=%s\n' "$ttl_force"
   } > "$sf"
 
-  # Авто-выход по таймеру через launchd LaunchAgent. VW_NO_SPAWN=1 подавляет
-  # реальную загрузку (юнит-тесты состояния). Label кладём в state — stop снимет.
+  # Timed auto-exit via a launchd LaunchAgent. VW_NO_SPAWN=1 suppresses the actual
+  # load (state unit tests). The Label goes into state — stop will remove it.
   if [[ "$ttl_secs" -gt 0 && "${VW_NO_SPAWN:-0}" != "1" ]]; then
     local label; label="$(_ttl_schedule "$mount" "$ttl_secs")"
     printf 'ttl_label=%s\n' "$label" >> "$sf"
   fi
 
-  # unmount-guard: всегда (не только при TTL) — чтобы Finder-eject в обход stop тоже
-  # авто-восстановил исключения. VW_NO_SPAWN=1 подавляет реальную загрузку (юнит-тесты).
+  # unmount-guard: always (not only with TTL) — so a Finder eject bypassing stop also
+  # auto-restores the exclusions. VW_NO_SPAWN=1 suppresses the actual load (unit tests).
   if [[ "${VW_NO_SPAWN:-0}" != "1" ]]; then
     local glabel; glabel="$(_guard_schedule "$mount")"
     [[ -n "$glabel" ]] && printf 'guard_label=%s\n' "$glabel" >> "$sf"
@@ -687,7 +690,7 @@ cmd_start() {
   _report_cloud_start "$mount"
 }
 
-# Секунды → человекочитаемая длительность ("Hh Mm Ss" / "Mm Ss").
+# Seconds → human-readable duration ("Hh Mm Ss" / "Mm Ss").
 _fmt_duration() {
   local s="$1" h m
   h=$((s / 3600)); m=$(((s % 3600) / 60)); s=$((s % 60))
@@ -699,8 +702,8 @@ cmd_stop() {
   require_macos
   local raw="${1:-}"
   if [[ -z "$raw" ]]; then err "$(t need_mount)"; exit 1; fi
-  # На close vault уже размонтирован — каталог может не существовать; НЕ требуем -d.
-  # ASSUMPTION: путь без симлинков (типично для /Volumes/X) → ключ совпадёт со start.
+  # On close the vault is already unmounted — the directory may not exist; do NOT require -d.
+  # ASSUMPTION: path has no symlinks (typical for /Volumes/X) → the key matches start's.
   local mount; mount="$(_abspath "$raw" 2>/dev/null || printf '%s' "$raw")"
   local sf; sf="$(_state_file "$mount")"
   if [[ ! -f "$sf" ]]; then
@@ -708,7 +711,7 @@ cmd_stop() {
     return 0
   fi
 
-  # Читаем состояние сессии (parse, не source — shellcheck-clean и безопаснее).
+  # Read the session state (parse, not source — shellcheck-clean and safer).
   local started=0 spot_was=unknown tm_added=0 ttl_label="" k v
   while IFS='=' read -r k v; do
     case "$k" in
@@ -719,26 +722,27 @@ cmd_stop() {
     esac
   done < "$sf"
 
-  # Снимаем launchd-таймер авто-выхода (vault закрыт вручную раньше TTL, либо
-  # это вызов из самого _ttl_fire — bootout своего же job безопасен).
+  # Remove the auto-exit launchd timer (the vault was closed manually before the TTL,
+  # or this call comes from _ttl_fire itself — booting out one's own job is safe).
   [[ -n "$ttl_label" ]] && _ttl_remove "$mount"
-  # Снимаем unmount-guard БЕЗУСЛОВНО (не по guard_label): путь plist детерминирован от mount,
-  # поэтому unconditional bootout+rm идемпотентен и закрывает (а) гонку «guard загружен, но
-  # его label ещё не записан в state между bootstrap и printf», (б) любой stale-plist от
-  # предыдущего start. Включая случай, когда сам guard и вызвал этот stop (bootout своего же
-  # job безопасен, как и у TTL).
+  # Remove the unmount-guard UNCONDITIONALLY (not keyed on guard_label): the plist path is
+  # deterministic from the mount, so an unconditional bootout+rm is idempotent and closes
+  # (a) the race "guard loaded but its label not yet written to state between bootstrap and
+  # printf", (b) any stale plist from a previous start. Including the case where the guard
+  # itself triggered this stop (booting out one's own job is safe, same as with TTL).
   _guard_remove "$mount"
 
-  # Восстанавливаем РОВНО то, что меняли. Проверяем результат: если не удалось —
-  # сохраняем state file для повторного восстановления после перемонтирования vault.
+  # Restore EXACTLY what we changed. Check the result: on failure, keep the state
+  # file so the restore can be retried after the vault is remounted.
   local restore_ok=1 spot_na=0
   if [[ "$spot_was" == "enabled" ]]; then
     if _vault_gone "$mount"; then
-      # Том размонтирован (напр. Finder-eject + guard) — включать индексацию не по чему,
-      # restore N/A, и это НЕ ошибка: сессию чистим, иначе stale state-файл навсегда
-      # блокировал бы следующий start. Остаточный каталог на месте тома — сюда же.
-      # Но и «включили обратно» тут писать нельзя: настройка осталась на самом томе и
-      # переживёт перемонтирование, поэтому отчёт обязан сказать это прямым текстом.
+      # Volume is unmounted (e.g. Finder eject + guard) — there is nothing to re-enable
+      # indexing on, restore is N/A, and that is NOT an error: we clean up the session,
+      # otherwise a stale state file would block the next start forever. A leftover
+      # directory in the volume's place lands here too. But we must not claim "turned it
+      # back on" either: the setting remains on the volume itself and will survive a
+      # remount, so the report must say so in plain words.
       spot_na=1
     elif ! mdutil -i on "$mount" >/dev/null 2>&1; then
       warn "$(t restore_spot_fail "$mount")"
@@ -746,7 +750,7 @@ cmd_stop() {
     fi
   fi
   if [[ "$tm_added" == "1" ]]; then
-    tmutil removeexclusion "$mount" >/dev/null 2>&1 || true  # работает и без монтирования
+    tmutil removeexclusion "$mount" >/dev/null 2>&1 || true  # works even when unmounted
   fi
 
   # --- session report ---
@@ -768,31 +772,33 @@ cmd_stop() {
   printf '%s\n' "$(t rep_swap)"
 
   if [[ "$spot_na" == "1" ]]; then
-    # Восстановление ещё должны: индексацию выключали мы, а вернуть её можно только на
-    # смонтированном томе. Сессию НЕ удаляем — иначе совет из отчёта («смонтируй и выполни
-    # stop») невыполним, а следующий start ничего не знает о долге и исключение остаётся
-    # на томе навсегда. Файл переписываем: таймер и страж уже сняты, остаётся сам долг.
+    # The restore is still owed: we were the ones who disabled indexing, and it can only
+    # be re-enabled on a mounted volume. We do NOT delete the session — otherwise the
+    # report's advice ("mount it and run stop") is unactionable, the next start knows
+    # nothing about the debt, and the exclusion stays on the volume forever. We rewrite
+    # the file: the timer and the guard are already removed, only the debt itself remains.
     printf 'mount=%s\nstarted=%s\nspotlight_was=enabled\ntm_added=0\npending_restore=1\n' "$mount" "$started" > "$sf"
   elif [[ "$restore_ok" == "1" ]]; then
     rm -f "$sf"
   else
     warn "$(t restore_incomplete "$mount")"
-    # Ненулевой код обязателен: stop, не восстановивший исключения, — это не успех.
-    # Иначе post-close хук securetrash и launchd-таймер считали бы сессию закрытой,
-    # хотя Spotlight по-прежнему не индексирует том, а state-файл ещё жив.
+    # A non-zero exit code is mandatory: a stop that failed to restore the exclusions is
+    # not a success. Otherwise the securetrash post-close hook and the launchd timer would
+    # consider the session closed, while Spotlight still isn't indexing the volume and the
+    # state file is still alive.
     return 1
   fi
 }
 
-# Внутренняя команда: срабатывает по истечении --ttl (из фонового таймера).
-# Честно про границу: hdiutil detach не размонтирует том с открытыми файлами.
-# Заняты файлы → предупреждаем и НЕ трогаем (если только не --force с confirm).
+# Internal command: fires when --ttl expires (from the background timer).
+# Honest about the boundary: hdiutil detach won't unmount a volume with open files.
+# Files busy → warn and do NOT touch it (unless --force with confirm).
 cmd_ttl_fire() {
   require_macos
   local raw="${1:-}"; [[ -n "$raw" ]] || return 0
   local mount; mount="$(_abspath "$raw" 2>/dev/null || printf '%s' "$raw")"
   local sf; sf="$(_state_file "$mount")"
-  [[ -f "$sf" ]] || return 0   # сессии нет (закрыт вручную) — тихо
+  [[ -f "$sf" ]] || return 0   # no session (closed manually) — stay quiet
 
   local ttl_force=0 k v
   while IFS='=' read -r k v; do
@@ -800,7 +806,7 @@ cmd_ttl_fire() {
   done < "$sf"
 
   if lsof "$mount" >/dev/null 2>&1; then
-    # Том занят открытыми файлами.
+    # The volume is busy with open files.
     if [[ "$ttl_force" == "1" ]] && confirm "$(t ttl_force_confirm "$mount")"; then
       hdiutil detach -force "$mount" >/dev/null 2>&1 || true
     else
@@ -811,8 +817,8 @@ cmd_ttl_fire() {
     hdiutil detach "$mount" >/dev/null 2>&1 || true
   fi
 
-  # Проверяем, что vault действительно размонтирован (hdiutil || true не гарантирует).
-  # Спрашиваем таблицу монтирования: оставшийся после detach каталог — не открытый сейф.
+  # Verify the vault is really unmounted (hdiutil || true guarantees nothing).
+  # Ask the mount table: a directory left behind after detach is not an open vault.
   if ! _vault_gone "$mount"; then
     warn "$(t ttl_detach_fail "$mount")"
     return 1
@@ -820,17 +826,17 @@ cmd_ttl_fire() {
   cmd_stop "$mount"
 }
 
-# Внутренняя команда: срабатывает по launchd WatchPaths при изменении mountpoint.
-# WatchPaths палит на ЛЮБОЕ изменение пути (вкл. запись файла внутри открытого тома),
-# поэтому restore запускаем ТОЛЬКО когда том реально исчез (размонтирован). Иначе — no-op.
+# Internal command: fires via launchd WatchPaths when the mountpoint changes.
+# WatchPaths fires on ANY change to the path (incl. a file write inside the open volume),
+# so we run the restore ONLY when the volume is really gone (unmounted). Otherwise — no-op.
 cmd_guard_fire() {
   require_macos
   local raw="${1:-}"; [[ -n "$raw" ]] || return 0
   local mount; mount="$(_abspath "$raw" 2>/dev/null || printf '%s' "$raw")"
-  # Том всё ещё смонтирован (или мы не смогли это выяснить) → WatchPaths дёрнулся на
-  # изменение содержимого, не на eject. Тихо выходим, исключение не трогаем.
+  # The volume is still mounted (or we could not find out) → WatchPaths fired on a
+  # content change, not an eject. Exit quietly, don't touch the exclusion.
   _vault_gone "$mount" || return 0
-  # Том исчез (Finder-eject / detach мимо stop) → восстанавливаем исключения и чистим сессию.
+  # The volume is gone (Finder eject / detach bypassing stop) → restore the exclusions and clean up the session.
   cmd_stop "$mount"
 }
 
@@ -867,11 +873,11 @@ cmd_status() {
 cmd_version() { echo "vaultwatch $VERSION"; }
 
 main() {
-  # --yes где угодно в аргументах == ST_ASSUME_YES=1 (тот же контракт, что у securetrash:
-  # раньше подтверждение --ttl --force обходилось только через env). Флаг вырезаем,
-  # порядок остальных аргументов сохраняем.
-  # После `--` аргументы литеральные: `start -- --yes` — это mountpoint с таким именем,
-  # а не флаг (escape, который cmd_start уже поддерживает).
+  # --yes anywhere in the arguments == ST_ASSUME_YES=1 (same contract as securetrash:
+  # previously the --ttl --force confirmation could only be bypassed via env). The flag
+  # is cut out, the order of the remaining arguments is preserved.
+  # After `--` arguments are literal: `start -- --yes` is a mountpoint with that name,
+  # not a flag (an escape that cmd_start already supports).
   local args=() a literal=0
   for a in "$@"; do
     if [[ "$literal" == 0 && "$a" == "--yes" ]]; then ST_ASSUME_YES=1; continue; fi
@@ -879,7 +885,7 @@ main() {
     args+=("$a")
   done
   set -- "${args[@]:-}"
-  # Пустой массив разворачивается в одну пустую строку — нормализуем к «нет аргументов».
+  # An empty array expands to a single empty string — normalize to "no arguments".
   if [[ $# -eq 1 && -z "${1:-}" ]]; then set --; fi
 
   local cmd="${1:-}"
@@ -893,8 +899,8 @@ main() {
     status)          cmd_status "$@" ;;
     start)           cmd_start "$@" ;;
     stop)            cmd_stop "$@" ;;
-    _ttl_fire)       cmd_ttl_fire "$@" ;;   # внутренняя: вызывается фоновым TTL-таймером
-    _guard_fire)     cmd_guard_fire "$@" ;; # внутренняя: вызывается launchd WatchPaths при размонтаже
+    _ttl_fire)       cmd_ttl_fire "$@" ;;   # internal: invoked by the background TTL timer
+    _guard_fire)     cmd_guard_fire "$@" ;; # internal: invoked by launchd WatchPaths on unmount
     *) t unknown_cmd "$cmd" >&2; echo >&2; usage >&2; exit 1 ;;
   esac
 }

@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# Устанавливает panic в /usr/local/bin с проверкой целостности.
+# Installs panic into /usr/local/bin with an integrity check.
 #
-# Тянет бинарь и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и проверяет
-# хеш ДО установки. Закрывает supply-chain риск «curl|bash из main без проверки»:
-# содержимое релизного тега неизменно (в отличие от подвижной main), а хеш ловит
-# повреждение, частичную/кэш-подмену и рассинхрон бинаря с публикацией.
-# ЧЕСТНО: сумма и бинарь приходят по одному каналу — от подмены САМОГО релиза
-# (переписаны оба) это не защищает; для подлинности нужна подпись / Homebrew.
+# Pulls the binary and SHA256SUMS from a RELEASE tag (not the main branch) and verifies
+# the hash BEFORE installing. Closes the "curl|bash from main, unverified" supply-chain
+# risk: release-tag content is immutable (unlike the moving main), and the hash catches
+# corruption, partial/cache substitution and binary-vs-publication desync.
+# HONESTLY: the sum and the binary arrive over one channel — this does not protect against
+# substitution of the RELEASE itself (both rewritten); authenticity needs a signature / Homebrew.
 #
-# Использование (рекомендуется verify-then-run, см. README):
+# Usage (verify-then-run recommended, see README):
 #   curl -fsSLO https://github.com/Di-kairos/panic/releases/latest/download/install.sh
 #   curl -fsSLO https://github.com/Di-kairos/panic/releases/latest/download/SHA256SUMS
-#   shasum -a 256 -c SHA256SUMS --ignore-missing   # проверить сам install.sh
-#   less install.sh                                  # прочитать глазами
+#   shasum -a 256 -c SHA256SUMS --ignore-missing   # verify install.sh itself
+#   less install.sh                                  # read it with your own eyes
 #   bash install.sh
 #
-# Переменные окружения:
-#   PANIC_VERSION   — поставить конкретный тег (напр. 0.1.0). По умолчанию latest.
-#   PANIC_BASE_URL  — переопределить источник целиком (для форков/тестов).
-#   PANIC_DEST      — путь установки. По умолчанию /usr/local/bin/panic.
+# Environment variables:
+#   PANIC_VERSION   — install a specific tag (e.g. 0.1.0). Defaults to latest.
+#   PANIC_BASE_URL  — override the source entirely (for forks/tests).
+#   PANIC_DEST      — install path. Defaults to /usr/local/bin/panic.
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -26,7 +26,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 REPO="Di-kairos/panic"
-# Источник: явный PANIC_BASE_URL → конкретный тег PANIC_VERSION → latest-релиз.
+# Source: explicit PANIC_BASE_URL → specific tag PANIC_VERSION → latest release.
 if [[ -n "${PANIC_BASE_URL:-}" ]]; then
   BASE_URL="$PANIC_BASE_URL"
 elif [[ -n "${PANIC_VERSION:-}" ]]; then
@@ -34,10 +34,10 @@ elif [[ -n "${PANIC_VERSION:-}" ]]; then
 else
   BASE_URL="https://github.com/${REPO}/releases/latest/download"
 fi
-# Каталог установки. Умбрелла `paranoid-tools` ставит всё в ~/.local/bin (без sudo), а этот
-# установщик исторически — в /usr/local/bin. Если тул уже стоит из умбреллы, ставим РЯДОМ с ним:
-# иначе появляется вторая копия, и какая из них запустится, решает порядок в PATH — то есть
-# обновление молча не доезжает до пользователя. Явный PANIC_DEST всегда сильнее.
+# Install directory. The `paranoid-tools` umbrella installs everything into ~/.local/bin (no
+# sudo), while this installer historically targets /usr/local/bin. If the tool is already there
+# from the umbrella, install NEXT TO it: otherwise a second copy appears and PATH order decides
+# which one runs — i.e. the update silently never reaches the user. An explicit PANIC_DEST always wins.
 if [[ -n "${PANIC_DEST:-}" ]]; then
   DEST="$PANIC_DEST"
 elif [[ -e "$HOME/.local/bin/panic" ]]; then
@@ -46,7 +46,7 @@ else
   DEST="/usr/local/bin/panic"
 fi
 
-# Временный каталог под загрузку; чистим в любом случае.
+# Temporary download directory; cleaned up regardless.
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -54,24 +54,24 @@ echo "Скачиваю panic и SHA256SUMS из релиза..."
 curl -fsSL "${BASE_URL}/panic" -o "${TMP}/panic"
 curl -fsSL "${BASE_URL}/SHA256SUMS" -o "${TMP}/SHA256SUMS"
 
-# Проверка целостности ДО chmod +x.
+# Integrity check BEFORE chmod +x.
 echo "Проверяю контрольную сумму..."
 if ! ( cd "$TMP" && shasum -a 256 -c SHA256SUMS --ignore-missing ); then
   echo "✗ Контрольная сумма НЕ совпала — установка прервана (возможна подмена)." >&2
   exit 1
 fi
 
-# --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
-# Релизы подписаны выделенным ed25519-ключом экосистемы (ssh-keygen -Y). Pubkey вшит ниже.
-# Поведение: нет ssh-keygen → отказ, fail-closed (обход: ALLOW_UNSIGNED_LEGACY=1);
-# у релиза нет .sig → жёсткий отказ (legacy-обход через ALLOW_UNSIGNED_LEGACY=1);
-# .sig есть и НЕ сошёлся → жёсткий отказ (явный признак подмены).
+# --- Release SIGNATURE check (authenticity on top of integrity) ---
+# Releases are signed with the ecosystem's dedicated ed25519 key (ssh-keygen -Y). Pubkey embedded below.
+# Behavior: no ssh-keygen → refuse, fail-closed (bypass: ALLOW_UNSIGNED_LEGACY=1);
+# release has no .sig → hard refusal (legacy bypass via ALLOW_UNSIGNED_LEGACY=1);
+# .sig present and NOT matching → hard refusal (a clear sign of substitution).
 RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
 SIGN_PRINCIPAL="releases@paranoid-tools"
-# pubkey задан, но ssh-keygen недоступен → fail-closed: молчаливая деградация до hash-only
-# маскировала бы подмену; на macOS ssh-keygen идёт в комплекте, его отсутствие аномально
-# (паритет с umbrella install.sh и windows/install.ps1; AUDIT_2026-08-03 P1-1).
-SSH_KEYGEN="$(type -P ssh-keygen || true)"   # только внешний бинарь: exported-функция не годится в верификаторы
+# pubkey set but ssh-keygen unavailable → fail-closed: silent degradation to hash-only
+# would mask substitution; ssh-keygen ships with macOS, its absence is anomalous
+# (parity with the umbrella install.sh and windows/install.ps1; AUDIT_2026-08-03 P1-1).
+SSH_KEYGEN="$(type -P ssh-keygen || true)"   # external binary only: an exported function is no good as a verifier
 if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && [[ -z "$SSH_KEYGEN" ]]; then
   if [[ "${ALLOW_UNSIGNED_LEGACY:-0}" != "1" ]]; then
     echo "✗ ssh-keygen недоступен — подпись проверить нечем; установка прервана." >&2
@@ -102,7 +102,7 @@ if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && [[ -n "$SSH_KEYGEN" ]]; then
   fi
 fi
 
-# Хеш верный → устанавливаем. Под несписываемый каталог — через sudo.
+# Hash is correct → install. For a non-writable directory — via sudo.
 echo "Устанавливаю в ${DEST}..."
 if [[ -w "$(dirname "$DEST")" ]]; then
   install -m 0755 "${TMP}/panic" "$DEST"
@@ -111,7 +111,7 @@ else
 fi
 
 echo "Установлено: $DEST"
-# Каталог вне PATH — молчать нельзя: пользователь решит, что установка не удалась.
+# Directory not on PATH — staying silent is not an option: the user would conclude the install failed.
 case ":${PATH}:" in
   *":$(dirname "$DEST"):"*) : ;;
   *) echo "ВНИМАНИЕ: $(dirname "$DEST") не в PATH — добавь его, иначе команда не найдётся." >&2 ;;

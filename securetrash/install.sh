@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
-# Устанавливает securetrash в /usr/local/bin с проверкой целостности.
+# Installs securetrash into /usr/local/bin with an integrity check.
 #
-# Тянет бинарь и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и проверяет
-# хеш ДО установки. Закрывает supply-chain риск «curl|bash из main без проверки»:
-# содержимое релизного тега неизменно (в отличие от подвижной main), а хеш ловит
-# повреждение, частичную/кэш-подмену и рассинхрон бинаря с публикацией.
-# ЧЕСТНО: сумма и бинарь приходят по одному каналу — от подмены САМОГО релиза
-# (переписаны оба) это не защищает; для подлинности нужна подпись (F-4) / Homebrew.
+# Pulls the binary and SHA256SUMS from the RELEASE tag (not from the main branch) and
+# verifies the hash BEFORE installing. Closes the "curl|bash from main without verification"
+# supply-chain risk: a release tag's contents are immutable (unlike the moving main), and the
+# hash catches corruption, partial/cache substitution, and binary-vs-publication desync.
+# HONESTLY: the checksum and the binary arrive over the same channel — this does not protect
+# against substitution of the RELEASE ITSELF (both rewritten); authenticity needs a
+# signature (F-4) / Homebrew.
 #
-# Использование (рекомендуется verify-then-run, см. README):
+# Usage (verify-then-run recommended, see README):
 #   curl -fsSLO https://github.com/Di-kairos/securetrash/releases/latest/download/install.sh
 #   curl -fsSLO https://github.com/Di-kairos/securetrash/releases/latest/download/SHA256SUMS
-#   shasum -a 256 -c SHA256SUMS --ignore-missing   # проверить сам install.sh
-#   less install.sh                                  # прочитать глазами
+#   shasum -a 256 -c SHA256SUMS --ignore-missing   # verify install.sh itself
+#   less install.sh                                  # read it with your own eyes
 #   bash install.sh
 #
-# Переменные окружения:
-#   ST_VERSION   — поставить конкретный тег (напр. 0.4.0). По умолчанию latest.
-#   ST_BASE_URL  — переопределить источник целиком (для форков/тестов).
-#   ST_DEST      — путь установки. По умолчанию /usr/local/bin/securetrash.
+# Environment variables:
+#   ST_VERSION   — install a specific tag (e.g. 0.4.0). Defaults to latest.
+#   ST_BASE_URL  — override the source entirely (for forks/tests).
+#   ST_DEST      — install path. Defaults to /usr/local/bin/securetrash.
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -26,7 +27,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 REPO="Di-kairos/securetrash"
-# Источник: явный ST_BASE_URL → конкретный тег ST_VERSION → latest-релиз.
+# Source: explicit ST_BASE_URL → specific ST_VERSION tag → latest release.
 if [[ -n "${ST_BASE_URL:-}" ]]; then
   BASE_URL="$ST_BASE_URL"
 elif [[ -n "${ST_VERSION:-}" ]]; then
@@ -34,10 +35,11 @@ elif [[ -n "${ST_VERSION:-}" ]]; then
 else
   BASE_URL="https://github.com/${REPO}/releases/latest/download"
 fi
-# Каталог установки. Умбрелла `paranoid-tools` ставит всё в ~/.local/bin (без sudo), а этот
-# установщик исторически — в /usr/local/bin. Если тул уже стоит из умбреллы, ставим РЯДОМ с ним:
-# иначе появляется вторая копия, и какая из них запустится, решает порядок в PATH — то есть
-# обновление молча не доезжает до пользователя. Явный ST_DEST всегда сильнее.
+# Install directory. The `paranoid-tools` umbrella installs everything into ~/.local/bin (no
+# sudo), while this installer historically targets /usr/local/bin. If the tool is already
+# installed from the umbrella, install NEXT TO it: otherwise a second copy appears, and which
+# one runs is decided by PATH order — i.e. the update silently never reaches the user.
+# An explicit ST_DEST always wins.
 if [[ -n "${ST_DEST:-}" ]]; then
   DEST="$ST_DEST"
 elif [[ -e "$HOME/.local/bin/securetrash" ]]; then
@@ -46,7 +48,7 @@ else
   DEST="/usr/local/bin/securetrash"
 fi
 
-# Временный каталог под загрузку; чистим в любом случае.
+# Temporary download directory; cleaned up no matter what.
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -54,28 +56,28 @@ echo "Скачиваю securetrash и SHA256SUMS из релиза..."
 curl -fsSL "${BASE_URL}/securetrash" -o "${TMP}/securetrash"
 curl -fsSL "${BASE_URL}/SHA256SUMS" -o "${TMP}/SHA256SUMS"
 
-# Проверка целостности ДО chmod +x. --ignore-missing: в SHA256SUMS есть и
-# Windows-скрипт, которого тут нет, — проверяем только присутствующий файл.
+# Integrity check BEFORE chmod +x. --ignore-missing: SHA256SUMS also lists the
+# Windows script, which is not present here — verify only the file we have.
 echo "Проверяю контрольную сумму..."
 if ! ( cd "$TMP" && shasum -a 256 -c SHA256SUMS --ignore-missing ); then
   echo "✗ Контрольная сумма НЕ совпала — установка прервана (возможна подмена)." >&2
   exit 1
 fi
 
-# --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
-# Релизы подписаны выделенным ed25519-ключом (ssh-keygen -Y). Pubkey вшит ниже —
-# меняется только при ротации ключа.
-#   * pubkey не выдан (пусто) → молча пропускаем (инфра не готова);
-#   * pubkey есть, но нет ssh-keygen → отказ, fail-closed (обход: ALLOW_UNSIGNED_LEGACY=1);
-#   * .sig есть, но НЕ сошёлся → жёсткий отказ (явный признак подмены);
-#   * .sig отсутствует → жёсткий отказ (v0.4.2+ всегда подписаны);
-#     для установки старых релизов (до v0.4.2): ALLOW_UNSIGNED_LEGACY=1 bash install.sh
+# --- RELEASE SIGNATURE check (authenticity on top of integrity) ---
+# Releases are signed with a dedicated ed25519 key (ssh-keygen -Y). The pubkey is embedded
+# below — it changes only on key rotation.
+#   * pubkey not issued (empty) → silently skip (infra not ready);
+#   * pubkey present but no ssh-keygen → refuse, fail-closed (bypass: ALLOW_UNSIGNED_LEGACY=1);
+#   * .sig present but does NOT verify → hard refusal (clear sign of substitution);
+#   * .sig missing → hard refusal (v0.4.2+ are always signed);
+#     to install older releases (pre-v0.4.2): ALLOW_UNSIGNED_LEGACY=1 bash install.sh
 RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
 SIGN_PRINCIPAL="releases@paranoid-tools"
-# pubkey задан, но ssh-keygen недоступен → fail-closed: молчаливая деградация до hash-only
-# маскировала бы подмену; на macOS ssh-keygen идёт в комплекте, его отсутствие аномально
-# (паритет с umbrella install.sh и windows/install.ps1; AUDIT_2026-08-03 P1-1).
-SSH_KEYGEN="$(type -P ssh-keygen || true)"   # только внешний бинарь: exported-функция не годится в верификаторы
+# pubkey is set but ssh-keygen is unavailable → fail-closed: silently degrading to hash-only
+# would mask a substitution; on macOS ssh-keygen ships with the system, its absence is anomalous
+# (parity with the umbrella install.sh and windows/install.ps1; AUDIT_2026-08-03 P1-1).
+SSH_KEYGEN="$(type -P ssh-keygen || true)"   # external binary only: an exported function is no good as a verifier
 if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && [[ -z "$SSH_KEYGEN" ]]; then
   if [[ "${ALLOW_UNSIGNED_LEGACY:-0}" != "1" ]]; then
     echo "✗ ssh-keygen недоступен — подпись проверить нечем; установка прервана." >&2
@@ -107,7 +109,7 @@ if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && [[ -n "$SSH_KEYGEN" ]]; then
   fi
 fi
 
-# Хеш верный → устанавливаем. Под несписываемый каталог — через sudo.
+# Hash is correct → install. For a non-writable directory — via sudo.
 echo "Устанавливаю в ${DEST}..."
 if [[ -w "$(dirname "$DEST")" ]]; then
   install -m 0755 "${TMP}/securetrash" "$DEST"
@@ -116,7 +118,7 @@ else
 fi
 
 echo "Установлено: $DEST"
-# Каталог вне PATH — молчать нельзя: пользователь решит, что установка не удалась.
+# Directory not in PATH — staying silent is not an option: the user will conclude the install failed.
 case ":${PATH}:" in
   *":$(dirname "$DEST"):"*) : ;;
   *) echo "ВНИМАНИЕ: $(dirname "$DEST") не в PATH — добавь его, иначе команда не найдётся." >&2 ;;

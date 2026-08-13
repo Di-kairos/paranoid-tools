@@ -1,34 +1,34 @@
-﻿# paranoid-tray.ps1 — нативный system-tray агент Windows поверх тех же подписанных PowerShell-портов
-# Paranoid Tools (Фаза B). Зеркало macOS ParanoidBar.
+﻿# paranoid-tray.ps1 — native Windows system-tray agent on top of the same signed PowerShell ports
+# of Paranoid Tools (Phase B). Mirror of the macOS ParanoidBar.
 #
-# ЧЕСТНОСТЬ (как у Фазы A): tray секретов НЕ держит и крипту НЕ добавляет. Показывает статус и
-# запускает те же CLI (securetrash / panic / paranoid) в НОВОМ окне консоли — вывод и ввод пароля
-# идут в сам CLI, не через GUI. Convenience-слой, не новый инструмент.
+# HONESTY (as in Phase A): the tray holds NO secrets and adds NO crypto. It shows status and
+# launches the same CLIs (securetrash / panic / paranoid) in a NEW console window — output and
+# password input go into the CLI itself, not through the GUI. A convenience layer, not a new tool.
 #
-# Запуск (Windows, pwsh 7): pwsh -File paranoid-tray.ps1   (живёт в трее до «Quit»).
-# Логику меню/статуса можно дот-сорсить под ST_NO_MAIN=1 для Pester (WinForms-цикл не стартует).
+# Launch (Windows, pwsh 7): pwsh -File paranoid-tray.ps1   (lives in the tray until "Quit").
+# Menu/status logic can be dot-sourced under ST_NO_MAIN=1 for Pester (the WinForms loop won't start).
 
-# --- статус (только чтение) ---
+# --- status (read-only) ---
 function Get-PtVaultMount {
     if ($env:ST_VAULT_VOLUME) { return $env:ST_VAULT_VOLUME }
-    # Sidecar лежит рядом с САМИМ контейнером (`<vault>.mount`), а не в профиле: с
-    # ST_VAULT_PATH открытый кастомный сейф иначе показывался бы закрытым (находка Codex).
+    # The sidecar sits next to the container ITSELF (`<vault>.mount`), not in the profile: with
+    # ST_VAULT_PATH an open custom vault would otherwise show as closed (found by Codex).
     $container = Get-PtVaultContainer
     if (-not $container) { return $null }
     $sidecar = "$container.mount"
     if (Test-Path -LiteralPath $sidecar) { $m = (Get-Content -LiteralPath $sidecar -Raw).Trim(); if ($m) { return $m } }
     return $null
 }
-# Контейнер сейфа. ST_VAULT_PATH — тот же override, что уважает CLI (AUDIT_2026-07-03 P0-1):
-# без него трей показывал бы «сейф не создан» рядом с существующим кастомным сейфом.
+# Vault container. ST_VAULT_PATH is the same override the CLI honors (AUDIT_2026-07-03 P0-1):
+# without it the tray would show "vault not set up" next to an existing custom vault.
 function Get-PtVaultContainer {
     if ($env:ST_VAULT_PATH) { return $env:ST_VAULT_PATH }
     $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
     if (-not $homeDir) { return $null }
     return (Join-Path $homeDir 'SecureVault.vhdx')
 }
-# Точки монтирования всех томов — буквы дисков И folder mount points (`C:\Vault\`).
-# Обёртка для Mock. $null = таблицу прочитать не удалось (нет CIM, отказ WMI, нет прав).
+# Mount points of all volumes — drive letters AND folder mount points (`C:\Vault\`).
+# Wrapper for Mock. $null = the table could not be read (no CIM, WMI refusal, no rights).
 function Get-PtMountPoints {
     try {
         $vols = Get-CimInstance -ClassName Win32_Volume -ErrorAction Stop
@@ -37,9 +37,9 @@ function Get-PtMountPoints {
     } catch { return $null }
 }
 function Get-PtVaultState {
-    # open / closed / none / unknown. Спрашиваем таблицу томов, а не `Test-Path`: сейф,
-    # примонтированный в папку, оставляет её на месте после eject — трей писал бы
-    # «ОТКРЫТ — под угрозой» над закрытым сейфом (зеркало лаунчера и bash `_status_vault`).
+    # open / closed / none / unknown. We ask the volume table, not `Test-Path`: a vault
+    # mounted into a folder leaves that folder in place after eject — the tray would write
+    # "OPEN — at risk" over a closed vault (mirror of the launcher and bash `_status_vault`).
     $m = Get-PtVaultMount
     if ($m) {
         $points = Get-PtMountPoints
@@ -53,9 +53,9 @@ function Get-PtVaultState {
     if ($container -and (Test-Path -LiteralPath $container)) { return 'closed' }
     return 'none'
 }
-# BitLocker-статус (честность платформы, зеркало macOS fileVaultOn). Get-BitLockerVolume требует
-# модуль BitLocker (не на всех SKU Windows) и может бросить без прав администратора — ловим и
-# трактуем как «неизвестно» (fv_off покрывает оба случая: 'off / unknown', как честно и есть).
+# BitLocker status (platform honesty, mirror of macOS fileVaultOn). Get-BitLockerVolume requires
+# the BitLocker module (not on every Windows SKU) and can throw without admin rights — we catch
+# and treat it as "unknown" (fv_off covers both cases: 'off / unknown', which is honestly true).
 function Test-PtBitLocker {
     param([string]$MountPoint = $env:SystemDrive)
     try {
@@ -64,8 +64,8 @@ function Test-PtBitLocker {
     } catch { return $false }
 }
 
-# --- локализация: словарь в коде, зеркало macOS `strings` (ключи 1:1, паритет — Pester).
-# Честные формулировки («at risk») переводим без смягчения. ---
+# --- localization: dictionary in code, mirror of macOS `strings` (keys 1:1, parity — Pester).
+# Honest wording ("at risk") is translated without softening. ---
 $script:PtStrings = @{
     en = @{
         vault_label='Vault:'; vault_open_risk='OPEN — at risk'; vault_closed='closed'; vault_not_setup='not set up'
@@ -116,9 +116,9 @@ $script:PtStrings = @{
         ob_risk='Открытый сейф всегда «под риском» — GUI этого не прячет.'; ob_done='Готово'
     }
 }
-# Примечание: fv_label на Windows = BitLocker (честность платформы), на macOS = FileVault.
-# Ключ один и тот же — паритет ключей сохранён, значения платформенные.
-# notif_hotkey_fail — зеркало macOS-ключа (добавлен ревью T3): честный статус хоткея.
+# Note: fv_label on Windows = BitLocker (platform honesty), on macOS = FileVault.
+# The key itself is identical — key parity is preserved, the values are platform-specific.
+# notif_hotkey_fail mirrors the macOS key (added by review T3): honest hotkey status.
 
 function Resolve-PtLang {
     param([string]$Override = 'system', [string]$SystemLang = (Get-Culture).TwoLetterISOLanguageName)
@@ -127,30 +127,30 @@ function Resolve-PtLang {
 }
 function Get-PtL {
     param([Parameter(Mandatory)][string]$Key, [string]$Lang)
-    # Language — поле настроек (Task 10), дефолт 'system' → Resolve-PtLang сам решит en/ru по культуре.
+    # Language is a settings field (Task 10), default 'system' → Resolve-PtLang picks en/ru by culture.
     if (-not $Lang) { $Lang = Resolve-PtLang -Override ((Get-PtSettings).Language) }
     $t = $script:PtStrings[$Lang]
     if ($t -and $t.ContainsKey($Key)) { return $t[$Key] } else { return $Key }
 }
 
-# Спецификация меню (label + команда CLI). Отдельной функцией → Pester проверяет структуру
-# БЕЗ WinForms. '' в Command = разделитель; $null = подменю-заголовок (раскрытие ниже).
+# Menu specification (label + CLI command). As a separate function → Pester checks the structure
+# WITHOUT WinForms. '' in Command = separator; $null = submenu header (expanded below).
 function Get-PtMenuSpec {
-    # -Lang: один резолв языка на вызов (не 12 чтений settings внутри Get-PtL) + детерминизм
-    # в тестах независимо от культуры CI-хоста.
+    # -Lang: one language resolve per call (not 12 settings reads inside Get-PtL) + determinism
+    # in tests regardless of the CI host's culture.
     param([string]$VaultState = (Get-PtVaultState),
           [string]$Lang = (Resolve-PtLang -Override ((Get-PtSettings).Language)),
           [bool]$FvOn = (Test-PtBitLocker))
-    # При 'unknown' пункт не обещает действия: открыть/закрыть/создать вслепую — угадывание,
-    # поэтому зовём read-only `vault status` и так и подписываем.
+    # On 'unknown' the item promises no action: opening/closing/creating blindly is guessing,
+    # so we call the read-only `vault status` and label it exactly that.
     $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } 'unknown' { 'securetrash vault status' } default { 'securetrash vault create' } }
     $vaultLabel  = switch ($VaultState) { 'open' { Get-PtL 'vault_close' -Lang $Lang } 'closed' { Get-PtL 'vault_open' -Lang $Lang } 'unknown' { Get-PtL 'vault_ask' -Lang $Lang } default { Get-PtL 'vault_create' -Lang $Lang } }
-    # Empty/Destroy имеют смысл только при существующем контейнере (open|closed) — при 'none'
-    # грей-аутим, чтобы деструктив не был активен «в пустоту» (P2-7). При 'unknown' — тоже:
-    # необратимое поверх состояния, которого мы не знаем, не предлагаем.
+    # Empty/Destroy only make sense with an existing container (open|closed) — on 'none' we
+    # grey them out so the destructive actions aren't active "into the void" (P2-7). Same on
+    # 'unknown': we don't offer the irreversible on top of a state we don't know.
     $hasVault = $VaultState -in @('open', 'closed')
-    # Честный статус-заголовок сверху меню (P1, зеркало macOS rebuildMenu header()-строк) —
-    # без них tray молчал о риске «сейф открыт»/BitLocker выключен, в отличие от macOS.
+    # Honest status header at the top of the menu (P1, mirror of macOS rebuildMenu header() lines) —
+    # without it the tray stayed silent about "vault open"/BitLocker-off risk, unlike macOS.
     $vaultStatusText = switch ($VaultState) { 'open' { Get-PtL 'vault_open_risk' -Lang $Lang } 'closed' { Get-PtL 'vault_closed' -Lang $Lang } 'unknown' { Get-PtL 'vault_unknown' -Lang $Lang } default { Get-PtL 'vault_not_setup' -Lang $Lang } }
     $fvText = if ($FvOn) { Get-PtL 'fv_on' -Lang $Lang } else { Get-PtL 'fv_off' -Lang $Lang }
     return @(
@@ -158,7 +158,7 @@ function Get-PtMenuSpec {
         [pscustomobject]@{ Label = ((Get-PtL 'fv_label' -Lang $Lang) + ' ' + $fvText);              Command = ''; Enabled = $false }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'status_item' -Lang $Lang);   Command = 'securetrash check'; Enabled = $true }
-        # --hard = паритет с «PANIC NOW» лаунчера (hide&lock + cloud-демоны + recents)
+        # --hard = parity with the launcher's "PANIC NOW" (hide&lock + cloud daemons + recents)
         [pscustomobject]@{ Label = (Get-PtL 'panic_item' -Lang $Lang);    Command = 'panic now --hard';  Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = $vaultLabel;                      Command = $vaultToggle;        Enabled = $true }
@@ -175,13 +175,13 @@ function Get-PtMenuSpec {
     )
 }
 
-# --- автостарт при логине (HKCU Run; без админ-прав/подписи) ---
-# Спецификация ключа реестра отдельной функцией → Pester проверяет её БЕЗ записи в реестр.
+# --- autostart at login (HKCU Run; no admin rights/signature needed) ---
+# Registry key spec as a separate function → Pester checks it WITHOUT writing to the registry.
 function Get-PtAutostartSpec {
     $script = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
-    # Полный путь к pwsh, не голый `pwsh`: при логине PATH может не содержать pwsh (особенно
-    # WindowStyle Hidden без shell-инициализации) → автостарт тихо ломался. Путь в кавычках
-    # (Program Files\PowerShell\7 содержит пробел). Fallback на 'pwsh', если резолв не удался.
+    # Full path to pwsh, not bare `pwsh`: at login PATH may not contain pwsh (especially with
+    # WindowStyle Hidden and no shell initialization) → autostart silently broke. The path is
+    # quoted (Program Files\PowerShell\7 contains a space). Fallback to 'pwsh' if resolve failed.
     $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
     if (-not $pwshPath) { $pwshPath = 'pwsh' }
     return [pscustomobject]@{
@@ -191,8 +191,8 @@ function Get-PtAutostartSpec {
     }
 }
 function Test-PtAutostart {
-    # ВКЛ только если записанное значение совпадает с ТЕКУЩЕЙ спекой: устаревшая запись
-    # (скрипт/pwsh переехал) — это сломанный автостарт, галочку «вкл» он не заслуживает.
+    # ON only if the stored value matches the CURRENT spec: a stale entry (the script/pwsh
+    # moved) is a broken autostart and does not deserve the "on" checkmark.
     $s = Get-PtAutostartSpec
     $v = (Get-ItemProperty -LiteralPath $s.Path -Name $s.Name -ErrorAction SilentlyContinue).$($s.Name)
     return ($v -eq $s.Value)
@@ -206,39 +206,39 @@ function Disable-PtAutostart {
     Remove-ItemProperty -LiteralPath $s.Path -Name $s.Name -ErrorAction SilentlyContinue
 }
 
-# --- статус vaultwatch (только чтение тех же session-файлов, что пишет vaultwatch CLI) ---
+# --- vaultwatch status (read-only over the same session files the vaultwatch CLI writes) ---
 function Get-PtVwStateDir {
     if ($env:VW_STATE_DIR) { return $env:VW_STATE_DIR }
-    # $homeDir — см. Get-PtVaultMount: присваивание в автоматическую $HOME бросает исключение.
+    # $homeDir — see Get-PtVaultMount: assigning to the automatic $HOME throws an exception.
     $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
     if (-not $homeDir) { return $null }
     return (Join-Path $homeDir '.vaultwatch\sessions')
 }
-# Формат как у vaultwatch CLI (Format-VwDuration): "1h 5m 9s" / "5m 9s".
+# Same format as the vaultwatch CLI (Format-VwDuration): "1h 5m 9s" / "5m 9s".
 function Format-PtDuration {
     param([int]$S)
     $h = [math]::Floor($S / 3600); $m = [math]::Floor(($S % 3600) / 60); $sec = $S % 60
     if ($h -gt 0) { return "${h}h ${m}m ${sec}s" } else { return "${m}m ${sec}s" }
 }
-# NotifyIcon.Text на .NET Framework (PS 5.1) кидает ArgumentException при >63 символах
-# (на .NET Core лимит 127, но держим 63 — общий знаменатель). RU worst-case tooltip
-# («…под риском… - авто-выход через 23h 59m 59s») = 68 симв. Обрезаем с многоточием.
+# NotifyIcon.Text on .NET Framework (PS 5.1) throws ArgumentException at >63 characters
+# (on .NET Core the limit is 127, but we keep 63 — the common denominator). RU worst-case
+# tooltip («…под риском… - авто-выход через 23h 59m 59s») = 68 chars. Truncate with ellipsis.
 function Limit-PtTrayText {
     param([string]$Text, [int]$Max = 63)
     if ($Text.Length -le $Max) { return $Text }
     return $Text.Substring(0, $Max - 1) + [char]0x2026
 }
-# Парсим key=value session-файлы (mount/started/ttl_secs). remaining = started+ttl_secs-now;
-# $null если ttl_secs=0 (сессия без TTL). -Now параметризован для детерминированных тестов.
+# Parse key=value session files (mount/started/ttl_secs). remaining = started+ttl_secs-now;
+# $null when ttl_secs=0 (a session without TTL). -Now is parameterized for deterministic tests.
 function Get-PtVaultwatchSessions {
     param([int]$Now = [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
     $dir = Get-PtVwStateDir
     if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { return @() }
     $out = @()
     foreach ($f in (Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
-        # Per-file try/catch: файл могли удалить между листингом и чтением (vaultwatch stop),
-        # либо он записан частично/битый. Один такой файл НЕ должен ронять весь rebuild
-        # меню/таймера — просто пропускаем его.
+        # Per-file try/catch: the file may have been deleted between listing and reading
+        # (vaultwatch stop), or written partially/corrupted. One such file must NOT bring
+        # down the whole menu/timer rebuild — we simply skip it.
         try {
             $mount = ''; $started = 0L; $ttl = 0L
             foreach ($line in (Get-Content -LiteralPath $f.FullName -ErrorAction Stop)) {
@@ -258,19 +258,19 @@ function Get-PtVaultwatchSessions {
     }
     return $out
 }
-# Нормализация точки монтирования для сравнения (P1): stale session-файл ДРУГОГО тома иначе
-# навсегда глушил long_open/ttl текущего сейфа (сессии не скоупились). Trim конечного слэша
-# (оба стиля) + lowercase (Windows FS регистронезависима).
+# Mount point normalization for comparison (P1): a stale session file of ANOTHER volume would
+# otherwise forever mute long_open/ttl of the current vault (sessions weren't scoped). Trim the
+# trailing slash (both styles) + lowercase (the Windows FS is case-insensitive).
 function Normalize-PtMount {
     param([string]$Mount)
     if (-not $Mount) { return '' }
     return $Mount.TrimEnd('\', '/').ToLowerInvariant()
 }
 
-# --- уведомления: чистый движок решений (Pester), доставка — NotifyIcon.ShowBalloonTip.
-# Правила = спека §2, зеркало Swift decideNotifications: каждое событие один раз за эпизод
-# «сейф открыт»; закрытие сейфа сбрасывает эпизод; свежая/продлённая vaultwatch-сессия
-# (TTL >= 120с) перевзводит ttl-предупреждения. Имена событий зеркалят macOS — не менять.
+# --- notifications: pure decision engine (Pester), delivery via NotifyIcon.ShowBalloonTip.
+# Rules = spec §2, mirror of Swift decideNotifications: each event fires once per "vault
+# open" episode; closing the vault resets the episode; a fresh/extended vaultwatch session
+# (TTL >= 120s) re-arms the ttl warnings. Event names mirror macOS — do not change.
 function New-PtNotifyState {
     [pscustomobject]@{ TtlWarned = $false; TtlExpiredWarned = $false; LongOpenWarned = $false; OpenSince = $null }
 }
@@ -282,7 +282,7 @@ function Get-PtNotifyEvents {
     if ($null -eq $s.OpenSince) { $s.OpenSince = $Now }
     $events = @()
     if ($null -ne $Ttl) {
-        # новая/продлённая сессия -> перевзвод (зеркало Swift re-arm, ревью T2)
+        # new/extended session -> re-arm (mirror of the Swift re-arm, review T2)
         if ($Ttl -ge 120) { $s.TtlWarned = $false; $s.TtlExpiredWarned = $false }
         if ($Ttl -gt 0 -and $Ttl -lt 120 -and -not $s.TtlWarned) { $events += 'ttl_warn'; $s.TtlWarned = $true }
         if ($Ttl -eq 0 -and -not $s.TtlExpiredWarned) { $events += 'ttl_expired'; $s.TtlExpiredWarned = $true }
@@ -293,16 +293,16 @@ function Get-PtNotifyEvents {
     return [pscustomobject]@{ Events = $events; State = $s }
 }
 
-# --- глобальный хоткей паники: RegisterHotKey + скрытое message-окно (WM_HOTKEY=0x0312).
-# Двойное нажатие в 2с (включительно) → panic now --hard БЕЗ confirm (double-press = подтверждение;
-# --hard = паритет с «PANIC NOW» лаунчера: hide&lock + cloud-демоны + recents); одиночное —
-# взвод + balloon. Чистая логика (окно 2с, маппинг пресетов) — Pester; регистрация — GUI-путь.
-# Результат RegisterHotKey не глотаем (зеркало macOS honesty-фикса): фейл → notif_hotkey_fail. ---
+# --- global panic hotkey: RegisterHotKey + a hidden message window (WM_HOTKEY=0x0312).
+# Double press within 2s (inclusive) → panic now --hard WITHOUT confirm (double-press = the confirmation;
+# --hard = parity with the launcher's "PANIC NOW": hide&lock + cloud daemons + recents); a single —
+# arm + balloon. Pure logic (2s window, preset mapping) — Pester; registration — the GUI path.
+# RegisterHotKey's result isn't swallowed (mirror of the macOS honesty fix): fail → notif_hotkey_fail. ---
 function Test-PtPanicShouldFire {
     param([double]$Now, [object]$ArmedAt, [double]$Window = 2.0)
     if ($null -eq $ArmedAt) { return $false }
-    # Clock-jump guard (P2): системные часы могут скакнуть назад (NTP-корректировка/сон) — тогда
-    # delta отрицательная. Это НЕ валидное окно двойного нажатия, а артефакт часов, не «мгновенно».
+    # Clock-jump guard (P2): the system clock may jump backwards (NTP correction/sleep) — the
+    # delta is then negative. That's NOT a valid double-press window but a clock artifact, not "instant".
     $d = $Now - [double]$ArmedAt
     return ($d -ge 0 -and $d -le $Window)
 }
@@ -316,16 +316,16 @@ function Get-PtHotkeySpec {
     }
 }
 
-# --- онбординг: чистые хелперы чеклиста Welcome-окна (зеркало macOS checklistLine/clisInstalled) ---
-# Строка чеклиста — чистая для Pester (зеркало Swift checklistLine): ✅+okKey / ❌+missKey.
+# --- onboarding: pure helpers for the Welcome window checklist (mirror of macOS checklistLine/clisInstalled) ---
+# The checklist line is pure for Pester (mirror of Swift checklistLine): ✅+okKey / ❌+missKey.
 function Get-PtChecklistLine {
     param([bool]$Ok, [string]$OkKey, [string]$MissKey, [string]$Lang)
     if ($Ok) { return ([char]0x2705 + ' ' + (Get-PtL -Key $OkKey -Lang $Lang)) }
     return ([char]0x274C + ' ' + (Get-PtL -Key $MissKey -Lang $Lang))
 }
-# Комплект CLI, поверх которых работает трей: установщик ставит их вместе, поэтому «готово»
-# значит все пять. Лаунчер `paranoid` тоже здесь — меню трея зовёт именно его, и без него
-# зелёная галка была бы враньём (раньше проверялись только три тула из пяти). Зеркало macOS.
+# The CLI set the tray works on top of: the installer ships them together, so "ready" means
+# all five. The `paranoid` launcher is here too — the tray menu calls exactly it, and without
+# it the green check would be a lie (only three of the five tools were checked before). macOS mirror.
 $script:PtEcosystemClis = @('securetrash', 'vaultwatch', 'panic', 'ghostdraft', 'seedsplit', 'paranoid')
 function Test-PtClisInstalled {
     foreach ($t in $script:PtEcosystemClis) {
@@ -334,11 +334,11 @@ function Test-PtClisInstalled {
     return $true
 }
 
-# --- настройки трея (override точки монтирования vault + интервал опроса + Фаза B: язык/хоткей/онбординг) ---
-# JSON в %APPDATA%\ParanoidTools\settings.json; путь переопределяем через PT_SETTINGS_FILE (тесты).
+# --- tray settings (vault mount point override + poll interval + Phase B: language/hotkey/onboarding) ---
+# JSON in %APPDATA%\ParanoidTools\settings.json; the path is overridable via PT_SETTINGS_FILE (tests).
 
-# Значения ComboBox по индексу (зеркало macOS langValues/hotkeyValues) — один источник правды
-# для формы (Show-PtSettingsForm) и для санации в Get/Set-PtSettings.
+# ComboBox values by index (mirror of macOS langValues/hotkeyValues) — a single source of truth
+# for the form (Show-PtSettingsForm) and for sanitization in Get/Set-PtSettings.
 $script:PtLangValues = @('system', 'en', 'ru')
 $script:PtHotkeyValues = @('ctrl-alt-shift-p', 'ctrl-alt-shift-l', 'off')
 
@@ -359,16 +359,16 @@ function Get-PtSettings {
             if ($null -ne ($j.PollSeconds -as [int])) { $s.PollSeconds = [int]$j.PollSeconds }
             if ($null -ne $j.Language)    { $s.Language = [string]$j.Language }
             if ($null -ne $j.PanicHotkey) { $s.PanicHotkey = [string]$j.PanicHotkey }
-            # -eq $true, не [bool]: рукописное "Onboarded":"false" (строка) через [bool] давало бы $true
+            # -eq $true, not [bool]: a hand-written "Onboarded":"false" (string) via [bool] would yield $true
             if ($null -ne $j.Onboarded)   { $s.Onboarded = ($j.Onboarded -eq $true) }
-        } catch { }   # битый файл → дефолты
+        } catch { }   # corrupted file → defaults
     }
-    # Clamp в [5, 3600]: руками вписанный в JSON PollSeconds > 3600 иначе бросал на
-    # NumericUpDown.Value (Maximum=3600) при открытии settings-панели.
+    # Clamp to [5, 3600]: a PollSeconds > 3600 hand-written into the JSON otherwise threw on
+    # NumericUpDown.Value (Maximum=3600) when opening the settings panel.
     if ($s.PollSeconds -lt 5) { $s.PollSeconds = 5 } elseif ($s.PollSeconds -gt 3600) { $s.PollSeconds = 3600 }
-    # Санация: мусор из руками правленного JSON (или устаревшая версия) → дефолты, тем же
-    # принципом, что и clamp у PollSeconds. Lowercase ДО -notin: -notin регистронезависим,
-    # а Array.IndexOf в форме — нет ("RU" иначе пережил бы санацию, но форма показала бы System).
+    # Sanitization: junk from hand-edited JSON (or an outdated version) → defaults, by the same
+    # principle as the PollSeconds clamp. Lowercase BEFORE -notin: -notin is case-insensitive,
+    # Array.IndexOf in the form is not ("RU" would otherwise survive sanitization, yet the form would show System).
     $s.Language = ([string]$s.Language).ToLowerInvariant()
     $s.PanicHotkey = ([string]$s.PanicHotkey).ToLowerInvariant()
     if ($s.Language -notin $script:PtLangValues) { $s.Language = 'system' }
@@ -379,7 +379,7 @@ function Set-PtSettings {
     param([string]$VaultVolume = '', [int]$PollSeconds = 15, [string]$Language = 'system',
           [string]$PanicHotkey = 'ctrl-alt-shift-p', [bool]$Onboarded = $false)
     if ($PollSeconds -lt 5) { $PollSeconds = 5 } elseif ($PollSeconds -gt 3600) { $PollSeconds = 3600 }
-    # Та же санация + lowercase, что в Get-PtSettings: в JSON всегда уходит канонический lowercase.
+    # Same sanitization + lowercase as in Get-PtSettings: canonical lowercase always goes into the JSON.
     $Language = $Language.ToLowerInvariant()
     $PanicHotkey = $PanicHotkey.ToLowerInvariant()
     if ($Language -notin $script:PtLangValues) { $Language = 'system' }
@@ -392,21 +392,21 @@ function Set-PtSettings {
                        PanicHotkey = $PanicHotkey; Onboarded = $Onboarded } | ConvertTo-Json | Set-Content -LiteralPath $f
 }
 
-# Запустить CLI в НОВОМ окне консоли (pwsh) — вывод и ввод секретов идут в сам CLI, не через tray.
+# Launch a CLI in a NEW console window (pwsh) — output and secret input go into the CLI itself, not the tray.
 function Invoke-PtTool {
     param([string]$Command)
     if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__' -or $Command -eq '__settings__' -or $Command -eq '__setup__') { return }
-    # Команда фиксирована (из Get-PtMenuSpec), не из пользовательского ввода → инъекций нет.
+    # The command is fixed (from Get-PtMenuSpec), not from user input → no injection possible.
     Start-Process -FilePath 'pwsh' -ArgumentList @('-NoExit', '-Command', $Command) | Out-Null
 }
 
-# WinForms-диалог настроек (только GUI-путь; логика Get/Set-PtSettings тестируется отдельно).
-# Возвращает применённые настройки при Save, иначе $null. Секретов не касается — только пути/интервал.
+# WinForms settings dialog (GUI path only; the Get/Set-PtSettings logic is tested separately).
+# Returns the applied settings on Save, otherwise $null. Never touches secrets — only paths/interval.
 function Show-PtSettingsForm {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     $cur = Get-PtSettings
-    # Один резолв языка на всю форму (консистентность с T7: не N чтений settings в Get-PtL).
+    # One language resolve for the whole form (consistency with T7: not N settings reads in Get-PtL).
     $lang = Resolve-PtLang -Override $cur.Language
 
     $form = New-Object System.Windows.Forms.Form
@@ -438,7 +438,7 @@ function Show-PtSettingsForm {
     [void]$cbHk.Items.AddRange(@('Ctrl+Alt+Shift+P', 'Ctrl+Alt+Shift+L', (Get-PtL hk_off -Lang $lang)))
     $cbHk.SelectedIndex = [math]::Max(0, $script:PtHotkeyValues.IndexOf($cur.PanicHotkey))
 
-    # Setup guide (Show-PtWelcomeForm, Task 11) — открывает Welcome-чеклист прямо из Settings.
+    # Setup guide (Show-PtWelcomeForm, Task 11) — opens the Welcome checklist right from Settings.
     $setup = New-Object System.Windows.Forms.Button
     $setup.Text = (Get-PtL set_setup_btn -Lang $lang); $setup.SetBounds(12, 185, 150, 28)
     $setup.Add_Click({ Show-PtWelcomeForm })
@@ -452,8 +452,8 @@ function Show-PtSettingsForm {
     $form.AcceptButton = $ok; $form.CancelButton = $cancel
 
     if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        # Onboarded — из СВЕЖИХ настроек, не из $cur: пока форма открыта, Welcome (Setup-кнопка,
-        # T11) мог выставить Onboarded=true — Save со stale $cur воскресил бы онбординг.
+        # Onboarded — from FRESH settings, not from $cur: while the form was open, Welcome (the
+        # Setup button, T11) may have set Onboarded=true — Save with a stale $cur would resurrect onboarding.
         Set-PtSettings -VaultVolume ($tbVol.Text.Trim()) -PollSeconds ([int]$nudPoll.Value) `
             -Language $script:PtLangValues[([math]::Max(0, $cbLang.SelectedIndex))] `
             -PanicHotkey $script:PtHotkeyValues[([math]::Max(0, $cbHk.SelectedIndex))] `
@@ -463,8 +463,8 @@ function Show-PtSettingsForm {
     return $null
 }
 
-# Welcome-окно (спека §3, зеркало macOS doWelcome/rebuildWelcome): живой чеклист + кнопки-действия.
-# Кнопки перерисовывают форму (close + reopen — приемлемо для диалога). Секретов не касается.
+# Welcome window (spec §3, mirror of macOS doWelcome/rebuildWelcome): live checklist + action buttons.
+# Buttons redraw the form (close + reopen — acceptable for a dialog). Never touches secrets.
 function Show-PtWelcomeForm {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -478,8 +478,8 @@ function Show-PtWelcomeForm {
 
     $y = 14
     function Add-PtObLabel {
-        # -Width 448 (вместо дефолтных 330) — для строк БЕЗ кнопки справа (ob_sub/ob_risk):
-        # длинные EN/RU подписи (~74-78 симв.) на 330px обрезались.
+        # -Width 448 (instead of the default 330) — for lines WITHOUT a button on the right
+        # (ob_sub/ob_risk): long EN/RU captions (~74-78 chars) got clipped at 330px.
         param($Form, [string]$Text, [ref]$Y, [single]$Size = 9, [object]$Color = $null, [int]$Width = 330)
         $l = New-Object System.Windows.Forms.Label
         $l.Text = $Text; $l.AutoSize = $false
@@ -505,8 +505,8 @@ function Show-PtWelcomeForm {
     if (-not $hasVault) {
         Add-PtObButton $form (Get-PtL ob_create_btn -Lang $lang) $vaultY { Invoke-PtTool -Command 'securetrash vault create' }
     }
-    # хоткей: подпись по РЕАЛЬНОМУ пресету (P/L), готовность = пресет включён И регистрация реально
-    # прошла ($script:hotkeyRegistered, T9) — зеркало honesty-фикса macOS T4 (не глотать RegisterHotKey).
+    # hotkey: label by the ACTUAL preset (P/L), readiness = preset enabled AND registration really
+    # succeeded ($script:hotkeyRegistered, T9) — mirror of the macOS T4 honesty fix (don't swallow RegisterHotKey).
     $preset = $cur.PanicHotkey
     $hkLabel = if ($preset -eq 'ctrl-alt-shift-l') { 'Ctrl+Alt+Shift+L' } else { 'Ctrl+Alt+Shift+P' }
     $hkOn = ($null -ne (Get-PtHotkeySpec -Preset $preset)) -and $script:hotkeyRegistered
@@ -515,26 +515,26 @@ function Show-PtWelcomeForm {
     Add-PtObLabel $form ("$mark " + (Get-PtL ob_hotkey_line -Lang $lang) + ": $hkLabel (" + [char]0x00D7 + '2)') ([ref]$y)
     if (-not $hkOn) {
         Add-PtObButton $form (Get-PtL ob_enable_btn -Lang $lang) $hkY {
-            # ASSUMPTION (зеркало macOS obEnableHotkey): Enable всегда включает дефолт P;
-            # восстановление прежнего пресета — территория Settings.
+            # ASSUMPTION (mirror of macOS obEnableHotkey): Enable always turns on the default P;
+            # restoring the previous preset is Settings territory.
             $s = Get-PtSettings
             Set-PtSettings -VaultVolume $s.VaultVolume -PollSeconds $s.PollSeconds -Language $s.Language `
                 -PanicHotkey 'ctrl-alt-shift-p' -Onboarded $s.Onboarded
-            # $script:hotkeyWin существует только внутри работающего трея (Start-PtTray) — Welcome
-            # всегда открывается из этого контекста (first-run/меню/Settings), так что он на месте.
+            # $script:hotkeyWin only exists inside a running tray (Start-PtTray) — Welcome is
+            # always opened from that context (first-run/menu/Settings), so it is in place.
             $ok = $false
             if ($script:hotkeyWin) {
                 $spec = Get-PtHotkeySpec -Preset 'ctrl-alt-shift-p'
                 $ok = $script:hotkeyWin.Register($spec.Modifiers, $spec.Vk)
                 $script:hotkeyRegistered = $ok
             }
-            # Ресинк открытого Settings-комбо (зеркало macOS obEnableHotkey → hotkeyPopup):
-            # Welcome вызван из Settings → его Save иначе молча откатил бы новый пресет.
-            # Индекс 0 = 'ctrl-alt-shift-p' в $script:PtHotkeyValues.
+            # Resync an open Settings combo (mirror of macOS obEnableHotkey → hotkeyPopup):
+            # Welcome opened from Settings → its Save would otherwise silently roll back the new preset.
+            # Index 0 = 'ctrl-alt-shift-p' in $script:PtHotkeyValues.
             $cb = Get-Variable cbHk -ValueOnly -ErrorAction SilentlyContinue
             if ($cb) { $cb.SelectedIndex = 0 }
-            # Фейл регистрации не глотаем (зеркало macOS notify): balloon через $notify трея,
-            # если он в области видимости (Welcome открыт из живого Start-PtTray).
+            # Registration failure isn't swallowed (mirror of macOS notify): a balloon via the
+            # tray's $notify, if it is in scope (Welcome opened from a live Start-PtTray).
             $n = Get-Variable notify -ValueOnly -ErrorAction SilentlyContinue
             if ($n -and -not $ok) {
                 $n.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail -Lang $lang), [System.Windows.Forms.ToolTipIcon]::Warning)
@@ -558,7 +558,7 @@ function Show-PtWelcomeForm {
     [void]$form.ShowDialog()
 }
 
-# --- WinForms tray (стартует только как самостоятельный скрипт; под ST_NO_MAIN=1 — нет) ---
+# --- WinForms tray (starts only as a standalone script; not under ST_NO_MAIN=1) ---
 function Start-PtTray {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -568,8 +568,8 @@ function Start-PtTray {
     $notify.Text = 'Paranoid Tools'
     $notify.Visible = $true
 
-    # Скрытое NativeWindow ловит WM_HOTKEY (RegisterHotKey требует окно; у NotifyIcon его нет).
-    # Primitives: на .NET 10+ тип Message форварднут в System.Windows.Forms.Primitives (CS1069 без него).
+    # A hidden NativeWindow catches WM_HOTKEY (RegisterHotKey requires a window; NotifyIcon has none).
+    # Primitives: on .NET 10+ the Message type is forwarded to System.Windows.Forms.Primitives (CS1069 without it).
     Add-Type -ReferencedAssemblies System.Windows.Forms, System.Windows.Forms.Primitives -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -589,8 +589,8 @@ public class PtHotkeyWindow : NativeWindow {
 '@
     $script:hotkeyWin = New-Object PtHotkeyWindow
     $script:panicArmedAt = $null
-    # Честный статус регистрации (зеркало macOS hotkeyRegistered, T4/T9): читает его Welcome-чеклист
-    # (Show-PtWelcomeForm) — гейт готовности = валидный пресет И реально вставшая регистрация.
+    # Honest registration status (mirror of macOS hotkeyRegistered, T4/T9): the Welcome checklist
+    # (Show-PtWelcomeForm) reads it — the readiness gate = a valid preset AND a registration that really stuck.
     $script:hotkeyRegistered = $false
     $script:hotkeyWin.add_HotkeyPressed({
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
@@ -602,8 +602,8 @@ public class PtHotkeyWindow : NativeWindow {
             $notify.ShowBalloonTip(3000, 'Paranoid Tools', (Get-PtL notif_panic_arm), [System.Windows.Forms.ToolTipIcon]::Warning)
         }
     })
-    # PanicHotkey — поле настроек (Task 10), дефолт ctrl-alt-shift-p → хоткей активен из коробки
-    # (паритет с macOS).
+    # PanicHotkey is a settings field (Task 10), default ctrl-alt-shift-p → the hotkey is active
+    # out of the box (parity with macOS).
     $hkSpec = Get-PtHotkeySpec -Preset ((Get-PtSettings).PanicHotkey)
     if ($hkSpec) {
         $script:hotkeyRegistered = $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
@@ -614,35 +614,35 @@ public class PtHotkeyWindow : NativeWindow {
 
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
 
-    # Настройки: override точки монтирования (через env, который чтит Get-PtVaultMount) + интервал.
+    # Settings: mount point override (via the env var Get-PtVaultMount honors) + interval.
     $settings = Get-PtSettings
     if ($settings.VaultVolume) { $env:ST_VAULT_VOLUME = $settings.VaultVolume }
-    # First-run: Welcome один раз (зеркало macOS didOnboard) — ПОСЛЕ хоткей-блока (чеклист видит
-    # актуальный $script:hotkeyRegistered), ДО Application::Run. Onboarded=true пишем ДО показа формы,
-    # как в macOS: закрытие без Done не должно снова показать Welcome на следующем запуске.
+    # First-run: Welcome once (mirror of macOS didOnboard) — AFTER the hotkey block (the checklist
+    # sees the current $script:hotkeyRegistered), BEFORE Application::Run. Onboarded=true is written
+    # BEFORE showing the form, as on macOS: closing without Done must not show Welcome again on the next start.
     if (-not $settings.Onboarded) {
         Set-PtSettings -VaultVolume $settings.VaultVolume -PollSeconds $settings.PollSeconds `
             -Language $settings.Language -PanicHotkey $settings.PanicHotkey -Onboarded $true
         Show-PtWelcomeForm
     }
-    # Периодический опрос — раньше tooltip обновлялся только при открытии меню; теперь живой.
+    # Periodic polling — the tooltip used to refresh only when the menu opened; now it is live.
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = [math]::Max(5, $settings.PollSeconds) * 1000
     $script:notifyState = New-PtNotifyState
 
     $rebuild = {
         $menu.Items.Clear()
-        # Один резолв языка на весь rebuild (одно чтение settings), дальше -Lang $lang везде.
+        # One language resolve for the whole rebuild (one settings read), then -Lang $lang everywhere.
         $lang = Resolve-PtLang -Override ((Get-PtSettings).Language)
         $state = Get-PtVaultState
         $vol = Get-PtVaultMount
         $sessions = Get-PtVaultwatchSessions
-        # Скоуп к ТЕКУЩЕМУ тому (P1): stale session-файл ЧУЖОГО тома (переехавший/старый vault)
-        # иначе навсегда глушил long_open/ttl текущего сейфа. Полный список $sessions ниже в меню
-        # оставляем как есть (informational — пусть видно все активные vaultwatch-наблюдения).
+        # Scope to the CURRENT volume (P1): a stale session file of a FOREIGN volume (moved/old
+        # vault) would otherwise forever mute long_open/ttl of the current vault. The full $sessions
+        # list below in the menu stays as is (informational — show all active vaultwatch watches).
         $vaultSessions = @($sessions | Where-Object { (Normalize-PtMount $_.Mount) -eq (Normalize-PtMount $vol) })
-        # TTL в главном статусе — ТОЛЬКО при реально открытом сейфе: осиротевший session-файл иначе
-        # рисовал бы «auto-exit in …» при закрытом vault (P2-10).
+        # TTL in the main status — ONLY when the vault is really open: an orphaned session file
+        # would otherwise draw "auto-exit in …" over a closed vault (P2-10).
         $ttl = if ($state -eq 'open') {
             ($vaultSessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
         } else { $null }
@@ -651,7 +651,7 @@ public class PtHotkeyWindow : NativeWindow {
             elseif ($state -eq 'open' -and $null -ne $ttl)              { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $ttl)" }
             elseif ($state -eq 'open')                                  { (Get-PtL 'tip_open' -Lang $lang) }
             else                                                        { (Get-PtL 'tip_closed' -Lang $lang) })
-        # vaultwatch-сессии — отключённые заголовки сверху меню (точка монтирования + TTL-отсчёт).
+        # vaultwatch sessions — disabled headers at the top of the menu (mount point + TTL countdown).
         foreach ($s in $sessions) {
             $name = Split-Path -Leaf $s.Mount
             $detail = if ($null -ne $s.Remaining) { "$(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $s.Remaining)" } else { (Get-PtL 'watching_no_ttl' -Lang $lang) }
@@ -664,7 +664,7 @@ public class PtHotkeyWindow : NativeWindow {
             if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
             $cmd = $entry.Command
             $it = New-Object System.Windows.Forms.ToolStripMenuItem($entry.Label)
-            if ($null -ne $entry.Enabled) { $it.Enabled = [bool]$entry.Enabled }   # грей-аут по спеку (P2-7)
+            if ($null -ne $entry.Enabled) { $it.Enabled = [bool]$entry.Enabled }   # grey-out per spec (P2-7)
             if ($cmd -eq '__quit__') {
                 $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
             } elseif ($cmd -eq '__autostart__') {
@@ -677,8 +677,8 @@ public class PtHotkeyWindow : NativeWindow {
                         if ($s.VaultVolume) { $env:ST_VAULT_VOLUME = $s.VaultVolume }
                         else { Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue }
                         $timer.Interval = [math]::Max(5, $s.PollSeconds) * 1000
-                        # Перевзвод хоткея по новому пресету — результат Register не глотаем
-                        # (честность, T9): фейл → тот же balloon, что при старте трея.
+                        # Re-arm the hotkey per the new preset — Register's result isn't swallowed
+                        # (honesty, T9): fail → the same balloon as at tray startup.
                         $hkSpec = Get-PtHotkeySpec -Preset $s.PanicHotkey
                         if ($hkSpec) {
                             $script:hotkeyRegistered = $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
@@ -686,8 +686,8 @@ public class PtHotkeyWindow : NativeWindow {
                                 $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
                             }
                         } else { $script:hotkeyWin.Unregister(); $script:hotkeyRegistered = $false }
-                        # Смена языка: & $rebuild ниже сам перечитывает Get-PtSettings.Language
-                        # в $lang в начале блока — отдельного шага не нужно.
+                        # Language change: & $rebuild below re-reads Get-PtSettings.Language into
+                        # $lang at the start of the block by itself — no separate step needed.
                     }
                     & $rebuild
                 }.GetNewClosure())
@@ -698,7 +698,7 @@ public class PtHotkeyWindow : NativeWindow {
             }
             $menu.Items.Add($it) | Out-Null
         }
-        # уведомления: движок решает, BalloonTip доставляет (10с; текст без секретов)
+        # notifications: the engine decides, BalloonTip delivers (10s; text carries no secrets)
         $now = [int64][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
         $nr = Get-PtNotifyEvents -Open ($state -eq 'open') -Ttl $ttl -HasSessions ($vaultSessions.Count -gt 0) -Now $now -State $script:notifyState
         $script:notifyState = $nr.State
@@ -711,9 +711,9 @@ public class PtHotkeyWindow : NativeWindow {
             if ($text) { $notify.ShowBalloonTip(10000, 'Paranoid Tools', $text, [System.Windows.Forms.ToolTipIcon]::Warning) }
         }
     }
-    $timer.Add_Tick($rebuild)     # живой опрос статуса/TTL по интервалу из настроек
+    $timer.Add_Tick($rebuild)     # live status/TTL polling at the interval from settings
     & $rebuild
-    $menu.Add_Opening($rebuild)   # плюс мгновенный rebuild при открытии меню
+    $menu.Add_Opening($rebuild)   # plus an immediate rebuild when the menu opens
     $notify.ContextMenuStrip = $menu
     $timer.Start()
 
@@ -722,9 +722,9 @@ public class PtHotkeyWindow : NativeWindow {
 }
 
 if (-not $env:ST_NO_MAIN) {
-    # Трей — pwsh 7 и только он: хоткей-хелпер компилируется со ссылкой на
-    # System.Windows.Forms.Primitives, а этой сборки в .NET Framework (Windows PowerShell 5.1)
-    # нет. Без этой проверки запуск под 5.1 вываливал ошибку компилятора C# вместо ответа.
+    # The tray is pwsh 7 and pwsh 7 only: the hotkey helper compiles with a reference to
+    # System.Windows.Forms.Primitives, and .NET Framework (Windows PowerShell 5.1) has no such
+    # assembly. Without this check a 5.1 launch dumped a C# compiler error instead of an answer.
     if ($PSVersionTable.PSVersion.Major -lt 6) {
         [Console]::Error.WriteLine("[x] paranoid-tray requires PowerShell 7+ (pwsh); running under $($PSVersionTable.PSVersion). Start it with: pwsh -File paranoid-tray.ps1")
         exit 1

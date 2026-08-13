@@ -1,30 +1,32 @@
-﻿# ghostdraft.ps1 — эфемерный черновик для чувствительного текста (Paranoid Tools),
-# Windows-порт (BETA). Зеркало macOS-версии (bash). Baseline: Windows PowerShell 5.1.
+﻿# ghostdraft.ps1 — ephemeral draft for sensitive text (Paranoid Tools),
+# Windows port (BETA). Mirror of the macOS version (bash). Baseline: Windows PowerShell 5.1.
 #
-# Написать/просмотреть seed/пароль/ключ так, чтобы после закрытия следов осталось как
-# можно меньше в обычных местах (editor backups, recent docs, буфер).
+# Write/view a seed/password/key so that after closing, as few traces as possible
+# remain in the usual places (editor backups, recent docs, clipboard).
 #
-# ЧЕСТНО (легко скатиться в снейкойл — НЕ обещаем «ноль следов»):
-#   - на Windows НЕТ встроенного RAM-диска (в отличие от macOS hdiutil ram://). Поэтому
-#     fallback-черновик ложится во ВРЕМЕННЫЙ ФАЙЛ НА ДИСКЕ (ACL только для текущего юзера) +
-#     best-effort overwrite-shred. На SSD перезапись НЕ гарантия (wear-leveling). Реальная
-#     эфемерность — только внутри открытого vault securetrash (BitLocker VHDX: закрытие =
-#     crypto-shred). Поэтому приоритет: GHOSTDRAFT_DIR → открытый vault → on-disk fallback.
-#   - pagefile (swap) и scrollback консоли ОС может оставить — перечисляем честно.
-#   - --clipboard для seed опасен (история буфера Win+V + Cloud Clipboard sync в аккаунт
-#     Microsoft) — по умолчанию ВЫКЛ, с предупреждением. Авто-очистки в фоне НЕТ (на Windows
-#     это ненадёжно: clipboard-cmdlet'ам нужен STA, фон-job его не даёт) — чистить вручную.
+# HONESTLY (easy to slide into snake oil — we do NOT promise "zero traces"):
+#   - Windows has NO built-in RAM disk (unlike macOS hdiutil ram://). So the
+#     fallback draft lands in a TEMPORARY FILE ON DISK (ACL for the current user only) +
+#     best-effort overwrite-shred. On an SSD overwriting is NO guarantee (wear-leveling).
+#     Real ephemerality exists only inside an open securetrash vault (BitLocker VHDX:
+#     closing = crypto-shred). Hence the priority: GHOSTDRAFT_DIR → open vault → on-disk fallback.
+#   - the OS may keep the pagefile (swap) and console scrollback — we list them honestly.
+#   - --clipboard for a seed is dangerous (Win+V clipboard history + Cloud Clipboard sync into
+#     the Microsoft account) — OFF by default, with a warning. There is NO background auto-clear
+#     (on Windows it is unreliable: clipboard cmdlets need STA, a background job doesn't provide
+#     it) — clear it manually.
 #
-# BETA: логика покрыта Pester (внешние эффекты — editor/shred/clipboard — мокаются);
-# поведение на реальном железе с экзотическими editor'ами/локалями широко не обкатано.
+# BETA: the logic is covered by Pester (external effects — editor/shred/clipboard — are mocked);
+# behavior on real hardware with exotic editors/locales is not widely road-tested.
 
 $VERSION = '0.1.18'
 
-# --- настраиваемые примитивы (зеркало bash GHOSTDRAFT_*/ST_VAULT_VOLUME) ---
-# Корень открытого vault securetrash. securetrash.ps1 монтирует VHDX на ПЕРВУЮ СВОБОДНУЮ
-# букву (не фиксированную V:) и пишет её в sidecar <vault>.mount — читаем его, как это
-# делает windows/paranoid.ps1. Иначе черновик с секретом молча уезжал в on-disk fallback
-# при живом открытом vault (AUDIT_2026-08-03 P0-3). ST_VAULT_VOLUME переопределяет вручную.
+# --- configurable primitives (mirror of bash GHOSTDRAFT_*/ST_VAULT_VOLUME) ---
+# Root of the open securetrash vault. securetrash.ps1 mounts the VHDX on the FIRST FREE
+# letter (not a fixed V:) and writes it into the <vault>.mount sidecar — we read it the
+# same way windows/paranoid.ps1 does. Otherwise a draft with a secret silently drifted into
+# the on-disk fallback while a live vault was open (AUDIT_2026-08-03 P0-3). ST_VAULT_VOLUME
+# overrides manually.
 function Get-GdVaultVolume {
     if ($env:ST_VAULT_VOLUME) { return $env:ST_VAULT_VOLUME }
     $vaultPath = if ($env:ST_VAULT_PATH) { $env:ST_VAULT_PATH } else {
@@ -36,17 +38,17 @@ function Get-GdVaultVolume {
         try {
             if (Test-Path -LiteralPath $sidecar) {
                 $m = (Get-Content -LiteralPath $sidecar -Raw -ErrorAction Stop).Trim()
-                # Sidecar — подсказка, не доказательство: он мог пережить грубое отключение,
-                # а букву переиспользовал посторонний том. Доверяем только при attached VHDX.
+                # The sidecar is a hint, not proof: it could have survived a rough detach,
+                # with the letter reused by an unrelated volume. Trust only with an attached VHDX.
                 if ($m -and (Test-GdVaultAttached -VaultPath $vaultPath)) { return $m }
             }
-        } catch { }   # нечитаемый sidecar = подсказки нет; штатный fallback ниже
+        } catch { }   # unreadable sidecar = no hint; the normal fallback below
     }
-    return 'V:\'   # legacy-дефолт: сейфы, созданные до sidecar'а
+    return 'V:\'   # legacy default: vaults created before the sidecar existed
 }
 
-# Attached ли VHDX сейчас — best-effort: без Get-DiskImage (не-Windows прогон тестов)
-# или при ошибке опровергнуть не можем → доверяем sidecar'у (не хуже прежней V:\-эвристики).
+# Is the VHDX attached right now — best-effort: without Get-DiskImage (non-Windows test run)
+# or on error we cannot disprove it → trust the sidecar (no worse than the old V:\ heuristic).
 function Test-GdVaultAttached {
     param([string]$VaultPath)
     if (-not $VaultPath -or -not (Test-Path -LiteralPath $VaultPath)) { return $false }
@@ -54,7 +56,7 @@ function Test-GdVaultAttached {
     try { return [bool](Get-DiskImage -ImagePath $VaultPath -ErrorAction Stop).Attached } catch { return $true }
 }
 
-# --- locale: en по умолчанию; ru — если ST_LANG или системная UI-локаль начинаются с 'ru' ---
+# --- locale: en by default; ru — if ST_LANG or the system UI locale starts with 'ru' ---
 function Get-GdLocale {
     $want = $env:ST_LANG
     if ($want) {
@@ -65,19 +67,19 @@ function Get-GdLocale {
 }
 $script:GD_LOCALE = if ($env:ST_LOCALE) { $env:ST_LOCALE } else { Get-GdLocale }
 
-# --- output helpers: данные — stdout (Write-Output); предупреждения/ошибки — stderr ---
+# --- output helpers: data — stdout (Write-Output); warnings/errors — stderr ---
 function Write-GdInfo { param([string]$Msg) Write-Output "[+] $Msg" }
 function Write-GdWarn { param([string]$Msg) [Console]::Error.WriteLine("[!] $Msg") }
 function Write-GdErr  { param([string]$Msg) [Console]::Error.WriteLine("[x] $Msg") }
 
-# --- exit через исключение (Pester-safe: не убивает host-сессию) ---
+# --- exit via an exception (Pester-safe: does not kill the host session) ---
 class GdExit : System.Exception {
     [int]$Code
     GdExit([int]$code) : base("GdExit:$code") { $this.Code = $code }
 }
 function Stop-GdCommand { param([int]$Code = 1) throw [GdExit]::new($Code) }
 
-# --- confirm: 0/false только при точном 'yes'; ST_ASSUME_YES=1 обходит (тесты/скрипты) ---
+# --- confirm: true only on an exact 'yes'; ST_ASSUME_YES=1 bypasses (tests/scripts) ---
 function Confirm-Gd {
     param([string]$Prompt)
     if ($env:ST_ASSUME_YES -eq '1') { return $true }
@@ -86,7 +88,7 @@ function Confirm-Gd {
     return ($ans -eq 'yes')
 }
 
-# --- i18n (таблица строк ghostdraft; зеркало bash t(), Windows-адаптация мест следов) ---
+# --- i18n (ghostdraft string table; mirror of bash t(), trace locations adapted for Windows) ---
 function T {
     param([string]$Key, [string]$A)
     $loc = $script:GD_LOCALE
@@ -149,24 +151,24 @@ console scrollback) — those are listed honestly. --clipboard is OFF by default
 '@
 }
 
-# === pipe — прочитать stdin, напечатать в терминал, на диск НЕ писать ничего ===
-# Самый безопасный режим: ничего не создаём на диске. Честно предупреждаем, что scrollback
-# консоли всё равно держит текст. Печатаем raw (без лишнего перевода строки) — fidelity пайпа.
+# === pipe — read stdin, print to the terminal, write NOTHING to disk ===
+# The safest mode: nothing is created on disk. We honestly warn that the console scrollback
+# still holds the text. We print raw (no extra newline) — pipe fidelity.
 function Invoke-GdPipe {
     param([string]$Text)
     if ($null -ne $Text -and $Text.Length -gt 0) { [Console]::Out.Write($Text) }
     Write-GdWarn (T 'pipe_scrollback')
 }
 
-# === new: эфемерный черновик + shred + чистка editor-следов ===
+# === new: ephemeral draft + shred + editor-residue cleanup ===
 
-# Том примонтирован и доступен на запись? (директория + writable). Грубо, но честно:
-# не пишем в путь, который лишь выглядит как vault.
+# Is the volume mounted and writable? (directory + writable). Crude but honest:
+# we do not write to a path that merely looks like a vault.
 function Test-GdWritableDir {
     param([string]$Path)
     if (-not $Path) { return $false }
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
-    # Проба записи: создаём и удаляем zero-byte файл.
+    # Write probe: create and delete a zero-byte file.
     $probe = Join-Path $Path (".gd-probe-" + [Guid]::NewGuid().ToString('N'))
     try {
         New-Item -ItemType File -Path $probe -Force -ErrorAction Stop | Out-Null
@@ -175,8 +177,8 @@ function Test-GdWritableDir {
     } catch { return $false }
 }
 
-# Выбрать каталог для черновика. Возвращает @{ Dir; Kind } (kind: override|vault|fallback).
-# Приоритет: GHOSTDRAFT_DIR → открытый vault (ST_VAULT_VOLUME) → on-disk secure-temp fallback.
+# Pick a directory for the draft. Returns @{ Dir; Kind } (kind: override|vault|fallback).
+# Priority: GHOSTDRAFT_DIR → open vault (ST_VAULT_VOLUME) → on-disk secure-temp fallback.
 function Get-GdDraftLocation {
     $ov = $env:GHOSTDRAFT_DIR
     if ($ov) {
@@ -191,14 +193,14 @@ function Get-GdDraftLocation {
     return @{ Dir = $tmp; Kind = 'fallback' }
 }
 
-# Создать temp-каталог с ACL только для текущего юзера (наследование выключено).
-# Best-effort: если ACL не выставился — каталог всё равно создаётся (с предупреждением).
+# Create a temp directory with an ACL for the current user only (inheritance disabled).
+# Best-effort: if the ACL could not be set — the directory is still created (with a warning).
 function New-GdSecureTempDir {
     $dir = Join-Path $env:TEMP ("ghostdraft-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     try {
         $acl = Get-Acl -LiteralPath $dir
-        $acl.SetAccessRuleProtection($true, $false)   # выключить наследование, снять inherited
+        $acl.SetAccessRuleProtection($true, $false)   # disable inheritance, drop inherited rules
         $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
         $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
             $me, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
@@ -210,7 +212,7 @@ function New-GdSecureTempDir {
     return $dir
 }
 
-# Создать файл черновика в каталоге (zero-byte, ACL наследует от защищённого каталога).
+# Create the draft file in the directory (zero-byte, ACL inherited from the protected directory).
 function New-GdDraftFile {
     param([string]$Dir)
     $f = Join-Path $Dir (".ghostdraft." + [Guid]::NewGuid().ToString('N'))
@@ -218,22 +220,22 @@ function New-GdDraftFile {
     return $f
 }
 
-# Запустить editor на файле, дождаться закрытия (мокается в тестах).
+# Launch the editor on the file, wait for it to close (mocked in tests).
 function Invoke-GdEditor {
     param([string]$Path)
     $editor = if ($env:EDITOR) { $env:EDITOR } else { 'notepad' }
     Start-Process -FilePath $editor -ArgumentList $Path -Wait -NoNewWindow
 }
 
-# Затереть и удалить файл. Предпочитаем securetrash shred (его честная логика);
-# иначе fallback: overwrite случайными байтами + delete (на SSD best-effort, не гарантия).
+# Overwrite and delete a file. We prefer securetrash shred (its honest logic);
+# otherwise fallback: overwrite with random bytes + delete (best-effort on SSD, no guarantee).
 function Invoke-GdShred {
     param([string]$Path)
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return }
     $st = Get-Command 'securetrash' -ErrorAction SilentlyContinue
     if ($st) {
-        # Значение пользователя сохраняем и возвращаем: раньше finally удалял переменную
-        # целиком, так что ST_ASSUME_YES=1, выставленный вызывающим, пропадал после shred.
+        # Save and restore the user's value: previously finally removed the variable
+        # entirely, so ST_ASSUME_YES=1 set by the caller vanished after the shred.
         $prevAssumeYes = $env:ST_ASSUME_YES
         try {
             $env:ST_ASSUME_YES = '1'
@@ -255,8 +257,8 @@ function Invoke-GdShred {
     Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
 }
 
-# Удалить editor-следы рядом с черновиком: vim swap/undo, nano backup. ЧЕСТНО: ~/.viminfo,
-# pagefile и scrollback выборочно вычистить НЕ можем (см. new_residue).
+# Remove editor residue next to the draft: vim swap/undo, nano backup. HONESTLY: ~/.viminfo,
+# the pagefile and the scrollback we CANNOT selectively scrub (see new_residue).
 function Clear-GdEditorResidue {
     param([string]$Path)
     if (-not $Path) { return }
@@ -268,8 +270,8 @@ function Clear-GdEditorResidue {
     }
 }
 
-# Положить черновик в системный буфер с явным подтверждением (опасно). Код $false —
-# буфер не тронут (вызывающий продолжает shred). На Windows фоновой авто-очистки НЕТ.
+# Put the draft into the system clipboard with an explicit confirmation (dangerous). $false —
+# clipboard untouched (the caller proceeds with the shred). On Windows there is NO background auto-clear.
 function Set-GdClipboardDraft {
     param([string]$Path)
     Write-GdWarn (T 'clip_danger')
@@ -280,7 +282,7 @@ function Set-GdClipboardDraft {
     return $true
 }
 
-# Удалить временный каталог fallback'а целиком (после shred файла).
+# Remove the fallback temp directory entirely (after the file shred).
 function Remove-GdTempDir {
     param([string]$Dir)
     if ($Dir -and (Test-Path -LiteralPath $Dir)) {
@@ -326,8 +328,8 @@ function Invoke-GdVersion { Write-Output "ghostdraft $VERSION (Windows, beta)" }
 function Invoke-GdMain {
     param([string[]]$Argv)
     try {
-        # --yes где угодно в аргументах == ST_ASSUME_YES=1 (контракт securetrash).
-        # После `--` аргументы литеральные (зеркало bash).
+        # --yes anywhere in the arguments == ST_ASSUME_YES=1 (the securetrash contract).
+        # After `--` arguments are literal (mirror of bash).
         if ($Argv -and ($Argv -contains '--yes')) {
             $kept = @(); $literal = $false
             foreach ($a in $Argv) {
@@ -344,7 +346,7 @@ function Invoke-GdMain {
             { $_ -in 'version', '-v', '--version' } { Invoke-GdVersion }
             { $_ -in 'help', '--help', '-h' }       { Write-Output (Get-GdUsage) }
             'pipe' {
-                # Весь stdin читаем целиком из консоли (redirect-safe); пусто → только warn.
+                # Read the whole of stdin from the console (redirect-safe); empty → warn only.
                 Invoke-GdPipe -Text ([Console]::In.ReadToEnd())
             }
             'new'  { Invoke-GdNew -ArgList $rest }
@@ -355,7 +357,7 @@ function Invoke-GdMain {
     }
 }
 
-# Dot-source guard: при `. ghostdraft.ps1` (Pester) main НЕ запускается; ST_NO_MAIN=1 тоже глушит.
+# Dot-source guard: under `. ghostdraft.ps1` (Pester) main does NOT run; ST_NO_MAIN=1 silences it too.
 if ($MyInvocation.InvocationName -ne '.' -and -not $env:ST_NO_MAIN) {
     Invoke-GdMain -Argv $args
 }

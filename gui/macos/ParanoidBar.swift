@@ -1,58 +1,58 @@
-// ParanoidBar — нативный menu-bar агент поверх тех же подписанных CLI Paranoid Tools (Фаза B).
+// ParanoidBar — a native menu-bar agent on top of the same signed Paranoid Tools CLIs (Phase B).
 //
-// ЧЕСТНОСТЬ (как у bash-лаунчера Фазы A): GUI секретов НЕ держит и крипту НЕ добавляет. Он лишь
-// показывает живой статус в строке меню и запускает те же CLI (securetrash / panic / paranoid),
-// ничего не пряча. Деструктив и ввод пароля идут в сам CLI (открывается Terminal с его выводом) —
-// секреты никогда не проходят через GUI. Это convenience-слой, не новый инструмент.
+// HONESTY (as with the Phase A bash launcher): the GUI holds NO secrets and adds NO crypto. It only
+// shows a live status in the menu bar and launches the same CLIs (securetrash / panic / paranoid),
+// hiding nothing. Destructive actions and password entry go into the CLI itself (a Terminal opens
+// with its output) — secrets never pass through the GUI. It is a convenience layer, not a new tool.
 //
-// Сборка (Command Line Tools достаточно): см. build.sh — `swiftc -O -o ParanoidBar ParanoidBar.swift`.
-// Запуск как агента строки меню (без иконки в Dock) — через .app-бандл с LSUIElement=true; для
-// подписи/нотаризации/упаковки нужен Apple Developer аккаунт (это шаг дистрибуции, см. gui/README.md).
+// Build (Command Line Tools is enough): see build.sh — `swiftc -O -o ParanoidBar ParanoidBar.swift`.
+// Running as a menu-bar agent (no Dock icon) — via an .app bundle with LSUIElement=true; signing/
+// notarization/packaging needs an Apple Developer account (a distribution step, see gui/README.md).
 
 import AppKit
 import Carbon.HIToolbox
 
-// Точка монтирования vault — та же, что у securetrash. Приоритет: настройки (settings-панель) →
-// окружение ST_VAULT_VOLUME → дефолт. Computed, чтобы подхватывать изменение настроек без рестарта.
+// Vault mount point — the same one securetrash uses. Priority: settings (the settings panel) →
+// ST_VAULT_VOLUME environment → default. Computed, to pick up settings changes without a restart.
 private var vaultVolume: String {
     if let v = UserDefaults.standard.string(forKey: "vaultVolume"), !v.isEmpty { return v }
     return ProcessInfo.processInfo.environment["ST_VAULT_VOLUME"] ?? "/Volumes/SecretVault"
 }
-// Комплект CLI, поверх которых работает GUI: install.sh ставит их вместе, поэтому «готово»
-// значит все пять. Лаунчер `paranoid` тоже здесь — меню-бар зовёт именно его, и без него
-// зелёная галка была бы враньём (раньше проверялись только три тула из пяти).
+// The set of CLIs the GUI works on top of: install.sh installs them together, so "ready"
+// means all five. The `paranoid` launcher is here too — the menu bar invokes exactly it, and
+// without it the green checkmark would be a lie (previously only three of five tools were checked).
 let ecosystemCLIs = ["securetrash", "vaultwatch", "panic", "ghostdraft", "seedsplit", "paranoid"]
 
-// Экранирование значения для shell (внутренние `'` разбиваются). Чистая функция → selftest.
+// Escape a value for the shell (inner `'` get split out). Pure function → selftest.
 func shellQuote(_ s: String) -> String {
     "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
-// Префикс окружения для CLI, запускаемых в Terminal.app: свежий shell окружение GUI НЕ наследует.
-// ОБЕ переменные обязательны — ST_VAULT_VOLUME задаёт точку монтирования, ST_VAULT_PATH сам
-// контейнер; без второй open/create/destroy били бы по дефолтному сейфу, пока GUI показывает
-// кастомный (находка Codex к AUDIT_2026-08-03 P2-9).
+// Environment prefix for CLIs launched in Terminal.app: a fresh shell does NOT inherit the GUI's
+// environment. BOTH variables are mandatory — ST_VAULT_VOLUME sets the mount point, ST_VAULT_PATH
+// the container itself; without the second one open/create/destroy would hit the default vault
+// while the GUI shows a custom one (Codex finding for AUDIT_2026-08-03 P2-9).
 func terminalEnvPrefix(volume: String, path: String) -> String {
     "ST_VAULT_VOLUME=\(shellQuote(volume)) ST_VAULT_PATH=\(shellQuote(path)) "
 }
 
-// Зажать интервал опроса в разумные границы: снизу 5с (батарея/CPU), сверху 3600с (иначе статус
-// «зависает» на час+ и TTL-уведомления опаздывают до бесполезности). Зеркало Windows-tray clamp.
+// Clamp the poll interval to sane bounds: 5s floor (battery/CPU), 3600s ceiling (otherwise the status
+// "freezes" for an hour+ and TTL notifications arrive too late to be useful). Mirrors the Windows-tray clamp.
 func clampPoll(_ v: Int) -> Int { min(max(v, 5), 3600) }
-// Интервал опроса статуса (сек) из настроек; <5 (включая ещё не заданное 0) → дефолт 15, иначе clamp сверху.
+// Status poll interval (sec) from settings; <5 (including a not-yet-set 0) → default 15, otherwise clamp the top.
 private func pollSeconds() -> Double {
     let v = UserDefaults.standard.double(forKey: "pollSeconds")
-    // min в Double-домене ДО Int(): огромный/inf double из руками правленных defaults иначе трапнул бы Int(v)
+    // min in the Double domain BEFORE Int(): a huge/inf double from hand-edited defaults would otherwise trap Int(v)
     return v >= 5 ? Double(clampPoll(Int(min(v, 3600)))) : 15
 }
-// Тот же смонтированный том? Нормализация через standardizedFileURL съедает trailing slash и
-// относительные компоненты, чтобы "/Volumes/Foo" и "/Volumes/Foo/" совпадали как один том.
+// Same mounted volume? Normalizing via standardizedFileURL eats the trailing slash and
+// relative components, so that "/Volumes/Foo" and "/Volumes/Foo/" match as one volume.
 func sameMount(_ a: String, _ b: String) -> Bool {
     URL(fileURLWithPath: a).standardizedFileURL.path == URL(fileURLWithPath: b).standardizedFileURL.path
 }
 
-// --- локализация: словарь в коде (без .lproj — single-file принцип). Ключи зеркалятся
-// в Windows-tray ($PtStrings); паритет наборов проверяется тестом (Task 11). Честные формулировки
-// («at risk») переводим без смягчения. ---
+// --- localization: an in-code dictionary (no .lproj — single-file principle). Keys are mirrored
+// in the Windows tray ($PtStrings); set parity is checked by a test (Task 11). Honest wording
+// ("at risk") is translated without softening. ---
 private let strings: [String: (en: String, ru: String)] = [
     "vault_label":      ("Vault:", "Сейф:"),
     "vault_open_risk":  ("OPEN — at risk", "ОТКРЫТ — под риском"),
@@ -92,8 +92,8 @@ private let strings: [String: (en: String, ru: String)] = [
     "set_lang":         ("Language:", "Язык:"),
     "set_hotkey":       ("Panic hotkey:", "Хоткей паники:"),
     "set_save":         ("Save", "Сохранить"),
-    // set_cancel используется только Windows-формой (у macOS-окна нет кнопки Cancel);
-    // ключ объявлен здесь ради паритета ключей ps1↔Swift (Pester-тест).
+    // set_cancel is used only by the Windows form (the macOS window has no Cancel button);
+    // the key is declared here for ps1↔Swift key parity (Pester test).
     "set_cancel":       ("Cancel", "Отмена"),
     "set_setup_btn":    ("Show setup guide", "Показать гид"),
     "hk_off":           ("Off", "Выкл"),
@@ -114,8 +114,8 @@ private let strings: [String: (en: String, ru: String)] = [
     "ob_done":          ("Done", "Готово"),
 ]
 
-// Выбор языка: override из настроек ("en"/"ru") бьёт систему; "system" → префикс локали,
-// всё не-русское схлопывается в en. Чистая функция — гоняется в selftest.
+// Language selection: the settings override ("en"/"ru") beats the system; "system" → locale prefix,
+// everything non-Russian collapses to en. Pure function — exercised in selftest.
 private func resolveLang(override: String, systemLang: String) -> String {
     if override == "en" || override == "ru" { return override }
     return systemLang.hasPrefix("ru") ? "ru" : "en"
@@ -130,26 +130,26 @@ private func L(_ key: String, lang: String? = nil) -> String {
     return (lang ?? currentLang()) == "ru" ? s.ru : s.en
 }
 
-// --- уведомления: чистый движок решений (selftest) + доставка через osascript.
-// UNUserNotificationCenter требует .app-бандл с identity — неподписанный бинарь падает,
-// поэтому display notification через osascript (работает у голого исполняемого). ---
+// --- notifications: a pure decision engine (selftest) + delivery via osascript.
+// UNUserNotificationCenter requires an .app bundle with an identity — an unsigned binary crashes,
+// hence display notification via osascript (works for a bare executable). ---
 struct NotifyState: Equatable {
-    var ttlWarned = false          // «авто-закроется через N» уже показано в этом эпизоде
-    var ttlExpiredWarned = false   // «TTL истёк» уже показано
-    var longOpenWarned = false     // «открыт 30+ мин» уже показано
-    var openSince: Date? = nil     // начало текущего эпизода «сейф открыт»
-                                   // (= первый опрос, увидевший open; рестарт GUI сбрасывает отсчёт)
+    var ttlWarned = false          // "auto-closes in N" already shown in this episode
+    var ttlExpiredWarned = false   // "TTL expired" already shown
+    var longOpenWarned = false     // "open 30+ min" already shown
+    var openSince: Date? = nil     // start of the current "vault open" episode
+                                   // (= the first poll that saw open; a GUI restart resets the count)
 }
-// Правила (спека §2): TTL<120с → ttl_warn; TTL==0 при открытом → ttl_expired; открыт >30 мин
-// БЕЗ vaultwatch-сессии → long_open. Каждое — однократно за эпизод; закрытие сейфа сбрасывает.
-// Имена событий-строк намеренно зеркалят Windows-tray (Get-PtNotifyEvents) — не заменять на enum.
+// Rules (spec §2): TTL<120s → ttl_warn; TTL==0 while open → ttl_expired; open >30 min
+// with NO vaultwatch session → long_open. Each fires once per episode; closing the vault resets.
+// Event-string names deliberately mirror the Windows tray (Get-PtNotifyEvents) — do not replace with an enum.
 func decideNotifications(open: Bool, ttl: Int?, hasSessions: Bool, now: Date,
                          state: NotifyState) -> ([String], NotifyState) {
     var s = state
-    guard open else { return ([], NotifyState()) }         // закрыт → сброс эпизода
+    guard open else { return ([], NotifyState()) }         // closed → episode reset
     if s.openSince == nil { s.openSince = now }
     var events: [String] = []
-    if let t = ttl, t >= 120 { s.ttlWarned = false; s.ttlExpiredWarned = false }   // новая/продлённая сессия → перевзвод
+    if let t = ttl, t >= 120 { s.ttlWarned = false; s.ttlExpiredWarned = false }   // new/extended session → re-arm
     if let t = ttl {
         if t > 0 && t < 120 && !s.ttlWarned { events.append("ttl_warn"); s.ttlWarned = true }
         if t == 0 && !s.ttlExpiredWarned { events.append("ttl_expired"); s.ttlExpiredWarned = true }
@@ -161,17 +161,17 @@ func decideNotifications(open: Bool, ttl: Int?, hasSessions: Bool, now: Date,
     return (events, s)
 }
 
-// --- глобальный хоткей паники (Carbon RegisterEventHotKey; работает без Accessibility-разрешений,
-// в отличие от CGEventTap). Двойное нажатие в 2с → panic now --hard БЕЗ confirm (double-press =
-// подтверждение; --hard = паритет с «PANIC NOW» лаунчера: hide&lock + cloud-демоны + recents).
-// Одиночное — взвод + уведомление. ---
+// --- global panic hotkey (Carbon RegisterEventHotKey; works without Accessibility permissions,
+// unlike CGEventTap). Double press within 2s → panic now --hard WITHOUT confirm (double-press =
+// confirmation; --hard = parity with the launcher's "PANIC NOW": hide&lock + cloud daemons + recents).
+// A single press — arm + notification. ---
 func panicShouldFire(now: Date, armedAt: Date?, window: TimeInterval = 2.0) -> Bool {
     guard let a = armedAt else { return false }
-    // d < 0 → перевод часов назад между взводом и вторым нажатием; не считать это «вторым в окне».
+    // d < 0 → the clock was set back between arming and the second press; do not count that as "second in window".
     let d = now.timeIntervalSince(a)
     return d >= 0 && d <= window
 }
-// Пресет → виртуальная клавиша (модификаторы у всех пресетов одни: ⌃⌥⇧). nil → не регистрировать.
+// Preset → virtual key (all presets share the same modifiers: ⌃⌥⇧). nil → do not register.
 func hotkeyVK(preset: String) -> UInt32? {
     switch preset {
     case "ctrl-opt-shift-p": return UInt32(kVK_ANSI_P)
@@ -179,11 +179,11 @@ func hotkeyVK(preset: String) -> UInt32? {
     default: return nil
     }
 }
-// Carbon C-callback не captures Swift-контекст → глобальный хук на действие.
+// A Carbon C callback cannot capture Swift context → a global hook for the action.
 private var panicHotkeyAction: (() -> Void)?
 private var panicHotKeyRef: EventHotKeyRef?
 private var hotkeyHandlerInstalled = false
-// false → хендлер РЕАЛЬНО не встал (Carbon вернул ошибку); повторные вызовы после успеха — true.
+// false → the handler REALLY did not install (Carbon returned an error); repeat calls after success — true.
 func installHotkeyHandlerOnce() -> Bool {
     guard !hotkeyHandlerInstalled else { return true }
     var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
@@ -196,11 +196,11 @@ func installHotkeyHandlerOnce() -> Bool {
     hotkeyHandlerInstalled = true
     return true
 }
-// true = хоткей в запрошенном состоянии (зарегистрирован ИЛИ осознанно снят через off);
-// false = РЕАЛЬНЫЙ фейл регистрации (например, комбинация занята другим приложением).
+// true = the hotkey is in the requested state (registered OR deliberately removed via off);
+// false = a REAL registration failure (for example, the combination is taken by another app).
 func registerPanicHotkey(preset: String) -> Bool {
     if let ref = panicHotKeyRef { UnregisterEventHotKey(ref); panicHotKeyRef = nil }
-    guard let vk = hotkeyVK(preset: preset) else { return true }   // off/мусор → снято осознанно
+    guard let vk = hotkeyVK(preset: preset) else { return true }   // off/garbage → removed deliberately
     guard installHotkeyHandlerOnce() else { return false }
     let id = EventHotKeyID(signature: OSType(0x50424152), id: 1)   // 'PBAR'
     let status = RegisterEventHotKey(vk, UInt32(controlKey | optionKey | shiftKey), id,
@@ -208,22 +208,22 @@ func registerPanicHotkey(preset: String) -> Bool {
     if status != noErr { panicHotKeyRef = nil; return false }
     return true
 }
-// Значения попапов Settings: индекс пункта попапа ↔ значение в UserDefaults (единый источник
-// для построения, ресинка кэшированного окна и сохранения — рассинхрон индексов исключён).
+// Settings popup values: popup item index ↔ value in UserDefaults (a single source for
+// building, resyncing the cached window, and saving — index desync is ruled out).
 private let langValues = ["system", "en", "ru"]
 private let hotkeyValues = ["ctrl-opt-shift-p", "ctrl-opt-shift-l", "off"]
-// Санация мусорного значения из UserDefaults (напр. чужой `defaults write` с опечаткой): вне
-// известных пресетов молча падаем на дефолт, а не тихо выключаем хоткей (Settings иначе показывал
-// бы ⌃⌥⇧P, а хоткей на деле не регистрировался бы). Зеркалит санацию Windows-tray.
+// Sanitize a garbage value from UserDefaults (e.g. a foreign `defaults write` with a typo): outside
+// the known presets we silently fall back to the default rather than quietly disabling the hotkey
+// (Settings would otherwise show ⌃⌥⇧P while the hotkey was in fact not registered). Mirrors the Windows-tray sanitization.
 func sanitizeHotkeyPreset(_ raw: String) -> String {
     hotkeyValues.contains(raw) ? raw : "ctrl-opt-shift-p"
 }
-// Пресет из настроек (дефолт — включён: хоткей и есть смысл Фазы B).
+// Preset from settings (default — enabled: the hotkey is the whole point of Phase B).
 func hotkeyPreset() -> String {
     sanitizeHotkeyPreset(UserDefaults.standard.string(forKey: "panicHotkey") ?? "ctrl-opt-shift-p")
 }
 
-// Строка чеклиста Welcome-окна — чистая для selftest.
+// A Welcome-window checklist line — pure, for selftest.
 func checklistLine(ok: Bool, okKey: String, missKey: String, lang: String? = nil) -> String {
     (ok ? "✅ " + L(okKey, lang: lang) : "❌ " + L(missKey, lang: lang))
 }
@@ -238,15 +238,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyPopup: NSPopUpButton?
     private var welcomeWindow: NSWindow?
     private var notifyState = NotifyState()
-    // Carbon hot-key события приходят на main thread через event loop NSApplication —
-    // синхронизация panicArmedAt не нужна.
+    // Carbon hot-key events arrive on the main thread via the NSApplication event loop —
+    // no synchronization needed for panicArmedAt.
     private var panicArmedAt: Date?
-    // true = хоткей в запрошенном состоянии (зарегистрирован ИЛИ осознанно снят через off);
-    // false = реальный фейл регистрации. Читать только под гейтом hotkeyVK(preset:) != nil —
-    // сам по себе true при off НЕ означает «хоткей работает» (честный статус Welcome-чеклиста).
+    // true = the hotkey is in the requested state (registered OR deliberately removed via off);
+    // false = a real registration failure. Read only behind the hotkeyVK(preset:) != nil gate —
+    // by itself true with off does NOT mean "the hotkey works" (honest Welcome-checklist status).
     private var hotkeyRegistered = false
 
-    // Обработка глобального хоткея: первое нажатие — взвод + уведомление, второе в окне 2с — паника.
+    // Global hotkey handling: first press — arm + notification, second within the 2s window — panic.
     private func hotkeyPressed() {
         let now = Date()
         if panicShouldFire(now: now, armedAt: panicArmedAt) {
@@ -258,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Доставка нативного уведомления. Секретов в тексте нет — только статус.
+    // Native notification delivery. There are no secrets in the text — status only.
     private func notify(_ text: String) {
         let esc = text
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -272,19 +272,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         refresh()
-        rescheduleTimer()   // периодический опрос статуса (интервал из настроек)
+        rescheduleTimer()   // periodic status polling (interval from settings)
         panicHotkeyAction = { [weak self] in self?.hotkeyPressed() }
-        // Фейл регистрации (комбинация занята другим приложением) не глотаем — пользователь должен знать.
+        // A registration failure (combination taken by another app) is not swallowed — the user must know.
         hotkeyRegistered = registerPanicHotkey(preset: hotkeyPreset())
         if !hotkeyRegistered { notify(L("notif_hotkey_fail")) }
-        // first-run: Welcome один раз; дальше — из меню «Setup guide…»
+        // first-run: Welcome once; afterwards — from the "Setup guide…" menu item
         if !UserDefaults.standard.bool(forKey: "didOnboard") {
             UserDefaults.standard.set(true, forKey: "didOnboard")
             doWelcome()
         }
     }
 
-    // Перезапустить таймер опроса с текущим интервалом (вызывается при старте и сохранении настроек).
+    // Restart the poll timer with the current interval (called at startup and when saving settings).
     private func rescheduleTimer() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: pollSeconds(), repeats: true) { [weak self] _ in
@@ -292,12 +292,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // --- статус (только чтение, как dashboard лаунчера) ---
-    // Реально СМОНТИРОВАН, а не «путь существует» (остаток каталога /Volumes/… давал ложное OPEN, P2-10).
-    // Трёхсостоянийно: "open" / "closed" / "unknown". Отвечать «закрыт», когда список томов
-    // получить не удалось, нельзя: зелёное «закрыт» над открытым сейфом — худшее из возможных
-    // враньё (зеркало lib/common.sh:_volume_mounted и дашборда лаунчера). Раньше в этой ветке
-    // стоял fileExists — то есть ровно проверка каталога, от которой экосистема ушла.
+    // --- status (read-only, like the launcher's dashboard) ---
+    // Really MOUNTED, not "the path exists" (a leftover /Volumes/… directory gave a false OPEN, P2-10).
+    // Three-state: "open" / "closed" / "unknown". Answering "closed" when the volume list
+    // could not be obtained is not allowed: a green "closed" over an open vault is the worst
+    // possible lie (mirrors lib/common.sh:_volume_mounted and the launcher's dashboard). This branch
+    // used to hold fileExists — i.e. exactly the directory check the ecosystem moved away from.
     private func vaultMountState() -> String {
         let target = URL(fileURLWithPath: vaultVolume).standardizedFileURL
         guard let vols = FileManager.default.mountedVolumeURLs(
@@ -306,11 +306,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return vols.contains { $0.standardizedFileURL == target } ? "open" : "closed"
     }
-    // Для глифа и уведомлений «не знаем» = «не открыт»: тревожить ⚠ и слать long_open
-    // по неизвестному состоянию не за что. Меню же обязано назвать unknown своим именем.
+    // For the glyph and notifications "don't know" = "not open": there is no ground to alarm
+    // with ⚠ or send long_open over an unknown state. The menu, though, must call unknown by its name.
     private func vaultOpen() -> Bool { vaultMountState() == "open" }
-    // Контейнер сейфа. ST_VAULT_PATH — тот же override, что уважает CLI (AUDIT_2026-07-03 P0-1):
-    // без него GUI показывал бы «сейфа нет» рядом с существующим кастомным сейфом.
+    // Vault container. ST_VAULT_PATH — the same override the CLI honors (AUDIT_2026-07-03 P0-1):
+    // without it the GUI would show "no vault" right next to an existing custom vault.
     private var vaultPath: String {
         if let p = ProcessInfo.processInfo.environment["ST_VAULT_PATH"], !p.isEmpty { return p }
         return FileManager.default.homeDirectoryForCurrentUser.path + "/SecureVault.sparsebundle"
@@ -320,13 +320,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private func fileVaultOn() -> Bool { capture("/usr/bin/fdesetup", ["status"]).contains("FileVault is On") }
 
-    // --- статус vaultwatch (только чтение тех же session-файлов, что пишет vaultwatch CLI) ---
-    private struct VWSession { let mount: String; let remaining: Int? }  // remaining=nil → сессия без TTL
+    // --- vaultwatch status (read-only over the same session files the vaultwatch CLI writes) ---
+    private struct VWSession { let mount: String; let remaining: Int? }  // remaining=nil → session without a TTL
     private var vwStateDir: String {
         ProcessInfo.processInfo.environment["VW_STATE_DIR"]
             ?? (FileManager.default.homeDirectoryForCurrentUser.path + "/.vaultwatch/sessions")
     }
-    // Парсим key=value session-файлы (mount/started/ttl_secs). remaining = started+ttl_secs-now.
+    // Parse key=value session files (mount/started/ttl_secs). remaining = started+ttl_secs-now.
     private func vaultwatchSessions() -> [VWSession] {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(atPath: vwStateDir) else { return [] }
@@ -350,7 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return out
     }
-    // Формат как у vaultwatch CLI: "1h 5m 9s" / "5m 9s".
+    // Same format as the vaultwatch CLI: "1h 5m 9s" / "5m 9s".
     private func fmtDuration(_ s: Int) -> String {
         let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
         return h > 0 ? "\(h)h \(m)m \(sec)s" : "\(m)m \(sec)s"
@@ -359,19 +359,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refresh() {
         let open = vaultOpen()
         let sessions = vaultwatchSessions()
-        // Скоуп к текущему тому (P1): stale session-файл ЧУЖОГО тома (напр. отмонтированный
-        // /Volumes/OldVault) иначе навсегда глушил бы long_open (hasSessions всегда true) и мог бы
-        // рулить TTL-предупреждениями текущего сейфа. Список в меню ниже остаётся полным/честным —
-        // скоуп только для решений уведомлений и tooltip/glyph текущего тома.
+        // Scoped to the current volume (P1): a stale session file of a FOREIGN volume (e.g. an
+        // unmounted /Volumes/OldVault) would otherwise mute long_open forever (hasSessions always
+        // true) and could drive the current vault's TTL warnings. The menu list below stays full/
+        // honest — the scope is only for notification decisions and the current volume's tooltip/glyph.
         let vaultSessions = sessions.filter { sameMount($0.mount, vaultVolume) }
-        // TTL показываем ТОЛЬКО при реально открытом сейфе: осиротевший session-файл иначе рисовал бы
-        // «auto-exit in …» при закрытом vault (P2-10). Закрыт → никакого отсчёта.
-        let ttl = open ? vaultSessions.compactMap { $0.remaining }.min() : nil   // ближайший авто-выход
-        // Текст справа от глифа: отсчёт TTL / «истёк» (⚠) / ⚠ при открытом сейфе / пусто.
+        // TTL is shown ONLY with a really open vault: an orphaned session file would otherwise draw
+        // "auto-exit in …" with the vault closed (P2-10). Closed → no countdown at all.
+        let ttl = open ? vaultSessions.compactMap { $0.remaining }.min() : nil   // nearest auto-exit
+        // Text to the right of the glyph: TTL countdown / "expired" (⚠) / ⚠ with an open vault / empty.
         let suffix: String
         if let t = ttl { suffix = t == 0 ? " ⚠" : " " + fmtDuration(t) } else { suffix = open ? " ⚠" : "" }
-        // Monochrome SF-Symbol глиф (template) — адаптируется под тёмную/светлую строку меню, в
-        // отличие от цветного emoji. Fallback на emoji, если символ недоступен (до macOS 11).
+        // Monochrome SF-Symbol glyph (template) — adapts to the dark/light menu bar, unlike
+        // a colored emoji. Falls back to emoji if the symbol is unavailable (before macOS 11).
         let symbol = open ? "lock.open.fill" : "lock.fill"
         if let img = NSImage(systemSymbolName: symbol,
                              accessibilityDescription: open ? "Vault open" : "Vault closed") {
@@ -403,7 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // --- меню ---
+    // --- menu ---
     private func rebuildMenu(open: Bool, sessions: [VWSession]) {
         let menu = NSMenu()
         let mountState = vaultMountState()
@@ -413,7 +413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { vaultStatusText = vaultExists() ? L("vault_closed") : L("vault_not_setup") }
         menu.addItem(header(L("vault_label") + "      " + vaultStatusText))
         menu.addItem(header(L("fv_label") + "  " + (fileVaultOn() ? L("fv_on") : L("fv_off"))))
-        // Активные vaultwatch-сессии: точка монтирования + обратный отсчёт TTL (или «no TTL»).
+        // Active vaultwatch sessions: mount point + TTL countdown (or "no TTL").
         for s in sessions {
             let name = (s.mount as NSString).lastPathComponent
             let detail: String
@@ -427,20 +427,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item("🔒  " + L("panic_item"), #selector(doPanic)))
         menu.addItem(.separator())
 
-        // Подменю «Сейф» — зеркало группировки bash-лаунчера. autoenablesItems=false, иначе AppKit
-        // сам включит пункты по наличию target (наш disable не удержится).
+        // The "Vault" submenu — a mirror of the bash launcher's grouping. autoenablesItems=false,
+        // otherwise AppKit enables items itself by target presence (our disable would not hold).
         let vault = NSMenu()
         vault.autoenablesItems = false
-        // При unknown пункт не обещает действия: открыть/закрыть вслепую — угадывание.
+        // With unknown the item promises no action: opening/closing blindly is guessing.
         let hasVault = vaultExists() && mountState != "unknown"
         let toggleLabel: String
         if mountState == "open" { toggleLabel = L("vault_close") }
         else if mountState == "unknown" { toggleLabel = L("vault_ask") }
         else { toggleLabel = vaultExists() ? L("vault_open") : L("vault_create") }
         vault.addItem(item(toggleLabel, #selector(doVaultToggle)))
-        // Empty/Destroy имеют смысл только при существующем контейнере И известном состоянии —
-        // иначе grey-out, чтобы деструктив не был активен «в пустоту» (P2-7) и не шёл поверх
-        // состояния, которого мы не знаем.
+        // Empty/Destroy only make sense with an existing container AND a known state —
+        // otherwise grey-out, so that a destructive action is not live "into the void" (P2-7)
+        // and does not run on top of a state we do not know.
         let emptyItem = item(L("vault_empty"), #selector(doVaultEmpty))
         emptyItem.isEnabled = hasVault
         vault.addItem(emptyItem)
@@ -456,7 +456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(item(L("settings_item"), #selector(doSettings)))
         menu.addItem(item(L("setup_item"), #selector(doWelcome)))
-        // Автостарт при логине — галочка отражает текущее состояние LaunchAgent.
+        // Start at login — the checkmark reflects the current LaunchAgent state.
         let loginItem = item(L("login_item"), #selector(doToggleLogin))
         loginItem.state = loginEnabled() ? .on : .off
         menu.addItem(loginItem)
@@ -476,11 +476,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return it
     }
 
-    // --- действия: запускают те же CLI; вывод/ввод видны в Terminal (GUI ничего не прячет) ---
+    // --- actions: launch the same CLIs; output/input are visible in Terminal (the GUI hides nothing) ---
     @objc private func doStatus()        { runInTerminal("securetrash check") }
-    // --hard = паритет с «PANIC NOW» лаунчера (hide&lock + cloud-демоны + recents)
+    // --hard = parity with the launcher's "PANIC NOW" (hide&lock + cloud daemons + recents)
     @objc private func doPanic()         { runInTerminal("panic now --hard") }
-    // unknown → read-only `vault status`: спрашиваем инструмент вместо того, чтобы гадать.
+    // unknown → read-only `vault status`: we ask the tool instead of guessing.
     @objc private func doVaultToggle() {
         let s = vaultMountState()
         let verb: String
@@ -494,10 +494,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func doLauncher()      { runInTerminal("paranoid") }
     @objc private func doQuit()          { NSApp.terminate(nil) }
 
-    // --- автостарт при логине (LaunchAgent) ---
-    // Пишем per-user LaunchAgent plist напрямую: работает с НЕподписанной локальной сборкой (в
-    // отличие от SMAppService.mainApp, которому нужна подпись/реестрация бандла). Указывает на
-    // текущий исполняемый файл; .accessory-политика задаётся в коде, так что Dock-иконки не будет.
+    // --- start at login (LaunchAgent) ---
+    // We write the per-user LaunchAgent plist directly: works with an UNsigned local build (unlike
+    // SMAppService.mainApp, which needs a signed/registered bundle). It points at the current
+    // executable; the .accessory policy is set in code, so there will be no Dock icon.
     private let loginLabel = "com.di-kairos.paranoidbar"
     private var loginPlistURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -526,13 +526,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func doToggleLogin() { setLogin(!loginEnabled()); refresh() }
 
-    // --- Welcome-онбординг (спека §3): живой чеклист готовности + кнопки-действия.
-    // Показывается один раз при first-run (didOnboard в UserDefaults); всегда доступен из меню
-    // «Setup guide…». Никаких секретов — только запуск тех же CLI/переключателей, что и остальной GUI. ---
+    // --- Welcome onboarding (spec §3): a live readiness checklist + action buttons.
+    // Shown once at first-run (didOnboard in UserDefaults); always available from the
+    // "Setup guide…" menu item. No secrets — only launching the same CLIs/toggles as the rest of the GUI. ---
 
-    // Все 3 CLI установлены? (по одному не проверяем — install.sh ставит комплектом.)
-    // Без шеллаута: `sh -lc` не читает ~/.zshrc, куда install.sh велит прописать ~/.local/bin →
-    // был бы ложный ❌. Проверяем исполняемые файлы напрямую: PATH процесса + типовые install-каталоги.
+    // Are all 3 CLIs installed? (We do not check them one by one — install.sh installs them as a set.)
+    // No shell-out: `sh -lc` does not read ~/.zshrc, where install.sh tells you to add ~/.local/bin →
+    // there would be a false ❌. We check the executables directly: process PATH + typical install dirs.
     private func clisInstalled() -> Bool {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
@@ -547,7 +547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func doWelcome() {
         if let w = welcomeWindow {
-            rebuildWelcome(in: w)   // чеклист живой и при повторном открытии, не stale-снимок
+            rebuildWelcome(in: w)   // the checklist is live on reopen too, not a stale snapshot
             w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
         }
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 250),
@@ -558,9 +558,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         w.center(); w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
 
-    // Пересборка контента (после каждого действия — чеклист живой).
+    // Rebuild the content (after every action — the checklist is live).
     private func rebuildWelcome(in w: NSWindow) {
-        w.title = L("ob_title")   // здесь, а не в doWelcome: смена языка обновит и заголовок
+        w.title = L("ob_title")   // here, not in doWelcome: a language change updates the title too
         let v = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 250))
         var y: CGFloat = 214
         func label(_ s: String, size: CGFloat = 13, color: NSColor = .labelColor, wrap: Bool = false) {
@@ -568,8 +568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             l.font = .systemFont(ofSize: size)
             l.textColor = color
             if wrap {
-                // длинная подпись (EN ob_sub ~77 симв. не влезает в 420px одной строкой) →
-                // перенос по словам, 2 строки, увеличенный шаг
+                // a long caption (the EN ob_sub, ~77 chars, does not fit 420px on one line) →
+                // word wrap, 2 lines, increased step
                 l.usesSingleLineMode = false
                 l.lineBreakMode = .byWordWrapping
                 l.maximumNumberOfLines = 2
@@ -583,7 +583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         func actionButton(_ title: String, _ sel: Selector) {
             let b = NSButton(title: title, target: self, action: sel)
             b.bezelStyle = .rounded
-            // y+22: возврат на предыдущую строку (шаг 26) минус центрирование 24px-кнопки в 18px-строке
+            // y+22: return to the previous row (step 26) minus centering a 24px button in an 18px row
             b.frame = NSRect(x: 320, y: y + 22, width: 120, height: 24)
             v.addSubview(b)
         }
@@ -595,10 +595,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         label(checklistLine(ok: hasVault, okKey: "ob_vault_ok", missKey: "ob_vault_missing"))
         if !hasVault { actionButton(L("ob_create_btn"), #selector(obCreateVault)) }
         let preset = hotkeyPreset()
-        // Честный статус: валидный пресет И реально вставшая регистрация (комбинация может быть
-        // занята другим приложением — тогда ⬜ + Enable, а не ложный ✅).
+        // Honest status: a valid preset AND a registration that actually took (the combination may
+        // be taken by another app — then ⬜ + Enable, not a false ✅).
         let hk = hotkeyVK(preset: preset) != nil && hotkeyRegistered
-        // Подпись клавиши следует за реальным пресетом (P/L), а не жёстко P, как в спеке-упрощении.
+        // The key caption follows the actual preset (P/L), not a hard-coded P as in the spec's simplification.
         let hkKey = preset == "ctrl-opt-shift-l" ? "⌃⌥⇧L" : "⌃⌥⇧P"
         label((hk ? "✅ " : "⬜ ") + L("ob_hotkey_line") + ": \(hkKey) (×2)")
         if !hk { actionButton(L("ob_enable_btn"), #selector(obEnableHotkey)) }
@@ -615,11 +615,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func obCreateVault() { runInTerminal("securetrash vault create") }
     @objc private func obEnableHotkey() {
-        // ASSUMPTION: Enable всегда включает дефолт P; восстановление прежнего пресета — территория Settings (T5)
+        // ASSUMPTION: Enable always turns on the default P; restoring the previous preset is Settings territory (T5)
         UserDefaults.standard.set("ctrl-opt-shift-p", forKey: "panicHotkey")
         hotkeyRegistered = registerPanicHotkey(preset: hotkeyPreset())
         if !hotkeyRegistered { notify(L("notif_hotkey_fail")) }
-        // Открытый Settings-попап ресинкаем сразу: его Save иначе молча откатил бы новый пресет.
+        // Resync an open Settings popup right away: its Save would otherwise silently roll back the new preset.
         hotkeyPopup?.selectItem(at: hotkeyValues.firstIndex(of: hotkeyPreset()) ?? 0)
         if let w = welcomeWindow { rebuildWelcome(in: w) }
     }
@@ -629,13 +629,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func obDone() { welcomeWindow?.close() }
 
-    // --- settings-панель (override точки монтирования vault + интервал опроса) ---
-    // Секретов не касается: только пути/интервал, хранятся в UserDefaults, применяются без рестарта.
+    // --- settings panel (vault mount-point override + poll interval) ---
+    // Touches no secrets: only paths/interval, stored in UserDefaults, applied without a restart.
     @objc private func doSettings() {
         if let w = settingsWindow {
-            // Скрытое кэш-окно ресинкаем из текущего состояния (настройки могли смениться извне,
-            // напр. Welcome/Enable). ВИДИМОЕ окно не трогаем: там могут быть набранные, но не
-            // сохранённые правки — консистентность hotkey держит ресинк в obEnableHotkey.
+            // Resync the hidden cached window from the current state (settings may have changed from
+            // outside, e.g. Welcome/Enable). A VISIBLE window is left alone: it may hold typed but
+            // unsaved edits — hotkey consistency is kept by the resync in obEnableHotkey.
             if !w.isVisible {
                 volField?.stringValue = vaultVolume
                 pollField?.stringValue = String(Int(pollSeconds()))
@@ -706,24 +706,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hkValue = hotkeyValues[max(0, hp.indexOfSelectedItem)]
             UserDefaults.standard.set(hkValue, forKey: "panicHotkey")
             hotkeyRegistered = registerPanicHotkey(preset: hkValue)
-            // off возвращает true → !hotkeyRegistered уже исключает осознанное снятие
+            // off returns true → !hotkeyRegistered already excludes a deliberate removal
             if !hotkeyRegistered { notify(L("notif_hotkey_fail")) }
         }
-        // Сброс кэша окна целиком: при смене языка следующий doSettings пересоздаст заголовки.
+        // Drop the whole window cache: on a language change the next doSettings recreates the labels.
         settingsWindow?.close()
         settingsWindow = nil; volField = nil; pollField = nil; langPopup = nil; hotkeyPopup = nil
-        if let w = welcomeWindow { rebuildWelcome(in: w) }   // открытый Welcome не должен stale-ить
-        rescheduleTimer()   // подхватить новый интервал
-        refresh()           // подхватить новую точку монтирования (и язык — меню перестроится)
+        if let w = welcomeWindow { rebuildWelcome(in: w) }   // an open Welcome must not go stale
+        rescheduleTimer()   // pick up the new interval
+        refresh()           // pick up the new mount point (and language — the menu rebuilds)
     }
 
-    // Запустить команду в Terminal.app — пользователь видит вывод и вводит секреты прямо в CLI,
-    // НЕ через GUI. Terminal.app стартует свежий shell, который НЕ наследует окружение GUI →
-    // префиксуем `ST_VAULT_VOLUME=<quoted>`, иначе securetrash/paranoid работали бы с дефолтным
-    // сейфом, пока GUI показывает кастомный (паритет с Windows-tray, который ставит $env заранее).
+    // Run a command in Terminal.app — the user sees the output and types secrets directly into the
+    // CLI, NOT through the GUI. Terminal.app starts a fresh shell that does NOT inherit the GUI's
+    // environment → we prefix `ST_VAULT_VOLUME=<quoted>`, otherwise securetrash/paranoid would work
+    // with the default vault while the GUI shows a custom one (parity with the Windows tray, which sets $env beforehand).
     private func runInTerminal(_ command: String) {
         let full = terminalEnvPrefix(volume: vaultVolume, path: vaultPath) + command
-        // AppleScript-строка: экранируем backslash ПЕРЕД кавычками (shQuote может внести `\`).
+        // AppleScript string: escape backslashes BEFORE quotes (shQuote may introduce a `\`).
         let escaped = full
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -734,7 +734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? p.run()
     }
 
-    // Прочитать stdout короткой команды (для статуса). Аргументы массивом → нет shell-инъекций.
+    // Read a short command's stdout (for status). Arguments as an array → no shell injection.
     private func capture(_ launchPath: String, _ args: [String]) -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launchPath)
@@ -747,68 +747,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-// --- selftest: чистая логика без GUI (аналог ST_NO_MAIN у Windows-tray). `./ParanoidBar --selftest`
-// гоняет ассерты и выходит; в CI/локально это гейт вместе с компиляцией. ---
+// --- selftest: pure logic without the GUI (analog of the Windows tray's ST_NO_MAIN). `./ParanoidBar --selftest`
+// runs the asserts and exits; in CI/locally it is a gate together with compilation. ---
 private func runSelfTests() -> Never {
-    // под -O precondition трапается молча — свой expect() даёт имя упавшего ассерта
+    // under -O a precondition traps silently — our own expect() names the failed assert
     func expect(_ cond: Bool, _ what: String) {
         if !cond { FileHandle.standardError.write(Data("selftest FAIL: \(what)\n".utf8)); exit(1) }
     }
-    // локализация: ключ есть в обеих таблицах, неизвестный ключ возвращается как есть
+    // localization: the key exists in both tables, an unknown key is returned as-is
     expect(L("vault_closed", lang: "en") == "closed", "L vault_closed en")
     expect(L("vault_closed", lang: "ru") == "закрыт", "L vault_closed ru")
     expect(L("no_such_key", lang: "en") == "no_such_key", "L unknown key fallback")
-    // Неизвестное состояние сейфа обязано иметь свою строку в обеих таблицах: иначе меню
-    // молча покажет ключ вместо текста.
+    // The unknown vault state must have its own string in both tables: otherwise the menu
+    // would silently show the key instead of the text.
     expect(L("vault_unknown", lang: "en") != "vault_unknown", "L vault_unknown en")
     expect(L("vault_unknown", lang: "ru") != "vault_unknown", "L vault_unknown ru")
     expect(L("vault_ask", lang: "ru") != "vault_ask", "L vault_ask ru")
-    // онбординг: строка чеклиста из статуса (галка/крест + локализованный текст)
+    // onboarding: a checklist line from status (check/cross + localized text)
     expect(checklistLine(ok: true, okKey: "ob_cli_ok", missKey: "ob_cli_missing", lang: "en")
            == "✅ CLIs installed (all 5 tools + launcher)", "checklist ok en")
-    // окружение для Terminal: обе переменные сейфа + корректное экранирование пути с апострофом
+    // Terminal environment: both vault variables + correct escaping of a path with an apostrophe
     expect(terminalEnvPrefix(volume: "/Volumes/V", path: "/Users/me/V.sparsebundle")
            == "ST_VAULT_VOLUME='/Volumes/V' ST_VAULT_PATH='/Users/me/V.sparsebundle' ",
            "terminal env prefix carries both vault variables")
     expect(shellQuote("/Users/o'brien/V") == "'/Users/o'\\''brien/V'", "shellQuote escapes a quote")
-    // readiness обязан покрывать ВЕСЬ комплект, включая сам лаунчер (AUDIT_2026-08-03 P2-9)
+    // readiness must cover the WHOLE set, including the launcher itself (AUDIT_2026-08-03 P2-9)
     expect(ecosystemCLIs.count == 6, "ecosystemCLIs covers all five tools plus the launcher")
     for tool in ["securetrash", "vaultwatch", "panic", "ghostdraft", "seedsplit", "paranoid"] {
         expect(ecosystemCLIs.contains(tool), "ecosystemCLIs contains \(tool)")
     }
     expect(checklistLine(ok: false, okKey: "ob_vault_ok", missKey: "ob_vault_missing", lang: "ru")
            == "❌ Сейф ещё не создан", "checklist miss ru")
-    // выбор языка: явный override бьёт систему; "system" падает на префикс локали
+    // language selection: an explicit override beats the system; "system" falls back to the locale prefix
     expect(resolveLang(override: "ru", systemLang: "en") == "ru", "resolveLang override ru")
     expect(resolveLang(override: "system", systemLang: "ru") == "ru", "resolveLang system ru")
-    expect(resolveLang(override: "system", systemLang: "fr") == "en", "resolveLang system fr->en")   // не-RU → en
-    // double-press: второй тик в окне 2с → огонь; вне окна → перевзвод
+    expect(resolveLang(override: "system", systemLang: "fr") == "en", "resolveLang system fr->en")   // non-RU → en
+    // double-press: a second tick within the 2s window → fire; outside the window → re-arm
     let base = Date(timeIntervalSince1970: 2_000_000)
     expect(panicShouldFire(now: base, armedAt: nil) == false, "not armed no fire")
     expect(panicShouldFire(now: base.addingTimeInterval(1.5), armedAt: base) == true, "fire in window")
     expect(panicShouldFire(now: base.addingTimeInterval(2.0), armedAt: base) == true, "window boundary inclusive")
     expect(panicShouldFire(now: base.addingTimeInterval(2.5), armedAt: base) == false, "window passed")
     expect(panicShouldFire(now: base.addingTimeInterval(-5), armedAt: base) == false, "negative delta no fire")
-    // санация пресета хоткея: мусор/пустая строка → дефолт P, валидные значения — как есть
+    // hotkey preset sanitization: garbage/empty string → default P, valid values — as-is
     expect(sanitizeHotkeyPreset("garbage") == "ctrl-opt-shift-p", "sanitize garbage -> default")
     expect(sanitizeHotkeyPreset("off") == "off", "sanitize off unchanged")
     expect(sanitizeHotkeyPreset("ctrl-opt-shift-l") == "ctrl-opt-shift-l", "sanitize valid L unchanged")
-    // clamp интервала опроса: снизу 5, сверху 3600, в диапазоне — без изменений
+    // poll interval clamp: floor 5, ceiling 3600, in range — unchanged
     expect(clampPoll(4) == 5, "clampPoll below floor")
     expect(clampPoll(999999) == 3600, "clampPoll above ceiling")
     expect(clampPoll(15) == 15, "clampPoll in range unchanged")
-    // sameMount: нормализация пути (trailing slash) совпадает, разные тома — нет
+    // sameMount: path normalization (trailing slash) matches, different volumes — do not
     expect(sameMount("/Volumes/SecretVault", "/Volumes/SecretVault") == true, "sameMount identical")
     expect(sameMount("/Volumes/SecretVault/", "/Volumes/SecretVault") == true, "sameMount trailing slash")
     expect(sameMount("/Volumes/SecretVault", "/Volumes/OldVault") == false, "sameMount different volumes")
-    // пресеты: маппинг в виртуальные клавиши; off → nil (не регистрировать)
+    // presets: mapping to virtual keys; off → nil (do not register)
     expect(hotkeyVK(preset: "ctrl-opt-shift-p") == UInt32(kVK_ANSI_P), "preset P")
     expect(hotkeyVK(preset: "ctrl-opt-shift-l") == UInt32(kVK_ANSI_L), "preset L")
     expect(hotkeyVK(preset: "off") == nil, "off nil")
     expect(hotkeyVK(preset: "garbage") == nil, "garbage nil")
-    // весь словарь: нет пустых/placeholder значений
+    // the whole dictionary: no empty/placeholder values
     for (k, v) in strings { expect(!v.en.isEmpty && !v.ru.isEmpty, "empty value for \(k)") }
-    // движок уведомлений: каждое событие один раз за эпизод, закрытие сейфа сбрасывает всё
+    // notification engine: each event once per episode, closing the vault resets everything
     var ns = NotifyState()
     var ev: [String]
     let t0 = Date(timeIntervalSince1970: 1_000_000)
@@ -828,8 +828,8 @@ private func runSelfTests() -> Never {
     (ev, ns) = decideNotifications(open: true, ttl: nil, hasSessions: false,
                                    now: t0.addingTimeInterval(3600), state: ns)
     expect(ev.isEmpty, "no repeat long_open")
-    // re-arm: новая/продлённая vaultwatch-сессия (ttl≥120) перевзводит ttl-предупреждения,
-    // не дожидаясь закрытия сейфа — повторное истечение внутри эпизода не должно молчать
+    // re-arm: a new/extended vaultwatch session (ttl≥120) re-arms the ttl warnings without
+    // waiting for the vault to close — a repeat expiry within an episode must not stay silent
     (ev, ns) = decideNotifications(open: true, ttl: 90, hasSessions: true,
                                    now: t0.addingTimeInterval(3590), state: ns)
     expect(ev == ["ttl_warn"], "warn mid-episode")
@@ -842,7 +842,7 @@ private func runSelfTests() -> Never {
     (ev, ns) = decideNotifications(open: true, ttl: 90, hasSessions: true,
                                    now: t0.addingTimeInterval(3900), state: ns)
     expect(ev == ["ttl_warn"], "re-armed warn after new session")
-    // long_open подавляется, пока жива vaultwatch-сессия (даже без TTL)
+    // long_open is suppressed while a vaultwatch session is alive (even without a TTL)
     var ns2 = NotifyState()
     (ev, ns2) = decideNotifications(open: true, ttl: nil, hasSessions: true, now: t0, state: ns2)
     (ev, ns2) = decideNotifications(open: true, ttl: nil, hasSessions: true,
@@ -854,7 +854,7 @@ private func runSelfTests() -> Never {
 if CommandLine.arguments.contains("--selftest") { runSelfTests() }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)   // агент строки меню: без иконки в Dock
+app.setActivationPolicy(.accessory)   // menu-bar agent: no Dock icon
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()

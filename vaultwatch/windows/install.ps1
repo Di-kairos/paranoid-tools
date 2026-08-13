@@ -1,28 +1,29 @@
-﻿# install.ps1 — установщик vaultwatch для Windows (BETA) с проверкой целостности.
+﻿# install.ps1 — vaultwatch installer for Windows (BETA) with an integrity check.
 #
-# Тянет vaultwatch.ps1 и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и сверяет SHA256
-# ДО установки. Закрывает supply-chain риск «irm|iex из main без проверки»: содержимое
-# релизного тега неизменно (в отличие от подвижной main), хеш ловит повреждение, частичную/
-# кэш-подмену и рассинхрон с публикацией. ЧЕСТНО: сумма и скрипт приходят по одному каналу —
-# от подмены САМОГО релиза это не защищает; для подлинности нужна подпись (SHA256SUMS.sig).
+# Pulls vaultwatch.ps1 and SHA256SUMS from a RELEASE tag (not the main branch) and checks the
+# SHA256 BEFORE installing. Closes the "irm|iex from main without verification" supply-chain
+# risk: a release tag's contents are immutable (unlike the moving main), the hash catches
+# corruption, partial/cache tampering, and drift from the publication. HONEST: the checksum and
+# the script arrive over the same channel — this does not protect against the RELEASE ITSELF
+# being replaced; authenticity requires a signature (SHA256SUMS.sig).
 #
-# Использование (рекомендуется verify-then-run, см. windows/README.md):
+# Usage (verify-then-run recommended, see windows/README.md):
 #   irm https://github.com/Di-kairos/vaultwatch/releases/latest/download/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/vaultwatch/releases/latest/download/SHA256SUMS  -OutFile SHA256SUMS
-#   # сверить хеш install.ps1 вручную, прочитать скрипт, затем:
+#   # verify install.ps1's hash manually, read the script, then:
 #   pwsh -File install.ps1
 #
-# Переменные окружения:
-#   VAULTWATCH_VERSION     — конкретный тег (напр. 0.1.3). По умолчанию latest.
-#   VAULTWATCH_BASE_URL    — источник целиком: http(s) URL ИЛИ локальный каталог (тесты/форки).
-#   VAULTWATCH_INSTALL_DIR — каталог установки. По умолчанию %LOCALAPPDATA%\Programs\vaultwatch.
-#   VAULTWATCH_SKIP_PATH   — '1' пропускает правку PATH (для тестов).
-#   PT_ALLOW_HASH_ONLY     — '1' разрешает установку по одной целостности SHA256, когда подпись
-#                            проверить нельзя (нет ssh-keygen ИЛИ у релиза нет .sig). Плохая
-#                            подпись прерывает установку ВСЕГДА, обход не действует.
+# Environment variables:
+#   VAULTWATCH_VERSION     — a specific tag (e.g. 0.1.3). Defaults to latest.
+#   VAULTWATCH_BASE_URL    — the source as a whole: http(s) URL OR a local directory (tests/forks).
+#   VAULTWATCH_INSTALL_DIR — install directory. Defaults to %LOCALAPPDATA%\Programs\vaultwatch.
+#   VAULTWATCH_SKIP_PATH   — '1' skips the PATH edit (for tests).
+#   PT_ALLOW_HASH_ONLY     — '1' allows installing on SHA256 integrity alone, when the signature
+#                            cannot be verified (no ssh-keygen OR the release has no .sig). A bad
+#                            signature ALWAYS aborts the install, the bypass does not apply.
 #
-# ВНИМАНИЕ: BETA-порт. Логика проверена через Pester (системные эффекты мокаются);
-# поведение на широком парке Windows-конфигов (Search/VSS/Task Scheduler) не обкатано.
+# WARNING: BETA port. The logic is verified via Pester (system effects are mocked);
+# behavior across the wide fleet of Windows configs (Search/VSS/Task Scheduler) is not field-tested.
 
 $ErrorActionPreference = 'Stop'
 
@@ -51,35 +52,35 @@ function Get-ReleaseFile {
     }
 }
 
-# --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) — порт install.sh ---
-# Релизы подписаны выделенным Ed25519-ключом экосистемы (ssh-keygen -Y). Pubkey вшит ниже.
-# Windows поставляется с OpenSSH (ssh-keygen). FAIL-CLOSED, зеркалит install.sh:
-#   - ssh-keygen недоступен ИЛИ .sig отсутствует → установка прервана, ЕСЛИ не задан
-#     PT_ALLOW_HASH_ONLY=1 (тогда громкое предупреждение: проверена только целостность SHA256);
-#   - .sig есть и НЕ сошёлся → жёсткий отказ БЕЗ обхода (явный признак подмены; как в install.sh).
+# --- Release SIGNATURE verification (authenticity on top of integrity) — port of install.sh ---
+# Releases are signed with the ecosystem's dedicated Ed25519 key (ssh-keygen -Y). Pubkey embedded below.
+# Windows ships with OpenSSH (ssh-keygen). FAIL-CLOSED, mirrors install.sh:
+#   - ssh-keygen unavailable OR .sig missing → install aborted, UNLESS PT_ALLOW_HASH_ONLY=1
+#     is set (then a loud warning: only SHA256 integrity was verified);
+#   - .sig present and does NOT verify → hard refusal with NO bypass (a clear sign of tampering; as in install.sh).
 $script:ReleaseSigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
 $script:SignPrincipal = 'releases@paranoid-tools'
 
 function Get-VwVerifier {
-    # Путь к ssh-keygen (или $null). Вынесено отдельной функцией ради мокабельности в Pester.
+    # Path to ssh-keygen (or $null). Split into its own function for mockability in Pester.
     (Get-Command ssh-keygen -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1).Source
 }
 
 function Invoke-VwVerifier {
-    # Обёртка над `ssh-keygen -Y verify` — вынесена, чтобы её можно было замокать в тестах.
-    # Windows OpenSSH ssh-keygen читает подписанные данные из stdin; возвращаем exit-код.
+    # Wrapper over `ssh-keygen -Y verify` — split out so it can be mocked in tests.
+    # Windows OpenSSH ssh-keygen reads the signed data from stdin; we return the exit code.
     param([string]$AllowedSigners, [string]$Principal, [string]$SigFile, [string]$SumsFile)
-    # Байты SHA256SUMS передаём КАК ЕСТЬ: пайп PowerShell перекодирует текст (BOM, CRLF),
-    # и валидная подпись отвалилась бы как «incorrect signature» (зеркало ghostdraft).
+    # The SHA256SUMS bytes are passed AS IS: a PowerShell pipe re-encodes text (BOM, CRLF),
+    # and a valid signature would bounce as "incorrect signature" (mirror of ghostdraft).
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = (Get-VwVerifier)
     $vArgs = @('-Y','verify','-f',$AllowedSigners,'-I',$Principal,'-n','file','-s',$SigFile)
-    # `ArgumentList` появился только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
-    # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README —
-    # его не имеет: обращение к нему уронило бы установку на шаге проверки подписи.
-    # Там кладём строку сами. Каждый аргумент в кавычках (TEMP бывает с пробелом),
-    # хвостовые обратные слэши удваиваются — иначе слэш экранирует закрывающую кавычку.
+    # `ArgumentList` only appeared in .NET Core (PowerShell 7). Windows PowerShell 5.1 —
+    # the stock Windows shell and exactly the one people run the README one-liner in —
+    # does not have it: touching it would crash the install at the signature-check step.
+    # There we build the string ourselves. Every argument is quoted (TEMP can contain a
+    # space), trailing backslashes are doubled — otherwise a backslash escapes the closing quote.
     if ($psi.PSObject.Properties.Name -contains 'ArgumentList') {
         foreach ($a in $vArgs) { $psi.ArgumentList.Add($a) }
     } else {
@@ -90,15 +91,15 @@ function Invoke-VwVerifier {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute        = $false
     $proc = [System.Diagnostics.Process]::Start($psi)
-    # stdout/stderr вычитываем АСИНХРОННО и ДО WaitForExit: перенаправленный, но не
-    # прочитанный поток упирается в буфер трубы — верификатор встаёт, а установщик
-    # ждёт его вечно. Тихо висящий установщик хуже честного отказа.
+    # stdout/stderr are drained ASYNCHRONOUSLY and BEFORE WaitForExit: a redirected but
+    # unread stream hits the pipe buffer limit — the verifier stalls, and the installer
+    # waits on it forever. A silently hanging installer is worse than an honest refusal.
     $outTask = $proc.StandardOutput.ReadToEndAsync()
     $errTask = $proc.StandardError.ReadToEndAsync()
-    # Верификатор может завершиться, не дочитав stdin (кривые аргументы, чужой бинарь под
-    # тем же именем). Запись в закрытую трубу — это не наша авария: вердикт всё равно
-    # даёт код возврата, и пользователь должен увидеть честное «подпись не сошлась»,
-    # а не необработанное исключение установщика.
+    # The verifier may exit without reading stdin to the end (mangled arguments, a foreign
+    # binary under the same name). Writing into a closed pipe is not our emergency: the
+    # verdict is still given by the exit code, and the user must see an honest "signature
+    # did not verify", not an unhandled installer exception.
     $fs = [System.IO.File]::OpenRead($SumsFile)
     try { $fs.CopyTo($proc.StandardInput.BaseStream) } catch [System.IO.IOException] { } finally { $fs.Close() }
     try { $proc.StandardInput.Close() } catch [System.IO.IOException] { }
@@ -114,7 +115,7 @@ function Assert-VwSignature {
     $sigFile  = Join-Path $Tmp 'SHA256SUMS.sig'
     $allowHashOnly = ($env:PT_ALLOW_HASH_ONLY -eq '1')
 
-    # 1) Верификатор доступен?
+    # 1) Is the verifier available?
     $verifier = Get-VwVerifier
     if (-not $verifier) {
         if ($allowHashOnly) {
@@ -124,7 +125,7 @@ function Assert-VwSignature {
         throw 'ssh-keygen недоступен — подпись релиза не проверить. Установи OpenSSH или (только целостность) переустанови с PT_ALLOW_HASH_ONLY=1. Установка прервана.'
     }
 
-    # 2) Тянем .sig; его отсутствие = fail-closed (обход — PT_ALLOW_HASH_ONLY=1).
+    # 2) Pull the .sig; its absence = fail-closed (bypass — PT_ALLOW_HASH_ONLY=1).
     try {
         Get-ReleaseFile -Name 'SHA256SUMS.sig' -OutFile $sigFile
     } catch {
@@ -138,7 +139,7 @@ function Assert-VwSignature {
         throw 'Подпись релиза (SHA256SUMS.sig) отсутствует — установка прервана. Неподписанный/старый релиз: PT_ALLOW_HASH_ONLY=1 (только целостность).'
     }
 
-    # 3) allowed_signers c ВШИТЫМ pubkey (тот же формат, что в install.sh), затем verify.
+    # 3) allowed_signers with the EMBEDDED pubkey (same format as in install.sh), then verify.
     $allowed = Join-Path $Tmp 'allowed_signers'
     Set-Content -LiteralPath $allowed -Encoding ASCII `
         -Value ('{0} namespaces="file" {1}' -f $script:SignPrincipal, $script:ReleaseSigningPubkey)
@@ -147,12 +148,12 @@ function Assert-VwSignature {
     if ($rc -eq 0) {
         Write-Host 'Подпись релиза верна (аутентичность подтверждена).'
     } else {
-        # Плохая подпись — жёсткий отказ БЕЗ обхода (как install.sh): активный признак подмены.
+        # Bad signature — hard refusal with NO bypass (as in install.sh): an active sign of tampering.
         throw 'Подпись релиза НЕ прошла проверку — установка прервана (возможна подмена).'
     }
 }
 
-# Основной поток установки. VAULTWATCH_NO_MAIN=1 → только определить функции (для Pester).
+# Main install flow. VAULTWATCH_NO_MAIN=1 → only define the functions (for Pester).
 if ($env:VAULTWATCH_NO_MAIN -ne '1') {
 
 Write-Host 'vaultwatch (Windows, BETA) installer'
@@ -188,7 +189,7 @@ try {
     }
     Write-Host 'Checksum OK.'
 
-    # Аутентичность поверх целостности: проверяем подпись релиза (fail-closed).
+    # Authenticity on top of integrity: verify the release signature (fail-closed).
     Assert-VwSignature -Tmp $Tmp
 
     if (-not (Test-Path $InstallDir)) {

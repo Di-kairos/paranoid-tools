@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# vendor-common.sh — вшивает securetrash lib/common.sh inline в файл panic
-# между маркерами. Источник пиннут к git-ref securetrash И к SHA256 содержимого
-# (defense-in-depth: ref может быть переписан/MITM — хеш ловит подмену байтов).
+# vendor-common.sh — embeds securetrash lib/common.sh inline into the panic file
+# between the markers. The source is pinned to a securetrash git ref AND to the content's
+# SHA256 (defense-in-depth: the ref can be rewritten/MITMed — the hash catches byte substitution).
 #
-# Использование:
-#   tools/vendor-common.sh          # обновить вшитый блок из источника (нужна сеть)
-#   tools/vendor-common.sh --check  # CI: вшитый блок == запиннутому SHA256 (ОФЛАЙН, без сети)
+# Usage:
+#   tools/vendor-common.sh          # refresh the embedded block from the source (needs network)
+#   tools/vendor-common.sh --check  # CI: embedded block == pinned SHA256 (OFFLINE, no network)
 #
-# При бампе версии common.sh обнови PIN и COMMON_SHA256 вместе (и маркер BEGIN).
+# When bumping the common.sh version, update PIN and COMMON_SHA256 together (and the BEGIN marker).
 set -euo pipefail
 
 PIN="221f2c7fbed10a220b832aab9264e6665581b514"
 COMMON_SHA256="348afdd5d924230b4eea6e495b6b21bd78fc851ac5795108078abf7dc5d4e6a0"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# Монорепо: источник — соседний каталог securetrash в этом же репозитории.
-# PIN остаётся меткой версии в маркерах, SHA256 по-прежнему сторожит байты.
+# Monorepo: the source is the sibling securetrash directory in this same repository.
+# PIN remains the version label in the markers; SHA256 still guards the bytes.
 SRC_FILE="${ROOT}/../securetrash/lib/common.sh"
 TARGET="${ROOT}/panic"
 BEGIN="# === BEGIN vendored common (pin: ${PIN}) ==="
 END="# === END vendored common ==="
 
-# Ровно одна пара маркеров — иначе awk-разбор в build_expected некорректен.
+# Exactly one marker pair — otherwise the awk parsing in build_expected is incorrect.
 _assert_markers() {
   local nb ne
   nb="$(grep -cF '# === BEGIN vendored common' "$TARGET" || true)"
@@ -31,8 +31,8 @@ _assert_markers() {
   fi
 }
 
-# Взять common.sh из монорепо (точные байты) и верифицировать SHA256. Отсутствие
-# файла/хеш-провал → exit 3 (НЕ «дрейф»: CI должен отличать сбой источника от рассинхрона).
+# Take common.sh from the monorepo (exact bytes) and verify its SHA256. Missing
+# file / hash failure → exit 3 (NOT "drift": CI must tell source failure apart from desync).
 _fetch_common_to() {
   local out="$1" actual
   cp "$SRC_FILE" "$out" 2>/dev/null || { echo "vendor: не найден источник $SRC_FILE" >&2; exit 3; }
@@ -46,8 +46,8 @@ _fetch_common_to() {
   fi
 }
 
-# Собрать ожидаемый файл: всё до BEGIN, свежий BEGIN, точные байты common.sh, END,
-# всё после END. Байты вшиваются через cat (без среза финального newline).
+# Build the expected file: everything before BEGIN, a fresh BEGIN, exact common.sh bytes, END,
+# everything after END. The bytes are embedded via cat (no trimming of the final newline).
 build_expected() {
   local commonfile="$1"
   awk '/# === BEGIN vendored common/{exit} {print}' "$TARGET"
@@ -57,7 +57,7 @@ build_expected() {
   awk 'p{print} /# === END vendored common/{p=1}' "$TARGET"
 }
 
-# Извлечь вшитый блок (строки строго между маркерами) — для офлайн-сверки хеша.
+# Extract the embedded block (lines strictly between the markers) — for the offline hash check.
 _extract_block() {
   awk 'f && /# === END vendored common/{exit} f{print} /# === BEGIN vendored common/{f=1}' "$TARGET"
 }
@@ -65,9 +65,9 @@ _extract_block() {
 _assert_markers
 
 if [[ "${1:-}" == "--check" ]]; then
-  # ОФЛАЙН: хешируем вшитый блок и сверяем с запиннутым SHA256 — без сети. CI не зависит
-  # от доступности (в т.ч. приватности) securetrash; MITM-поверхность сети исключена —
-  # доверенный якорь это сам пин COMMON_SHA256 в этом файле (под git).
+  # OFFLINE: hash the embedded block and compare against the pinned SHA256 — no network. CI does
+  # not depend on securetrash's availability (incl. its privacy); the network MITM surface is out —
+  # the trusted anchor is the COMMON_SHA256 pin itself in this file (under git).
   actual="$(_extract_block | shasum -a 256 | awk '{print $1}')"
   if [[ "$actual" == "$COMMON_SHA256" ]]; then
     echo "vendor: вшитый common.sh синхронен пину ${PIN:0:7} и хешу ✓ (offline)"
@@ -79,13 +79,13 @@ if [[ "${1:-}" == "--check" ]]; then
     exit 1
   fi
 else
-  # ОБНОВЛЕНИЕ: тянем точные байты common.sh с пиннутого ref (нужна сеть) и сверяем SHA.
+  # UPDATE: pull exact common.sh bytes from the pinned ref (needs network) and check the SHA.
   COMMON_FILE="$(mktemp)"
   trap 'rm -f "$COMMON_FILE"' EXIT
   _fetch_common_to "$COMMON_FILE"
   tmp="$(mktemp)"
   build_expected "$COMMON_FILE" > "$tmp"
-  # Сохранить режим целевого файла (mv от mktemp затёр бы +x).
+  # Preserve the target file's mode (mv from mktemp would wipe +x).
   mode="$(stat -f '%Lp' "$TARGET" 2>/dev/null || echo 755)"
   mv "$tmp" "$TARGET"
   chmod "$mode" "$TARGET"

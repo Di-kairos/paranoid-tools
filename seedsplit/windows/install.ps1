@@ -1,36 +1,37 @@
-﻿# install.ps1 — установщик seedsplit для Windows (BETA) с проверкой целостности.
+﻿# install.ps1 — seedsplit installer for Windows (BETA) with an integrity check.
 #
-# Тянет seedsplit.ps1 и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и сверяет SHA256
-# ДО установки. Закрывает supply-chain риск «irm|iex из main без проверки»: содержимое
-# релизного тега неизменно (в отличие от подвижной main), хеш ловит повреждение, частичную/
-# кэш-подмену и рассинхрон с публикацией. Поверх целостности проверяется ПОДПИСЬ релиза
-# (SHA256SUMS.sig, ed25519 через ssh-keygen -Y verify) — зеркало install.sh. FAIL-CLOSED:
-# неверная/отсутствующая подпись или отсутствие ssh-keygen прерывают установку, если явно
-# не выставлен PT_ALLOW_HASH_ONLY=1 (тогда — только целостность по SHA256, с предупреждением).
+# Pulls seedsplit.ps1 and SHA256SUMS from a RELEASE tag (not the main branch) and verifies
+# the SHA256 BEFORE installing. Closes the "irm|iex from main without verification"
+# supply-chain risk: a release tag's contents are immutable (unlike the moving main), the hash
+# catches corruption, partial/cache tampering, and desync with the publication. On top of
+# integrity the release SIGNATURE is verified (SHA256SUMS.sig, ed25519 via ssh-keygen -Y
+# verify) — a mirror of install.sh. FAIL-CLOSED: a bad/missing signature or a missing
+# ssh-keygen aborts the install unless PT_ALLOW_HASH_ONLY=1 is explicitly set (then only
+# SHA256 integrity remains, with a warning).
 #
-# Использование (рекомендуется verify-then-run, см. windows/README.md):
+# Usage (verify-then-run recommended, see windows/README.md):
 #   irm https://github.com/Di-kairos/seedsplit/releases/latest/download/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/seedsplit/releases/latest/download/SHA256SUMS  -OutFile SHA256SUMS
-#   # сверить хеш install.ps1 вручную, прочитать скрипт, затем:
+#   # verify the install.ps1 hash manually, read the script, then:
 #   pwsh -File install.ps1
 #
-# Переменные окружения:
-#   SEEDSPLIT_VERSION     — конкретный тег (напр. 0.3.2). По умолчанию latest.
-#   SEEDSPLIT_BASE_URL    — источник целиком: http(s) URL ИЛИ локальный каталог (тесты/форки).
-#   SEEDSPLIT_INSTALL_DIR — каталог установки. По умолчанию %LOCALAPPDATA%\Programs\seedsplit.
-#   SEEDSPLIT_SKIP_PATH   — '1' пропускает правку PATH (для тестов).
-#   PT_ALLOW_HASH_ONLY    — '1' разрешает установку без проверки подписи (только целостность):
-#                           для старых/неподписанных релизов или без ssh-keygen. Неверная подпись
-#                           всё равно прерывает установку — этот флаг её НЕ обходит.
+# Environment variables:
+#   SEEDSPLIT_VERSION     — a specific tag (e.g. 0.3.2). Default: latest.
+#   SEEDSPLIT_BASE_URL    — the source entirely: an http(s) URL OR a local directory (tests/forks).
+#   SEEDSPLIT_INSTALL_DIR — install directory. Default: %LOCALAPPDATA%\Programs\seedsplit.
+#   SEEDSPLIT_SKIP_PATH   — '1' skips the PATH edit (for tests).
+#   PT_ALLOW_HASH_ONLY    — '1' allows installing without signature verification (integrity
+#                           only): for old/unsigned releases or without ssh-keygen. A bad
+#                           signature still aborts the install — this flag does NOT bypass it.
 #
-# ВНИМАНИЕ: BETA-порт. Логика (включая KAT-кросс-совместимость долей с macOS) проверена
-# через Pester; поведение на широком парке Windows-консолей/локалей не обкатано.
+# WARNING: BETA port. The logic (including KAT cross-compatibility of shares with macOS) is
+# verified via Pester; behavior across the wide fleet of Windows consoles/locales is not road-tested.
 
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'Di-kairos/seedsplit'
 
-# Источник: явный SEEDSPLIT_BASE_URL → конкретный тег SEEDSPLIT_VERSION → latest-релиз.
+# Source: explicit SEEDSPLIT_BASE_URL → specific tag SEEDSPLIT_VERSION → latest release.
 if ($env:SEEDSPLIT_BASE_URL) {
     $BaseUrl = $env:SEEDSPLIT_BASE_URL
 } elseif ($env:SEEDSPLIT_VERSION) {
@@ -48,8 +49,8 @@ $ShimPath   = Join-Path $InstallDir 'seedsplit.cmd'
 Write-Host 'seedsplit (Windows, BETA) installer'
 Write-Host '-----------------------------------'
 
-# Скачать файл из релиза: http(s) → Invoke-RestMethod; локальный каталог → копия.
-# Локальный путь поддержан, чтобы тесты гоняли проверку хеша без сети.
+# Download a file from the release: http(s) → Invoke-RestMethod; local directory → copy.
+# The local path is supported so tests can exercise the hash check without the network.
 function Get-ReleaseFile {
     param([string]$Name, [string]$OutFile)
     if ($BaseUrl -match '^https?://') {
@@ -59,7 +60,7 @@ function Get-ReleaseFile {
     }
 }
 
-# Временный каталог под загрузку; чистим в любом случае.
+# Temporary directory for the download; cleaned up in any case.
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("seedsplit-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
 try {
@@ -70,7 +71,7 @@ try {
     Get-ReleaseFile -Name 'seedsplit.ps1' -OutFile $tmpScript
     Get-ReleaseFile -Name 'SHA256SUMS'    -OutFile $tmpSums
 
-    # Ожидаемый хеш для seedsplit.ps1 из SHA256SUMS (формат: '<hash>  имя').
+    # Expected hash for seedsplit.ps1 from SHA256SUMS (format: '<hash>  name').
     $expected = $null
     foreach ($line in Get-Content -Path $tmpSums) {
         $parts = $line -split '\s+', 2
@@ -91,12 +92,12 @@ try {
     }
     Write-Host 'Checksum OK.'
 
-    # --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
-    # Зеркалит install.sh: релизы подписаны выделенным ed25519-ключом экосистемы
-    # (`ssh-keygen -Y verify` над SHA256SUMS). Вшитый pubkey совпадает с install.sh и SECURITY.md.
-    # FAIL-CLOSED: неверная подпись ВСЕГДА прерывает установку (явный признак подмены — обхода нет).
-    # Отсутствие подписи ИЛИ отсутствие ssh-keygen прерывает установку, если явно не выставлен
-    # PT_ALLOW_HASH_ONLY=1 — тогда остаётся только целостность по SHA256 (с громким предупреждением).
+    # --- Release SIGNATURE verification (authenticity on top of integrity) ---
+    # Mirrors install.sh: releases are signed with the ecosystem's dedicated ed25519 key
+    # (`ssh-keygen -Y verify` over SHA256SUMS). The embedded pubkey matches install.sh and SECURITY.md.
+    # FAIL-CLOSED: a bad signature ALWAYS aborts the install (a clear sign of tampering — no bypass).
+    # A missing signature OR a missing ssh-keygen aborts the install unless PT_ALLOW_HASH_ONLY=1
+    # is explicitly set — then only SHA256 integrity remains (with a loud warning).
     $ReleaseSigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
     $SignPrincipal = 'releases@paranoid-tools'
     $AllowHashOnly = ($env:PT_ALLOW_HASH_ONLY -eq '1')
@@ -121,22 +122,22 @@ try {
                 exit 1
             }
         } else {
-            # Тот же принцип, что в install.sh: пишем вшитый pubkey в allowed_signers, namespace 'file'.
+            # Same principle as in install.sh: write the embedded pubkey into allowed_signers, namespace 'file'.
             $allowedSigners = Join-Path $Tmp 'allowed_signers'
             Set-Content -LiteralPath $allowedSigners -Value ('{0} namespaces="file" {1}' -f $SignPrincipal, $ReleaseSigningPubkey) -Encoding ascii -NoNewline
             Write-Host 'Verifying release signature...'
-            # SHA256SUMS подаётся на stdin ТОЧНЫМИ байтами (аналог `< SHA256SUMS` в install.sh):
-            # пайп PowerShell перекодировал бы содержимое (BOM, CRLF) и валидная подпись
-            # отвалилась бы как «incorrect signature». Копируем сырой поток файла.
-            # Зеркало канона securetrash/windows/install.ps1 — правишь здесь, правь во всех пяти.
+            # SHA256SUMS is fed to stdin as EXACT bytes (the analog of `< SHA256SUMS` in install.sh):
+            # a PowerShell pipe would re-encode the content (BOM, CRLF) and a valid signature
+            # would fall over as 'incorrect signature'. We copy the raw file stream.
+            # Mirror of the securetrash/windows/install.ps1 canon — if you edit here, edit in all five.
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $sshKeygen.Source
             $vArgs = @('-Y','verify','-f',$allowedSigners,'-I',$SignPrincipal,'-n','file','-s',$tmpSig)
-            # `ArgumentList` появился только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
-            # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README —
-            # его не имеет: обращение к нему уронило бы установку на шаге проверки подписи.
-            # Там кладём строку сами. Каждый аргумент в кавычках (TEMP бывает с пробелом),
-            # хвостовые обратные слэши удваиваются — иначе слэш экранирует закрывающую кавычку.
+            # `ArgumentList` only appeared in .NET Core (PowerShell 7). Windows PowerShell 5.1 —
+            # the stock Windows shell and exactly the one people run the README one-liner in —
+            # does not have it: touching it would crash the install at the signature-check step.
+            # There we build the string ourselves. Every argument is quoted (TEMP can contain a
+            # space), trailing backslashes are doubled — otherwise a slash escapes the closing quote.
             if ($psi.PSObject.Properties.Name -contains 'ArgumentList') {
                 foreach ($a in $vArgs) { $psi.ArgumentList.Add($a) }
             } else {
@@ -147,15 +148,15 @@ try {
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute        = $false
             $proc = [System.Diagnostics.Process]::Start($psi)
-            # stdout/stderr вычитываем АСИНХРОННО и ДО WaitForExit: перенаправленный, но не
-            # прочитанный поток упирается в буфер трубы — верификатор встаёт, а установщик
-            # ждёт его вечно. Тихо висящий установщик хуже честного отказа.
+            # We drain stdout/stderr ASYNCHRONOUSLY and BEFORE WaitForExit: a redirected but
+            # unread stream runs into the pipe buffer — the verifier stalls, and the installer
+            # waits for it forever. A silently hanging installer is worse than an honest refusal.
             $outTask = $proc.StandardOutput.ReadToEndAsync()
             $errTask = $proc.StandardError.ReadToEndAsync()
-            # Верификатор может завершиться, не дочитав stdin (кривые аргументы, чужой бинарь под
-            # тем же именем). Запись в закрытую трубу — это не наша авария: вердикт всё равно
-            # даёт код возврата, и пользователь должен увидеть честное «подпись не сошлась»,
-            # а не необработанное исключение установщика.
+            # The verifier may exit without reading stdin to the end (bad arguments, a foreign
+            # binary under the same name). Writing into a closed pipe is not our emergency: the
+            # verdict is still given by the exit code, and the user must see an honest
+            # "signature did not verify", not an unhandled installer exception.
             $fs = [System.IO.File]::OpenRead($tmpSums)
             try { $fs.CopyTo($proc.StandardInput.BaseStream) } catch [System.IO.IOException] { } finally { $fs.Close() }
             try { $proc.StandardInput.Close() } catch [System.IO.IOException] { }
@@ -171,7 +172,7 @@ try {
         }
     }
 
-    # Хеш верный → устанавливаем.
+    # Hash is correct → install.
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
@@ -182,7 +183,7 @@ finally {
     Remove-Item -Path $Tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# .cmd-шим, чтобы вызывать просто `seedsplit <command>` из cmd/PowerShell.
+# .cmd shim so that `seedsplit <command>` can be called plainly from cmd/PowerShell.
 $shim = @"
 @echo off
 pwsh -NoProfile -File "%~dp0seedsplit.ps1" %*
@@ -191,7 +192,7 @@ if errorlevel 1 exit /b %errorlevel%
 Set-Content -Path $ShimPath -Value $shim -Encoding ASCII
 Write-Host "Shim created: $ShimPath"
 
-# Добавить каталог в пользовательский PATH (idempotent). SEEDSPLIT_SKIP_PATH=1 — пропустить.
+# Add the directory to the user PATH (idempotent). SEEDSPLIT_SKIP_PATH=1 — skip.
 if ($env:SEEDSPLIT_SKIP_PATH -ne '1') {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (-not $userPath) { $userPath = '' }

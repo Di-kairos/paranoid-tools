@@ -1,44 +1,44 @@
 #!/usr/bin/env bash
-# Установщик ВСЕЙ экосистемы Paranoid Tools — «одна команда, всё есть».
+# Installer for the WHOLE Paranoid Tools ecosystem — "one command, everything's there".
 #
-# Ставит 5 инструментов (securetrash, vaultwatch, panic, ghostdraft, seedsplit)
-# + интерактивный лаунчер `paranoid` в ~/.local/bin. Два режима, выбираются
-# автоматически по тому, есть ли рядом локальные исходники тулов:
+# Installs 5 tools (securetrash, vaultwatch, panic, ghostdraft, seedsplit)
+# + the interactive `paranoid` launcher into ~/.local/bin. Two modes, selected
+# automatically by whether local tool sources are present nearby:
 #
-#   1. ПУБЛИКА (по умолчанию, любой clone). Каждый тул тянется из его
-#      ПОДПИСАННОГО релиза по схеме verify-then-run: проверяется подпись Ed25519
-#      над SHA256SUMS, затем контрольная сумма самого install.sh тула, и только
-#      потом он запускается (а он, в свою очередь, проверяет и бинарь). Так
-#      «git clone + bash install.sh» честно даёт все 5 без ручной возни.
-#      Исходники тулов лежат в этом же монорепо, но публичная установка ИХ НЕ
-#      БЕРЁТ: цепочка подписи важнее экономии на скачивании.
+#   1. PUBLIC (default, any clone). Each tool is pulled from its SIGNED
+#      release using the verify-then-run scheme: the Ed25519 signature over
+#      SHA256SUMS is verified, then the checksum of the tool's own install.sh,
+#      and only then it runs (and it, in turn, verifies the binary too). This
+#      way "git clone + bash install.sh" honestly delivers all 5, no manual fuss.
+#      The tool sources live in this same monorepo, but the public install does
+#      NOT use them: the signature chain matters more than saving a download.
 #
-#   2. MAINTAINER (только явный PT_DEV=1). Локальный скрипт `<tool>/<tool>`
-#      копируется из рабочей копии, включая ещё не выпущенные правки. Релиз не
-#      дёргается. Раньше режим включался сам по наличию подпапок тулов; в
-#      монорепо подпапки есть у КАЖДОГО клона, и автовключение выключило бы
-#      verify-then-run для всей публики — поэтому только явный opt-in.
+#   2. MAINTAINER (explicit PT_DEV=1 only). The local `<tool>/<tool>` script is
+#      copied from the working copy, including not-yet-released changes. No release
+#      is fetched. Previously the mode enabled itself when tool subfolders existed;
+#      in the monorepo EVERY clone has the subfolders, and auto-enabling would have
+#      disabled verify-then-run for the entire public — hence explicit opt-in only.
 #
-# Использование:
-#   bash install.sh                 # поставить/обновить все 5 (+ лаунчер)
-#   bash install.sh --uninstall     # удалить все 5 (+ лаунчер) из bin-каталога
-#   PT_DEST=/usr/local/bin bash install.sh   # другой каталог установки
+# Usage:
+#   bash install.sh                 # install/update all 5 (+ the launcher)
+#   bash install.sh --uninstall     # remove all 5 (+ the launcher) from the bin dir
+#   PT_DEST=/usr/local/bin bash install.sh   # different install directory
 #
-# Переменные окружения:
-#   PT_DEST            — каталог установки. По умолчанию ~/.local/bin (без sudo).
-#   PT_<TOOL>_VERSION  — закрепить версию конкретного тула (публичный режим).
-#                        Точные имена: PT_ST_VERSION (securetrash), PT_VW_VERSION
+# Environment variables:
+#   PT_DEST            — install directory. Defaults to ~/.local/bin (no sudo).
+#   PT_<TOOL>_VERSION  — pin a specific tool's version (public mode).
+#                        Exact names: PT_ST_VERSION (securetrash), PT_VW_VERSION
 #                        (vaultwatch), PT_PANIC_VERSION, PT_GHOSTDRAFT_VERSION,
-#                        PT_SEEDSPLIT_VERSION. Прочие (напр. PT_SECURETRASH_VERSION)
-#                        игнорируются молча. По умолчанию latest.
+#                        PT_SEEDSPLIT_VERSION. Others (e.g. PT_SECURETRASH_VERSION)
+#                        are silently ignored. Defaults to latest.
 set -euo pipefail
 
 # --- language detection ---
-# Паритет с пятью тулами: по умолчанию английский, русский — opt-in. Security-ошибки
-# установщика (провал подписи, отсутствие верификатора) обязаны читаться тем, кто
-# ставит: раньше они были только по-русски, то есть для EN-пользователя это был
-# молчаливый отказ без причины.
-# Приоритет: PT_LANG → ST_LANG (общий для экосистемы) → $LC_ALL/$LANG.
+# Parity with the five tools: English by default, Russian is opt-in. The installer's
+# security errors (signature failure, missing verifier) must be readable by whoever
+# is installing: previously they were Russian-only, which for an EN user amounted
+# to a silent refusal with no reason given.
+# Priority: PT_LANG → ST_LANG (ecosystem-wide) → $LC_ALL/$LANG.
 _detect_locale() {
   local want="${PT_LANG:-${ST_LANG:-}}"
   if [[ -n "$want" ]]; then
@@ -48,7 +48,7 @@ _detect_locale() {
 }
 LOCALE="$(_detect_locale)"
 
-# Локализованные строки. Первый аргумент — ключ, остальные подставляются printf'ом.
+# Localized strings. The first argument is the key; the rest are substituted via printf.
 t() {
   case "$LOCALE:$1" in
     en:only_macos)     echo "Paranoid Tools targets macOS." ;;
@@ -105,16 +105,16 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   t only_macos >&2; exit 1
 fi
 
-# Корень репозитория = каталог этого скрипта (устойчиво к запуску из любого cwd).
+# Repo root = this script's directory (robust to being run from any cwd).
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 DEST="${PT_DEST:-$HOME/.local/bin}"
 TOOLS=(securetrash vaultwatch panic ghostdraft seedsplit)
 
-# Подпись релизов: выделенный ed25519-ключ экосистемы (общий для всех 5 тулов).
+# Release signing: the ecosystem's dedicated ed25519 key (shared by all 5 tools).
 RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
 SIGN_PRINCIPAL="releases@paranoid-tools"
 
-# Имя env-переменной DEST у install.sh конкретного тула (у каждого свой префикс).
+# Name of the DEST env variable of a given tool's install.sh (each has its own prefix).
 dest_var_for() {
   case "$1" in
     securetrash) echo "ST_DEST" ;;
@@ -125,7 +125,7 @@ dest_var_for() {
   esac
 }
 
-# Имя env-переменной VERSION у install.sh конкретного тула.
+# Name of the VERSION env variable of a given tool's install.sh.
 version_var_for() {
   case "$1" in
     securetrash) echo "ST_VERSION" ;;
@@ -136,7 +136,7 @@ version_var_for() {
   esac
 }
 
-# Режим удаления.
+# Uninstall mode.
 if [[ "${1:-}" == "--uninstall" ]]; then
   t uninstalling "$DEST"
   for t in "${TOOLS[@]}" paranoid; do
@@ -149,20 +149,20 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   exit 0
 fi
 
-# Публичный режим: тянем подписанный релиз тула и ставим его в $DEST.
-# verify-then-run: подпись Ed25519 над SHA256SUMS → checksum install.sh → запуск.
-# Запускается ТОЛЬКО как условие `if`, поэтому set -e внутри не рвёт весь install.
+# Public mode: pull the tool's signed release and install it into $DEST.
+# verify-then-run: Ed25519 signature over SHA256SUMS → install.sh checksum → run.
+# Invoked ONLY as an `if` condition, so set -e inside does not abort the whole install.
 install_from_release() {
   local t="$1"
-  # Релизы до монорепо-миграции живут в архивированных пер-тул репозиториях —
-  # GitHub продолжает их отдавать. С первого монорепо-релиза (теги <tool>-vX.Y.Z)
-  # base переедет на paranoid-tools/releases.
+  # Pre-monorepo-migration releases live in the archived per-tool repositories —
+  # GitHub keeps serving them. Starting with the first monorepo release (tags
+  # <tool>-vX.Y.Z) base will move to paranoid-tools/releases.
   local base="https://github.com/Di-kairos/${t}/releases/latest/download"
   local tmp; tmp="$(mktemp -d)"
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'" RETURN
 
-  # Закрепить версию тула, если задана PT_<TOOL>_VERSION.
+  # Pin the tool's version if PT_<TOOL>_VERSION is set.
   local pin_var; pin_var="PT_$(version_var_for "$t" | sed 's/_VERSION//')_VERSION"
   local pin="${!pin_var:-}"
   if [[ -n "$pin" ]]; then
@@ -175,9 +175,9 @@ install_from_release() {
     return 1
   fi
 
-  # Аутентичность: подпись Ed25519 над SHA256SUMS (поверх целостности). Нет
-  # ssh-keygen → громко предупреждаем (проверим только хеш); .sig есть и не
-  # сошёлся → жёсткий отказ; .sig нет → отказ (legacy-обход ALLOW_UNSIGNED_LEGACY=1).
+  # Authenticity: Ed25519 signature over SHA256SUMS (on top of integrity). No
+  # ssh-keygen → warn loudly (hash check only); .sig present but does not
+  # verify → hard refusal; no .sig → refusal (legacy override ALLOW_UNSIGNED_LEGACY=1).
   if command -v ssh-keygen >/dev/null 2>&1; then
     if curl -fsSL "${base}/SHA256SUMS.sig" -o "${tmp}/SHA256SUMS.sig" 2>/dev/null; then
       printf '%s namespaces="file" %s\n' "$SIGN_PRINCIPAL" "$RELEASE_SIGNING_PUBKEY" > "${tmp}/allowed_signers"
@@ -191,8 +191,8 @@ install_from_release() {
       return 1
     fi
   else
-    # Нет verifier'а. На macOS ssh-keygen идёт в комплекте → его отсутствие аномально;
-    # молчаливая деградация до hash-only маскировала бы подмену. Fail-closed (P1-4).
+    # No verifier. On macOS ssh-keygen ships out of the box → its absence is anomalous;
+    # silently degrading to hash-only would mask tampering. Fail-closed (P1-4).
     if [[ "${ALLOW_UNSIGNED_LEGACY:-0}" != "1" ]]; then
       t no_verifier "$t" >&2
       return 1
@@ -200,18 +200,18 @@ install_from_release() {
     t no_verifier_warn "$t" >&2
   fi
 
-  # Целостность: хеш самого install.sh из (уже проверенного подписью) SHA256SUMS.
+  # Integrity: the install.sh hash from the (already signature-verified) SHA256SUMS.
   if ! ( cd "$tmp" && shasum -a 256 -c SHA256SUMS --ignore-missing >/dev/null 2>&1 ); then
     t sum_mismatch "$t" >&2
     return 1
   fi
 
-  # Запускаем проверенный install.sh тула, направив его DEST в наш каталог.
-  # Он сам до-проверяет бинарь (SHA256 + та же подпись Ed25519) перед установкой.
+  # Run the tool's verified install.sh, pointing its DEST at our directory.
+  # It itself re-verifies the binary (SHA256 + the same Ed25519 signature) before installing.
   local dvar; dvar="$(dest_var_for "$t")"
   local vvar; vvar="$(version_var_for "$t")"
-  # stderr вложенного установщика НЕ глушим (иначе провал подписи/подмена неотличимы от
-  # сетевой ошибки) — ловим в лог и проксируем при провале (P1-4).
+  # Do NOT silence the nested installer's stderr (else a signature failure/tampering is
+  # indistinguishable from a network error) — capture to a log and proxy on failure (P1-4).
   local errlog="${tmp}/${t}.install.err"
   if ! env "${dvar}=${DEST}/${t}" ${pin:+"${vvar}=${pin}"} bash "${tmp}/install.sh" >/dev/null 2>"$errlog"; then
     t tool_fail "$t" >&2
@@ -228,19 +228,19 @@ installed=0
 for t in "${TOOLS[@]}"; do
   local_src="${ROOT}/${t}/${t}"
   if [[ "${PT_DEV:-0}" == "1" && -f "$local_src" ]]; then
-    # MAINTAINER (PT_DEV=1): локальный скрипт — копируем (вкл. невыпущенные правки).
+    # MAINTAINER (PT_DEV=1): local script — copy it (incl. unreleased changes).
     install -m 0755 "$local_src" "${DEST}/${t}"
     t from_worktree "$t" "${DEST}/${t}"
     installed=$((installed + 1))
   elif install_from_release "$t"; then
-    # ПУБЛИКА: подтянут и проверен подписанный релиз.
+    # PUBLIC: the signed release was fetched and verified.
     t from_release "$t" "${DEST}/${t}"
     installed=$((installed + 1))
   fi
 done
 
-# Лаунчер paranoid лежит в корне этого репо (он версионируется здесь, не в
-# отдельном тул-репо) — потому всегда на месте в любом clone, ставим отдельно.
+# The paranoid launcher lives in this repo's root (it is versioned here, not in a
+# separate tool repo) — so it is always present in any clone; install it separately.
 install -m 0755 "${ROOT}/paranoid" "${DEST}/paranoid"
 echo "  ✓ paranoid → ${DEST}/paranoid"
 
@@ -252,7 +252,7 @@ if [[ "$installed" -lt "${#TOOLS[@]}" ]]; then
   partial=1
 fi
 
-# Проверка PATH: без этого тулы стоят, но не вызываются по имени.
+# PATH check: without this the tools are installed but cannot be called by name.
 case ":$PATH:" in
   *":$DEST:"*) t path_ok "$DEST" ;;
   *)
@@ -261,12 +261,12 @@ case ":$PATH:" in
     ;;
 esac
 
-# Запоминаем, ОТКУДА ставили: лаунчер (`paranoid` → Update) перезапускает установщик
-# из этого каталога. Без этого пункт меню не знал бы, что обновлять — копия лаунчера
-# в ~/.local/bin про свой исходный клон ничего не знает.
+# Remember WHERE we installed from: the launcher (`paranoid` → Update) reruns the
+# installer from this directory. Without it the menu item would not know what to
+# update — the launcher copy in ~/.local/bin knows nothing about its source clone.
 _state_dir="${XDG_DATA_HOME:-$HOME/.local/share}/paranoid-tools"
 if mkdir -p "$_state_dir" 2>/dev/null; then
-  # Сносим прежний файл до записи: если это симлинк, `>` затёр бы его цель.
+  # Remove the previous file before writing: if it is a symlink, `>` would clobber its target.
   rm -f "$_state_dir/source" 2>/dev/null || true
   if ! printf '%s\n' "$ROOT" > "$_state_dir/source" 2>/dev/null; then
     t state_fail "${_state_dir}/source" >&2
@@ -278,7 +278,7 @@ t check_hint
 t run_launcher
 t guide_hint
 
-# Частичная установка — не тихий успех: выходим с ошибкой (обход: PT_ALLOW_PARTIAL=1). P2-3.
+# A partial install is not a quiet success: exit with an error (override: PT_ALLOW_PARTIAL=1). P2-3.
 if [[ "$partial" == "1" && "${PT_ALLOW_PARTIAL:-0}" != "1" ]]; then
   echo >&2
   t partial_exit "$installed" "${#TOOLS[@]}" >&2

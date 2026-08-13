@@ -1,34 +1,34 @@
-﻿# panic.ps1 — one-step kill-switch (Paranoid Tools), Windows-порт (BETA).
-# Зеркало macOS-версии (bash). Baseline: Windows PowerShell 5.1 (без PS7-only синтаксиса).
+﻿# panic.ps1 — one-step kill-switch (Paranoid Tools), Windows port (BETA).
+# Mirror of the macOS (bash) version. Baseline: Windows PowerShell 5.1 (no PS7-only syntax).
 #
-# Сценарий: граница / принуждение / «кто-то идёт». Одной командой `panic now` ПРЯЧЕТ и
-# ЗАПИРАЕТ: запирает разблокированные BitLocker-тома, размонтирует тома VeraCrypt, чистит
-# буфер обмена и блокирует экран (P/Invoke `user32!LockWorkStation`). `--hard` также
-# прибивает cloud-демоны (OneDrive/Dropbox/Google Drive) и чистит Recent items.
+# Scenario: border crossing / coercion / "someone is coming". A single `panic now` HIDES and
+# LOCKS: locks unlocked BitLocker volumes, dismounts VeraCrypt volumes, clears the
+# clipboard and locks the screen (P/Invoke `user32!LockWorkStation`). `--hard` also
+# kills cloud daemons (OneDrive/Dropbox/Google Drive) and clears Recent items.
 #
-# ЧЕСТНО (как и в bash-версии): panic ПРЯЧЕТ и ЗАПИРАЕТ, но НЕ уничтожает и НЕ чистит pagefile
-# (для уничтожения — securetrash). Принудительное запирание/размонтирование при открытых файлах
-# может повредить данные — осознанный trade-off режима паники (спрятать важнее). BitLocker-lock
-# требует admin и работает только для data-томов с отключённым auto-unlock (не системный диск);
-# VeraCrypt-размонтирование требует veracrypt.exe в PATH. Отсутствие механизма — не ошибка
-# (best-effort, как pkill в bash). Полное ядро — в следующих паках; см. README «Scope & limitations».
+# HONESTLY (as in the bash version): panic HIDES and LOCKS, but does NOT destroy and does NOT wipe
+# the pagefile (for destruction — securetrash). Forced locking/dismounting with open files
+# may corrupt data — a deliberate panic-mode trade-off (hiding matters more). BitLocker lock
+# requires admin and works only for data volumes with auto-unlock disabled (not the system drive);
+# VeraCrypt dismount requires veracrypt.exe on PATH. A missing mechanism is not an error
+# (best-effort, like pkill in bash). The full core comes in later packs; see README "Scope & limitations".
 #
-# BETA: логика покрыта Pester (системные примитивы мокаются); поведение на реальном железе с
-# экзотическими локалями/конфигурациями BitLocker/VeraCrypt широко не обкатано.
+# BETA: logic is covered by Pester (system primitives are mocked); behavior on real hardware with
+# exotic locales/BitLocker/VeraCrypt configurations is not widely field-tested.
 
 $VERSION = '0.1.15'
 
-# --- настраиваемые примитивы (зеркало bash PANIC_*; переопределяемы для тестов) ---
-# Имя процесса VeraCrypt CLI (в PATH). Cloud-демоны и каталог Recent items — ниже.
+# --- configurable primitives (mirror of bash PANIC_*; overridable for tests) ---
+# VeraCrypt CLI process name (on PATH). Cloud daemons and the Recent items directory are below.
 $script:PN_VERACRYPT = if ($env:PANIC_VERACRYPT) { $env:PANIC_VERACRYPT } else { 'VeraCrypt' }
-# Имена процессов cloud-демонов для Stop-Process (Windows-эквиваленты bird/Dropbox/...).
+# Cloud daemon process names for Stop-Process (Windows equivalents of bird/Dropbox/...).
 $script:PN_CLOUD_DAEMONS = @('OneDrive', 'Dropbox', 'GoogleDriveFS')
-# Каталог глобальных Recent items (jump-list shortcuts). Переопределяем для тестов.
+# Global Recent items directory (jump-list shortcuts). Overridden for tests.
 $script:PN_RECENT_DIR = if ($env:PANIC_RECENT_DIR) { $env:PANIC_RECENT_DIR } else {
     Join-Path $env:APPDATA 'Microsoft\Windows\Recent'
 }
 
-# --- locale: en по умолчанию; ru — если ST_LANG или системная UI-локаль начинаются с 'ru' ---
+# --- locale: en by default; ru — if ST_LANG or the system UI locale starts with 'ru' ---
 function Get-PnLocale {
     $want = $env:ST_LANG
     if ($want) {
@@ -39,19 +39,19 @@ function Get-PnLocale {
 }
 $script:PN_LOCALE = if ($env:ST_LOCALE) { $env:ST_LOCALE } else { Get-PnLocale }
 
-# --- output helpers: данные/отчёты — Write-Output (stdout); предупреждения/ошибки — stderr ---
+# --- output helpers: data/reports — Write-Output (stdout); warnings/errors — stderr ---
 function Write-PnInfo { param([string]$Msg) Write-Output "[+] $Msg" }
 function Write-PnWarn { param([string]$Msg) [Console]::Error.WriteLine("[!] $Msg") }
 function Write-PnErr  { param([string]$Msg) [Console]::Error.WriteLine("[x] $Msg") }
 
-# --- exit через исключение (Pester-safe: не убивает host-сессию) ---
+# --- exit via exception (Pester-safe: does not kill the host session) ---
 class PnExit : System.Exception {
     [int]$Code
     PnExit([int]$code) : base("PnExit:$code") { $this.Code = $code }
 }
 function Stop-PnCommand { param([int]$Code = 1) throw [PnExit]::new($Code) }
 
-# --- i18n (таблица строк panic; зеркало bash t()) ---
+# --- i18n (panic string table; mirror of bash t()) ---
 function T {
     param([string]$Key, [string]$A)
     $loc = $script:PN_LOCALE
@@ -123,10 +123,10 @@ destroy). Forced locking may corrupt open files — a deliberate panic trade-off
 '@
 }
 
-# === системные примитивы (обёртки — мокаются в Pester; на железе best-effort) ===
+# === system primitives (wrappers — mocked in Pester; best-effort on hardware) ===
 
-# Разблокированные BitLocker data-тома, которые можно запереть (не системный диск,
-# защита включена, статус Unlocked). Пусто, если модуль/доступа нет (best-effort).
+# Unlocked BitLocker data volumes that can be locked (not the system drive,
+# protection on, status Unlocked). Empty if the module/access is missing (best-effort).
 function Get-PnBitLockerUnlocked {
     try {
         $vols = Get-BitLockerVolume -ErrorAction Stop
@@ -138,14 +138,14 @@ function Get-PnBitLockerUnlocked {
     } | ForEach-Object { $_.MountPoint })
 }
 
-# Запереть BitLocker-том (force-dismount закрывает открытые хэндлы). Бросает при провале.
+# Lock a BitLocker volume (force-dismount closes open handles). Throws on failure.
 function Invoke-PnLockBitLocker {
     param([string]$MountPoint)
     Lock-BitLocker -MountPoint $MountPoint -ForceDismount -ErrorAction Stop | Out-Null
 }
 
-# Смонтированные тома VeraCrypt (буквы дисков). Пусто, если veracrypt.exe нет в PATH.
-# Парсим `VeraCrypt /l`: строки вида "1: \Device\... F: ...". Берём букву диска (3-е поле).
+# Mounted VeraCrypt volumes (drive letters). Empty if veracrypt.exe is not on PATH.
+# We parse `VeraCrypt /l`: lines like "1: \Device\... F: ...". We take the drive letter (3rd field).
 function Get-PnVeraCryptMounted {
     $exe = Get-Command $script:PN_VERACRYPT -ErrorAction SilentlyContinue
     if (-not $exe) { return @() }
@@ -156,18 +156,18 @@ function Get-PnVeraCryptMounted {
     } | Where-Object { $_ })
 }
 
-# Размонтировать ВСЕ тома VeraCrypt (force, quiet). Бросает при провале.
+# Dismount ALL VeraCrypt volumes (force, quiet). Throws on failure.
 function Invoke-PnDismountVeraCrypt {
     & $script:PN_VERACRYPT '/q' '/d' '/f' 2>$null
     if ($LASTEXITCODE -ne 0) { throw "VeraCrypt dismount exit $LASTEXITCODE" }
 }
 
-# Очистить буфер обмена (зеркало `pbcopy </dev/null`).
+# Clear the clipboard (mirror of `pbcopy </dev/null`).
 function Invoke-PnClearClipboard {
     try { Set-Clipboard -Value '' -ErrorAction Stop } catch { }
 }
 
-# Буфер обмена не пуст? (для status preflight).
+# Is the clipboard non-empty? (for the status preflight).
 function Test-PnClipboardNonEmpty {
     try {
         $c = Get-Clipboard -Raw -ErrorAction Stop
@@ -175,10 +175,10 @@ function Test-PnClipboardNonEmpty {
     } catch { return $false }
 }
 
-# Заблокировать экран до экрана входа (зеркало _lock_screen). Честно возвращает статус.
-# P/Invoke user32!LockWorkStation вместо `rundll32 ...,LockWorkStation`: exit-код rundll32 —
-# это статус helper-процесса, а НЕ результат лока (мог вернуть 0, даже если лок не принят).
-# LockWorkStation возвращает bool самого API → честный сигнал «запрос на лок принят».
+# Lock the screen down to the sign-in screen (mirror of _lock_screen). Honestly returns its status.
+# P/Invoke user32!LockWorkStation instead of `rundll32 ...,LockWorkStation`: rundll32's exit code
+# is the helper process's status, NOT the lock's result (it could return 0 even with the lock not accepted).
+# LockWorkStation returns the API's own bool → an honest "lock request accepted" signal.
 function Invoke-PnLockScreen {
     try {
         if (-not ('PnNative.User32' -as [type])) {
@@ -191,7 +191,7 @@ public static extern bool LockWorkStation();
     } catch { return $false }
 }
 
-# BitLocker включён на системном диске? (зеркало filevault_on).
+# Is BitLocker on for the system drive? (mirror of filevault_on).
 function Test-PnBitLockerOn {
     try {
         $sys = Get-BitLockerVolume -ErrorAction Stop | Where-Object { $_.VolumeType -eq 'OperatingSystem' }
@@ -199,22 +199,22 @@ function Test-PnBitLockerOn {
     } catch { return $false }
 }
 
-# --hard: прибить cloud-демоны (best-effort, отсутствие процесса — не ошибка).
+# --hard: kill cloud daemons (best-effort, a missing process is not an error).
 function Invoke-PnKillCloudDaemons {
     foreach ($name in $script:PN_CLOUD_DAEMONS) {
         try { Stop-Process -Name $name -Force -ErrorAction Stop } catch { }
     }
 }
 
-# Запущенные cloud-демоны (для status preflight).
+# Running cloud daemons (for the status preflight).
 function Get-PnRunningCloudDaemons {
     @($script:PN_CLOUD_DAEMONS | Where-Object {
         Get-Process -Name $_ -ErrorAction SilentlyContinue
     })
 }
 
-# --hard: почистить глобальные Recent items (jump-list shortcuts). ЧЕСТНО: покрывает
-# глобальный каталог Recent; per-app «недавние» внутри приложений этим не стираются.
+# --hard: clear global Recent items (jump-list shortcuts). HONESTLY: covers the
+# global Recent directory; per-app "recents" inside applications are not erased by this.
 function Invoke-PnClearRecentItems {
     if (Test-Path $script:PN_RECENT_DIR) {
         Get-ChildItem -Path $script:PN_RECENT_DIR -File -Force -ErrorAction SilentlyContinue |
@@ -222,11 +222,11 @@ function Invoke-PnClearRecentItems {
     }
 }
 
-# === команды ===
+# === commands ===
 
-# Kill-switch: спрятать и запереть. БЕЗ confirm — это режим паники (скорость важнее);
-# защита от случайного запуска — явный verb `now`. Force при открытых файлах может
-# повредить данные: осознанный trade-off (см. README «Scope & limitations»).
+# Kill-switch: hide and lock. NO confirm — this is panic mode (speed matters more);
+# the guard against accidental runs is the explicit `now` verb. Force with open files may
+# corrupt data: a deliberate trade-off (see README "Scope & limitations").
 function Invoke-PnNow {
     param([string[]]$ArgList)
     $hard = $false
@@ -234,24 +234,24 @@ function Invoke-PnNow {
 
     $n = 0
 
-    # 1. Запереть разблокированные BitLocker data-тома.
+    # 1. Lock unlocked BitLocker data volumes.
     foreach ($mp in (Get-PnBitLockerUnlocked)) {
         try { Invoke-PnLockBitLocker -MountPoint $mp; $n++ }
         catch { Write-PnWarn (T 'dismount_fail' $mp) }
     }
 
-    # 2. Размонтировать тома VeraCrypt (по числу смонтированных — единый force-dismount).
+    # 2. Dismount VeraCrypt volumes (counted by mounted volumes — one single force-dismount).
     $vc = @(Get-PnVeraCryptMounted)
     if ($vc.Count -gt 0) {
         try { Invoke-PnDismountVeraCrypt; $n += $vc.Count }
         catch { Write-PnWarn (T 'dismount_fail' ($vc -join ',')) }
     }
 
-    # 3. Очистить буфер. 4. Заблокировать экран (честно — статус по факту).
+    # 3. Clear the clipboard. 4. Lock the screen (honestly — the status as it actually happened).
     Invoke-PnClearClipboard
     $locked = Invoke-PnLockScreen
 
-    # 5. --hard: прибить cloud-демоны + почистить Recent items.
+    # 5. --hard: kill cloud daemons + clear Recent items.
     if ($hard) {
         Invoke-PnKillCloudDaemons
         Invoke-PnClearRecentItems
@@ -265,7 +265,7 @@ function Invoke-PnNow {
 function Invoke-PnStatus {
     Write-PnInfo (T 'status_header')
 
-    # Разблокированные шифр-тома (BitLocker + VeraCrypt) — `panic now` запрёт/размонтирует.
+    # Unlocked encrypted volumes (BitLocker + VeraCrypt) — `panic now` would lock/dismount them.
     $vols = @(Get-PnBitLockerUnlocked) + @(Get-PnVeraCryptMounted)
     if ($vols.Count -gt 0) {
         Write-PnInfo (T 'status_vols' "$($vols.Count)")
@@ -274,21 +274,21 @@ function Invoke-PnStatus {
         Write-PnInfo (T 'status_no_vols')
     }
 
-    # Буфер обмена.
+    # Clipboard.
     if (Test-PnClipboardNonEmpty) {
         Write-PnInfo (T 'status_clip_has')
     } else {
         Write-PnInfo (T 'status_clip_empty')
     }
 
-    # BitLocker системного диска — честный контекст.
+    # System-drive BitLocker — honest context.
     if (Test-PnBitLockerOn) {
         Write-PnInfo (T 'status_bl_on')
     } else {
         Write-PnWarn (T 'status_bl_off')
     }
 
-    # Cloud-демоны (--hard убьёт).
+    # Cloud daemons (--hard would kill them).
     foreach ($d in (Get-PnRunningCloudDaemons)) {
         Write-PnInfo (T 'status_cloud' $d)
     }
@@ -307,9 +307,9 @@ function Invoke-PnMain {
             { $_ -in 'help', '--help', '-h' }       { Write-Output (Get-PnUsage) }
             'status' { Invoke-PnStatus }
             'now'    { Invoke-PnNow -ArgList $rest }
-            # README документирует `panic hotkey` — на Windows его нет. Молчаливое
-            # «Unknown command» читалось бы как поломка установки, а не как честная граница
-            # порта: называем причину и рабочий путь средствами самой ОС.
+            # The README documents `panic hotkey` — Windows does not have it. A silent
+            # "Unknown command" would read as a broken install, not as an honest boundary of
+            # the port: we name the reason and a working path using the OS itself.
             'hotkey' { Write-PnErr (T 'hotkey_no_win'); exit 1 }
             default  { Write-PnErr (T 'unknown_cmd' $cmd); [Console]::Error.WriteLine((Get-PnUsage)); exit 1 }
         }
@@ -318,7 +318,7 @@ function Invoke-PnMain {
     }
 }
 
-# Dot-source guard: при `. panic.ps1` (Pester) main НЕ запускается; ST_NO_MAIN=1 тоже глушит.
+# Dot-source guard: under `. panic.ps1` (Pester) main does NOT run; ST_NO_MAIN=1 mutes it too.
 if ($MyInvocation.InvocationName -ne '.' -and -not $env:ST_NO_MAIN) {
     Invoke-PnMain -Argv $args
 }

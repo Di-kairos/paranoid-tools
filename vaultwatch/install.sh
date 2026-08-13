@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
-# Устанавливает vaultwatch в /usr/local/bin с проверкой целостности.
+# Installs vaultwatch into /usr/local/bin with an integrity check.
 #
-# Тянет бинарь и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и проверяет
-# хеш ДО установки. Закрывает supply-chain риск «curl|bash из main без проверки»:
-# содержимое релизного тега неизменно (в отличие от подвижной main), а хеш ловит
-# повреждение, частичную/кэш-подмену и рассинхрон бинаря с публикацией.
-# ЧЕСТНО: сумма и бинарь приходят по одному каналу — от подмены САМОГО релиза
-# (переписаны оба) это не защищает; для подлинности нужна подпись / Homebrew.
+# Pulls the binary and SHA256SUMS from a RELEASE tag (not the main branch) and checks
+# the hash BEFORE installing. Closes the "curl|bash from main without verification"
+# supply-chain risk: a release tag's contents are immutable (unlike the moving main),
+# and the hash catches corruption, partial/cache tampering, and a binary drifting out
+# of sync with the publication.
+# HONEST: the checksum and the binary arrive over the same channel — this does not
+# protect against the RELEASE ITSELF being replaced (both rewritten); authenticity
+# requires a signature / Homebrew.
 #
-# Использование (рекомендуется verify-then-run, см. README):
+# Usage (verify-then-run recommended, see README):
 #   curl -fsSLO https://github.com/Di-kairos/vaultwatch/releases/latest/download/install.sh
 #   curl -fsSLO https://github.com/Di-kairos/vaultwatch/releases/latest/download/SHA256SUMS
-#   shasum -a 256 -c SHA256SUMS --ignore-missing   # проверить сам install.sh
-#   less install.sh                                  # прочитать глазами
+#   shasum -a 256 -c SHA256SUMS --ignore-missing   # verify install.sh itself
+#   less install.sh                                  # read it with your own eyes
 #   bash install.sh
 #
-# Переменные окружения:
-#   VW_VERSION   — поставить конкретный тег (напр. 0.1.0). По умолчанию latest.
-#   VW_BASE_URL  — переопределить источник целиком (для форков/тестов).
-#   VW_DEST      — путь установки. По умолчанию /usr/local/bin/vaultwatch.
+# Environment variables:
+#   VW_VERSION   — install a specific tag (e.g. 0.1.0). Defaults to latest.
+#   VW_BASE_URL  — override the source entirely (for forks/tests).
+#   VW_DEST      — install path. Defaults to /usr/local/bin/vaultwatch.
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -26,7 +28,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 REPO="Di-kairos/vaultwatch"
-# Источник: явный VW_BASE_URL → конкретный тег VW_VERSION → latest-релиз.
+# Source: explicit VW_BASE_URL → specific VW_VERSION tag → latest release.
 if [[ -n "${VW_BASE_URL:-}" ]]; then
   BASE_URL="$VW_BASE_URL"
 elif [[ -n "${VW_VERSION:-}" ]]; then
@@ -34,10 +36,11 @@ elif [[ -n "${VW_VERSION:-}" ]]; then
 else
   BASE_URL="https://github.com/${REPO}/releases/latest/download"
 fi
-# Каталог установки. Умбрелла `paranoid-tools` ставит всё в ~/.local/bin (без sudo), а этот
-# установщик исторически — в /usr/local/bin. Если тул уже стоит из умбреллы, ставим РЯДОМ с ним:
-# иначе появляется вторая копия, и какая из них запустится, решает порядок в PATH — то есть
-# обновление молча не доезжает до пользователя. Явный VW_DEST всегда сильнее.
+# Install directory. The `paranoid-tools` umbrella installs everything into ~/.local/bin
+# (no sudo), while this installer historically targets /usr/local/bin. If the tool is
+# already installed by the umbrella, install NEXT TO it: otherwise a second copy appears,
+# and which one runs is decided by PATH order — i.e. the update silently never reaches
+# the user. An explicit VW_DEST always wins.
 if [[ -n "${VW_DEST:-}" ]]; then
   DEST="$VW_DEST"
 elif [[ -e "$HOME/.local/bin/vaultwatch" ]]; then
@@ -46,7 +49,7 @@ else
   DEST="/usr/local/bin/vaultwatch"
 fi
 
-# Временный каталог под загрузку; чистим в любом случае.
+# Temporary download directory; cleaned up no matter what.
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -54,24 +57,24 @@ echo "Скачиваю vaultwatch и SHA256SUMS из релиза..."
 curl -fsSL "${BASE_URL}/vaultwatch" -o "${TMP}/vaultwatch"
 curl -fsSL "${BASE_URL}/SHA256SUMS" -o "${TMP}/SHA256SUMS"
 
-# Проверка целостности ДО chmod +x.
+# Integrity check BEFORE chmod +x.
 echo "Проверяю контрольную сумму..."
 if ! ( cd "$TMP" && shasum -a 256 -c SHA256SUMS --ignore-missing ); then
   echo "✗ Контрольная сумма НЕ совпала — установка прервана (возможна подмена)." >&2
   exit 1
 fi
 
-# --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
-# Релизы подписаны выделенным ed25519-ключом экосистемы (ssh-keygen -Y). Pubkey вшит ниже.
-# Поведение: нет ssh-keygen → отказ, fail-closed (обход: ALLOW_UNSIGNED_LEGACY=1);
-# у релиза нет .sig → жёсткий отказ (legacy-обход через ALLOW_UNSIGNED_LEGACY=1);
-# .sig есть и НЕ сошёлся → жёсткий отказ (явный признак подмены).
+# --- Release SIGNATURE verification (authenticity on top of integrity) ---
+# Releases are signed with the ecosystem's dedicated ed25519 key (ssh-keygen -Y). Pubkey embedded below.
+# Behavior: no ssh-keygen → refuse, fail-closed (bypass: ALLOW_UNSIGNED_LEGACY=1);
+# release has no .sig → hard refusal (legacy bypass via ALLOW_UNSIGNED_LEGACY=1);
+# .sig present and does NOT verify → hard refusal (a clear sign of tampering).
 RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
 SIGN_PRINCIPAL="releases@paranoid-tools"
-# pubkey задан, но ssh-keygen недоступен → fail-closed: молчаливая деградация до hash-only
-# маскировала бы подмену; на macOS ssh-keygen идёт в комплекте, его отсутствие аномально
-# (паритет с umbrella install.sh и windows/install.ps1; AUDIT_2026-08-03 P1-1).
-SSH_KEYGEN="$(type -P ssh-keygen || true)"   # только внешний бинарь: exported-функция не годится в верификаторы
+# pubkey is set but ssh-keygen unavailable → fail-closed: a silent degradation to hash-only
+# would mask tampering; on macOS ssh-keygen ships with the system, its absence is anomalous
+# (parity with the umbrella install.sh and windows/install.ps1; AUDIT_2026-08-03 P1-1).
+SSH_KEYGEN="$(type -P ssh-keygen || true)"   # external binary only: an exported function is no good as a verifier
 if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && [[ -z "$SSH_KEYGEN" ]]; then
   if [[ "${ALLOW_UNSIGNED_LEGACY:-0}" != "1" ]]; then
     echo "✗ ssh-keygen недоступен — подпись проверить нечем; установка прервана." >&2
@@ -102,7 +105,7 @@ if [[ -n "$RELEASE_SIGNING_PUBKEY" ]] && [[ -n "$SSH_KEYGEN" ]]; then
   fi
 fi
 
-# Хеш верный → устанавливаем. Под несписываемый каталог — через sudo.
+# Hash is correct → install. For a non-writable directory — via sudo.
 echo "Устанавливаю в ${DEST}..."
 if [[ -w "$(dirname "$DEST")" ]]; then
   install -m 0755 "${TMP}/vaultwatch" "$DEST"
@@ -111,7 +114,7 @@ else
 fi
 
 echo "Установлено: $DEST"
-# Каталог вне PATH — молчать нельзя: пользователь решит, что установка не удалась.
+# Directory not in PATH — staying silent is not an option: the user would decide the install failed.
 case ":${PATH}:" in
   *":$(dirname "$DEST"):"*) : ;;
   *) echo "ВНИМАНИЕ: $(dirname "$DEST") не в PATH — добавь его, иначе команда не найдётся." >&2 ;;

@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# paranoid — интерактивный лаунчер экосистемы Paranoid Tools (Фаза A).
+# paranoid — interactive launcher for the Paranoid Tools ecosystem (Phase A).
 #
-# ЧЕСТНО: это ТОНКИЙ лаунчер, не новый инструмент. Он не содержит крипты и НЕ трогает
-# секреты — секреты вводятся напрямую в stdin нужного CLI. paranoid лишь показывает живой
-# статус и запускает те же пять подписанных CLI, ничего не пряча (Scope & limitations и
-# вердикты `check` идут на экран как есть). Глобального хоткея/демона тут нет — это Фаза B.
+# HONESTLY: this is a THIN launcher, not a new tool. It contains no crypto and does NOT touch
+# secrets — secrets are typed directly into the stdin of the relevant CLI. paranoid merely shows
+# live status and launches the same five signed CLIs, hiding nothing (Scope & limitations and
+# `check` verdicts go to the screen as-is). There is no global hotkey/daemon here — that is Phase B.
 #
-# Зависимостей — ноль (чистый Bash). Установленные тулы ищутся в PATH по имени; отсутствующий
-# тул показывается серым с хинтом на установку, а не подделывается.
+# Zero dependencies (pure Bash). Installed tools are looked up in PATH by name; a missing
+# tool is shown greyed out with an install hint, not faked.
 set -uo pipefail
 
 PARANOID_VERSION="0.1.0"
 
-# Точка монтирования vault (та же, что у securetrash). Переопределяема (тесты/иной том).
+# Vault mount point (same one securetrash uses). Overridable (tests/another volume).
 VAULT_VOLUME="${ST_VAULT_VOLUME:-/Volumes/SecretVault}"
-# Файл-контейнер vault (securetrash default). Нужен, чтобы отличить «закрыт» от «ещё не создан»
-# — иначе пункт меню Vault на чистой системе вёл бы к тупику «нет контейнера».
+# Vault container file (securetrash default). Needed to tell "closed" from "not created yet"
+# — otherwise the Vault menu item on a clean system would lead to a "no container" dead end.
 VAULT_CONTAINER="${ST_VAULT_PATH:-$HOME/SecureVault.sparsebundle}"
 
-# --- locale: en по умолчанию; ru — если ST_LANG или системная локаль начинаются с 'ru' ---
+# --- locale: en by default; ru — if ST_LANG or the system locale starts with 'ru' ---
 _detect_locale() {
   local want="${ST_LANG:-}"
   if [[ -n "$want" ]]; then
@@ -29,14 +29,14 @@ _detect_locale() {
 }
 LOCALE="${ST_LOCALE:-$(_detect_locale)}"
 
-# --- цвет только в TTY ---
+# --- color only in a TTY ---
 if [[ -t 1 ]]; then
   C_GRN=$'\033[32m'; C_YEL=$'\033[33m'; C_DIM=$'\033[2m'; C_BLD=$'\033[1m'; C_RST=$'\033[0m'
 else
   C_GRN=""; C_YEL=""; C_DIM=""; C_BLD=""; C_RST=""
 fi
 
-# --- i18n (только chrome лаунчера; вывод самих тулов локализуют они сами) ---
+# --- i18n (launcher chrome only; the tools localize their own output themselves) ---
 t() {
   case "$LOCALE:$1" in
     en:title)        echo 'PARANOID TOOLS' ;;
@@ -88,7 +88,7 @@ t() {
     en:m_unwatch)    echo 'Stop watching the vault (vaultwatch)' ;;
     ru:m_unwatch)    echo 'Снять охрану сейфа (vaultwatch)' ;;
     en:m_quit)       echo 'Quit' ;;          ru:m_quit)       echo 'Выход' ;;
-    # --- top-level group items (открывают подменю) ---
+    # --- top-level group items (each opens a submenu) ---
     en:m_t_vault)    echo 'Vault ▸        open · empty · destroy · watch' ;;
     ru:m_t_vault)    echo 'Сейф ▸         открыть · очистить · уничтожить · сторожить' ;;
     en:m_t_notepad)  echo 'Notepad ▸      ghostdraft: ephemeral note / clipboard' ;;
@@ -118,14 +118,14 @@ t() {
     en:m_t_secrets)  echo 'Secrets ▸      seedsplit: split / combine' ;;
     ru:m_t_secrets)  echo 'Секреты ▸      seedsplit: разбить / собрать' ;;
     en:back)         echo 'Back' ;;          ru:back)         echo 'Назад' ;;
-    # --- подменю-заголовки ---
+    # --- submenu headers ---
     en:h_vault)      echo 'Vault — encrypted container' ;;
     ru:h_vault)      echo 'Сейф — зашифрованный контейнер' ;;
     en:h_notepad)    echo 'Notepad — ephemeral text (ghostdraft)' ;;
     ru:h_notepad)    echo 'Блокнот — эфемерный текст (ghostdraft)' ;;
     en:h_secrets)    echo 'Secrets — Shamir shares (seedsplit)' ;;
     ru:h_secrets)    echo 'Секреты — доли Шамира (seedsplit)' ;;
-    # --- vault submenu: динамический пункт 1 по состоянию ---
+    # --- vault submenu: item 1 is dynamic by state ---
     en:m_v_create)   echo 'Create a vault' ;;  ru:m_v_create)   echo 'Создать сейф' ;;
     en:m_v_open)     echo 'Open the vault' ;;   ru:m_v_open)     echo 'Открыть сейф' ;;
     en:m_v_close)    echo 'Close the vault' ;;  ru:m_v_close)    echo 'Закрыть сейф' ;;
@@ -139,7 +139,7 @@ t() {
     ru:empty_none)   echo 'Очищать нечего — сначала создай сейф.' ;;
     en:empty_hint)   echo 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place on an SSD). It runs "securetrash vault reset", NOT "securetrash empty" (that one only clears the ~/SecureTrash drop folder). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' ;;
     ru:empty_hint)   echo 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте на SSD). Запускается «securetrash vault reset», а НЕ «securetrash empty» (та команда лишь чистит папку-приёмник ~/SecureTrash). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' ;;
-    # --- выбор размера сейфа (cap, не резерв — sparsebundle тонкий) ---
+    # --- vault size choice (a cap, not a reservation — sparsebundle is thin) ---
     en:size_free)    printf 'Free space on this disk: ~%s GB.' "$2" ;;
     ru:size_free)    printf 'Свободно на диске: ~%s ГБ.' "$2" ;;
     en:size_prompt)  echo 'Vault size cap (e.g. 1g, 5g, 500m; empty = default 1g). A ceiling, not reserved space — the vault grows as you add files:' ;;
@@ -178,15 +178,15 @@ t() {
   esac
 }
 
-# --- инструменты экосистемы: репо для хинта на установку ---
-# После монорепо-миграции все тулы живут в одном репозитории.
+# --- ecosystem tools: the repo for the install hint ---
+# After the monorepo migration all tools live in a single repository.
 _tool_repo() {
   echo 'https://github.com/Di-kairos/paranoid-tools'
 }
 
 _tool_installed() { command -v "$1" >/dev/null 2>&1; }
 
-# Запустить тул, не убивая цикл при ненулевом коде. Если тула нет — хинт.
+# Run a tool without killing the loop on a nonzero exit code. If the tool is absent — a hint.
 _run_tool() {
   local tool="$1"; shift
   if ! _tool_installed "$tool"; then
@@ -196,15 +196,15 @@ _run_tool() {
   "$tool" "$@" || true
 }
 
-# --- статус для dashboard (только чтение; деградирует в unknown, не угадывает) ---
-# Том РЕАЛЬНО примонтирован? Зеркало канонической `securetrash lib/common.sh:_volume_mounted`
-# (лаунчер не вендорит common.sh — он не пользуется остальными её примитивами). Раньше здесь
-# стояла проверка `[[ -d "$VAULT_VOLUME" ]]`: каталог, оставшийся от прошлого монтирования
-# или созданный руками, читался как «ОТКРЫТ» — и дашборд лаунчера пугал пользователя
-# «сейф открыт, данные под угрозой», пока ghostdraft и GUI на тот же путь отвечали «закрыт».
-# Точку монтирования сравниваем целиком: подстрочный поиск считает `/Volumes/Foo`
-# смонтированным, когда смонтирован `/Volumes/Foo Bar`.
-# Код возврата: 0 — примонтирован, 1 — точно нет, 2 — таблицу прочитать не удалось.
+# --- status for the dashboard (read-only; degrades to unknown, does not guess) ---
+# Is the volume REALLY mounted? A mirror of the canonical `securetrash lib/common.sh:_volume_mounted`
+# (the launcher does not vendor common.sh — it uses none of its other primitives). Previously this
+# was a `[[ -d "$VAULT_VOLUME" ]]` check: a directory left over from a past mount or created
+# by hand read as "OPEN" — and the launcher dashboard scared the user with
+# "vault open, data at risk" while ghostdraft and the GUI answered "closed" for the same path.
+# The mount point is compared as a whole: a substring search counts `/Volumes/Foo`
+# as mounted when `/Volumes/Foo Bar` is mounted.
+# Return code: 0 — mounted, 1 — definitely not, 2 — the mount table could not be read.
 _volume_mounted() {
   local vol="${1:-}" line mp out
   [[ -n "$vol" ]] || return 1
@@ -221,9 +221,9 @@ _volume_mounted() {
   return 1
 }
 
-# open / closed / none / unknown. Дашборд «деградирует в unknown, не угадывает»: если
-# таблицу монтирования прочитать не вышло, зелёное «закрыт» над открытым сейфом — худшее
-# из возможных враньё, поэтому такое состояние называется своим именем.
+# open / closed / none / unknown. The dashboard "degrades to unknown, does not guess": if
+# the mount table could not be read, a green "closed" over an open vault is the worst
+# possible lie, so that state is called by its proper name.
 _status_vault() {
   local rc
   _volume_mounted "$VAULT_VOLUME" && rc=0 || rc=$?
@@ -235,11 +235,11 @@ _status_vault() {
 }
 _status_filevault() {
   command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
-  # Вывод захватываем в переменную и матчим here-string, а НЕ через прямой пайп
-  # `fdesetup ... | grep -q`: под `set -o pipefail` такой пайп ложно «падает» —
-  # grep -q закрывает канал на первом совпадении, источник получает SIGPIPE (код
-  # 141), и pipefail делает весь конвейер ненулевым (ложный unknown). См. также
-  # _status_vaultwatch — там этот же баг давал «idle» при активной сессии.
+  # We capture the output into a variable and match a here-string, NOT a direct pipe
+  # `fdesetup ... | grep -q`: under `set -o pipefail` such a pipe falsely "fails" —
+  # grep -q closes the channel on the first match, the source gets SIGPIPE (code
+  # 141), and pipefail makes the whole pipeline nonzero (a false unknown). See also
+  # _status_vaultwatch — there the same bug produced "idle" during an active session.
   local s; s="$(fdesetup status 2>/dev/null)"
   if   grep -qi "FileVault is On"  <<<"$s"; then echo on
   elif grep -qi "FileVault is Off" <<<"$s"; then echo off
@@ -247,23 +247,23 @@ _status_filevault() {
 }
 _status_vaultwatch() {
   _tool_installed vaultwatch || { echo absent; return; }
-  # Активная сессия = вывод status содержит "session:"/"сессия:". Захват в переменную +
-  # here-string (а не `vaultwatch status | grep -q`): прямой пайп под pipefail ложно
-  # давал «idle» — grep -q закрывает канал после первой строки, vaultwatch ловит SIGPIPE
-  # (141), pipefail делает конвейер ненулевым. Подробности — в _status_filevault.
+  # Active session = the status output contains "session:"/"сессия:". Capture into a variable +
+  # here-string (not `vaultwatch status | grep -q`): a direct pipe under pipefail falsely
+  # gave "idle" — grep -q closes the channel after the first line, vaultwatch catches SIGPIPE
+  # (141), pipefail makes the pipeline nonzero. Details — in _status_filevault.
   local out; out="$(vaultwatch status 2>/dev/null)"
   if grep -qiE 'session:|сессия:' <<<"$out"; then echo active; else echo idle; fi
 }
 
-# --- opt-in проверка обновлений (по умолчанию ВЫКЛ; сеть только с явного согласия) ---
-# Privacy-контракт: НИКАКОЙ телеметрии и фонового «стука домой». Проверка идёт ТОЛЬКО если
-# PARANOID_UPDATE_CHECK=1, делает лишь HEAD-редирект к GitHub releases/latest (без API-ключей,
-# без rate-limit), троттлится кэшем на 24ч и при любой ошибке сети тихо пропускает тул.
+# --- opt-in update check (OFF by default; network only with explicit consent) ---
+# Privacy contract: NO telemetry and no background "phoning home". The check runs ONLY if
+# PARANOID_UPDATE_CHECK=1, does nothing but a HEAD redirect to GitHub releases/latest (no API keys,
+# no rate limit), is throttled by a 24h cache, and on any network error silently skips the tool.
 
-# mtime файла в секундах epoch: BSD (macOS) `stat -f %m`, GNU (Linux/CI) `stat -c %Y`.
+# File mtime in epoch seconds: BSD (macOS) `stat -f %m`, GNU (Linux/CI) `stat -c %Y`.
 _file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
 
-# Установленная версия тула как x.y.z (пусто, если тула нет / версию не распарсить).
+# The tool's installed version as x.y.z (empty if the tool is absent / the version cannot be parsed).
 _tool_version() {
   local tool="$1" out
   _tool_installed "$tool" || return 0
@@ -271,11 +271,11 @@ _tool_version() {
   grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$out" | head -1
 }
 
-# Последний релизный тег тула. В тестах подменяется файлом PARANOID_UPDATE_FEED
-# (строки `tool=vX.Y.Z`), иначе — HEAD-редирект releases/latest → .../tag/vX.Y.Z.
-# Пер-тул URL указывает на архивированный репозиторий: GitHub продолжает отдавать
-# его releases/latest. С первым монорепо-релизом (теги <tool>-vX.Y.Z) источником
-# станет releases.atom монорепо — см. чеклист в docs/RELEASE-STATE.md.
+# The tool's latest release tag. In tests substituted by a PARANOID_UPDATE_FEED file
+# (`tool=vX.Y.Z` lines), otherwise — a HEAD redirect releases/latest → .../tag/vX.Y.Z.
+# The per-tool URL points at an archived repository: GitHub keeps serving
+# its releases/latest. With the first monorepo release (<tool>-vX.Y.Z tags) the source
+# will become the monorepo's releases.atom — see the checklist in docs/RELEASE-STATE.md.
 _fetch_latest_tag() {
   local tool="$1" url
   if [[ -n "${PARANOID_UPDATE_FEED:-}" ]]; then
@@ -283,16 +283,16 @@ _fetch_latest_tag() {
     return 0
   fi
   command -v curl >/dev/null 2>&1 || return 0
-  # -I = HEAD (только заголовки редиректа, тело страницы не тянем — минимизация). Короткий
-  # таймаут: проверка синхронна в рендере, а сумма ждёт по всем тулам; кэш на 24ч делает этот
-  # медленный путь редким (раз в сутки), но одиночный рендер не должен висеть на мёртвой сети.
+  # -I = HEAD (redirect headers only, we do not pull the page body — minimization). Short
+  # timeout: the check is synchronous in the render, and the total waits over all tools; the 24h
+  # cache makes this slow path rare (once a day), but a single render must not hang on a dead network.
   url="$(curl -fsSLI --connect-timeout 2 --max-time 3 -o /dev/null -w '%{url_effective}' \
         "https://github.com/Di-kairos/$tool/releases/latest" 2>/dev/null)" || return 0
   case "$url" in */tag/*) echo "${url##*/tag/}" ;; esac
 }
 
-# true, если $1 (x.y.z) строго новее $2. Числовая сортировка по полям — без sort -V
-# (её нет на старом BSD). Равные версии → не новее.
+# true if $1 (x.y.z) is strictly newer than $2. Numeric per-field sort — without sort -V
+# (absent on old BSD). Equal versions → not newer.
 _ver_gt() {
   [[ "$1" == "$2" ]] && return 1
   local hi
@@ -300,14 +300,14 @@ _ver_gt() {
   [[ "$hi" == "$1" ]]
 }
 
-# Сводка «тул inst→latest, …» по установленным тулам, у которых релиз новее. Пусто, если
-# проверка выключена, всё свежее или сеть недоступна. Результат кэшируется на 24ч.
+# A "tool inst→latest, …" summary over installed tools whose release is newer. Empty if
+# the check is disabled, everything is fresh, or the network is unavailable. The result is cached for 24h.
 _update_summary() {
   [[ "${PARANOID_UPDATE_CHECK:-0}" == "1" ]] || return 0
   local cache_dir cache
   cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/paranoid-tools"
   cache="$cache_dir/update-check"
-  # Свежий кэш (<24ч) отдаём как есть; feed-режим (тесты) кэш не трогает — всегда пересчёт.
+  # A fresh cache (<24h) is served as-is; feed mode (tests) does not touch the cache — always recomputes.
   if [[ -z "${PARANOID_UPDATE_FEED:-}" && -f "$cache" ]]; then
     local now mt; now="$(date +%s 2>/dev/null)"; mt="$(_file_mtime "$cache")"
     if [[ -n "$now" && -n "$mt" ]] && (( now - mt < 86400 )); then cat "$cache"; return 0; fi
@@ -317,8 +317,8 @@ _update_summary() {
     _tool_installed "$tool" || continue
     inst="$(_tool_version "$tool")"; [[ -n "$inst" ]] || continue
     latest="$(_fetch_latest_tag "$tool")"; latest="${latest#v}"
-    # Сравниваем только чистый x.y.z (наши теги всегда такие); мусор/x.y — пропускаем,
-    # чтобы неполная версия не дала ложное «новее» (паритет с ps1-валидацией).
+    # We compare only a clean x.y.z (our tags always are); garbage/x.y is skipped,
+    # so that an incomplete version cannot yield a false "newer" (parity with the ps1 validation).
     [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
     _ver_gt "$latest" "$inst" && out+="${out:+, }$tool $inst→$latest"
   done
@@ -328,7 +328,7 @@ _update_summary() {
   printf '%s' "$out"
 }
 
-# Цветная точка по состоянию: ok=green, warn=yellow, dim=grey.
+# A colored dot by state: ok=green, warn=yellow, dim=grey.
 _dot() {
   case "$1" in
     ok)   printf '%s●%s' "$C_GRN" "$C_RST" ;;
@@ -337,7 +337,7 @@ _dot() {
   esac
 }
 
-# Один пункт меню: серый + (not installed), если тул отсутствует.
+# A single menu item: grey + (not installed) if the tool is absent.
 _menu_item() {
   local num="$1" label="$2" tool="${3:-}"
   if [[ -n "$tool" ]] && ! _tool_installed "$tool"; then
@@ -376,9 +376,9 @@ _render() {
     active) vline="$(vaultwatch status 2>/dev/null | grep -iE 'TTL|auto-exit|авто-выход' | head -1 | sed 's/^ *//')"
             printf '  %s %s %s%s\n' "$(t vw)" "$(_dot ok)" "$(t vw_active)" "${vline:+ — $vline}" ;;
     idle)   printf '  %s %s %s\n' "$(t vw)" "$(_dot dim)" "$(t vw_idle)" ;;
-    *)      : ;;  # absent → строку vaultwatch не показываем
+    *)      : ;;  # absent → the vaultwatch line is not shown
   esac
-  # Опциональная строка обновлений (только если PARANOID_UPDATE_CHECK=1 и есть свежее).
+  # Optional updates line (only if PARANOID_UPDATE_CHECK=1 and something newer exists).
   local _upd; _upd="$(_update_summary)"
   if [[ -n "$_upd" ]]; then
     printf '  %s⬆ %s%s %s\n' "$C_YEL" "$(t update_avail)" "$C_RST" "$_upd"
@@ -391,9 +391,9 @@ _render() {
   else
     printf '  %s2) 🔒 %s (%s)%s\n' "$C_DIM" "$(t m_panic)" "$(t not_installed)" "$C_RST"
   fi
-  # Группы-подменю (3–5). Top-level держим коротким: чтение (1) и тревога (2) —
-  # мгновенно наверху; всё остальное сгруппировано по смыслу. Сами пункты внутри
-  # подменю гасятся серым, если их тул отсутствует, поэтому группы тут всегда активны.
+  # Submenu groups (3–5). The top level is kept short: reading (1) and the alarm (2) —
+  # instantly at the top; everything else is grouped by meaning. The items inside the
+  # submenus are greyed out when their tool is absent, so the groups here are always active.
   printf '  3) %s\n' "$(t m_t_vault)"
   printf '  4) %s\n' "$(t m_t_notepad)"
   printf '  5) %s\n' "$(t m_t_secrets)"
@@ -403,10 +403,10 @@ _render() {
 
 _pause() { read -r -p "  $(t press_enter)… " _ <&0 || true; }
 
-# --- действия ---
-# Похож ли каталог на наш клон. Символические ссылки на install.sh/paranoid не
-# принимаем: `-f` идёт ПО ссылке, поэтому подменённая цель прошла бы проверку, а
-# пользователь увидел бы прежний, доверенный путь.
+# --- actions ---
+# Does the directory look like our clone. Symbolic links to install.sh/paranoid are not
+# accepted: `-f` follows the link, so a substituted target would pass the check while
+# the user would see the old, trusted path.
 _is_clone_dir() {
   local d="${1:-}"
   [[ -n "$d" && -d "$d" ]] || return 1
@@ -415,9 +415,9 @@ _is_clone_dir() {
   return 0
 }
 
-# Где лежит установщик. Порядок: явный PARANOID_SRC → путь, записанный install.sh при
-# последней установке → каталог самого лаунчера (когда его запускают прямо из клона).
-# Пусто, если ничего не подошло — тогда честно говорим, а не гадаем.
+# Where the installer lives. Order: explicit PARANOID_SRC → the path recorded by install.sh at
+# the last install → the launcher's own directory (when it is run straight from the clone).
+# Empty if nothing matched — then we say so honestly instead of guessing.
 _update_source() {
   local state src
   if _is_clone_dir "${PARANOID_SRC:-}"; then
@@ -425,8 +425,8 @@ _update_source() {
   fi
   state="${XDG_DATA_HOME:-$HOME/.local/share}/paranoid-tools/source"
   if [[ -f "$state" ]]; then
-    # Обрезаем ТОЛЬКО CR (файл мог оказаться с CRLF). Общий trim краевых пробелов
-    # менял бы сам путь: у каталога с пробелом на конце это уже другой каталог.
+    # We strip ONLY the CR (the file could have ended up with CRLF). A general trim of edge
+    # whitespace would change the path itself: with a trailing space that is a different directory.
     src="$(head -n1 "$state" 2>/dev/null || true)"
     src="${src%$'\r'}"
     if [[ "$src" == /* ]] && _is_clone_dir "$src"; then printf '%s' "$src"; return 0; fi
@@ -436,9 +436,9 @@ _update_source() {
   return 0
 }
 
-# Обновление = перезапуск установщика из клона: он сам тянет последние ПОДПИСАННЫЕ
-# релизы каждого тула и проверяет подпись. Своей логики скачивания тут нет намеренно —
-# иначе рядом с проверенным путём появился бы второй, непроверенный.
+# Updating = re-running the installer from the clone: it itself pulls each tool's latest SIGNED
+# releases and verifies the signature. There is deliberately no download logic of our own here —
+# otherwise a second, unverified path would appear next to the verified one.
 _act_update() {
   local src; src="$(_update_source)"
   if [[ -z "$src" ]]; then
@@ -453,7 +453,7 @@ _act_update() {
   local pulled=1
   if git -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
     echo "  $(t upd_pull)"
-    # --ff-only: молча перезаписывать локальные правки пользователя нельзя.
+    # --ff-only: silently overwriting the user's local edits is not allowed.
     git -C "$src" pull --ff-only || { pulled=0; echo "  ${C_YEL}$(t upd_pull_fail)${C_RST}" >&2; }
   else
     echo "  ${C_YEL}$(t upd_nogit)${C_RST}" >&2
@@ -461,10 +461,10 @@ _act_update() {
 
   echo "  $(t upd_run)"
   if bash "$src/install.sh"; then
-    # Баннер «доступно обновление» кэшируется на сутки — после установки он соврал бы.
+    # The "update available" banner is cached for a day — after the install it would lie.
     rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/paranoid-tools/update-check" 2>/dev/null || true
-    # Не выдаём «всё свежее», если исходники подтянуть не удалось: установщик мог
-    # отработать, но клон при этом остался прежним.
+    # We do not claim "all fresh" if the sources could not be pulled: the installer may
+    # have run fine while the clone stayed as it was.
     (( pulled )) || echo "  ${C_YEL}$(t upd_stale_src)${C_RST}" >&2
     echo "  ${C_GRN}$(t upd_done)${C_RST}"
   else
@@ -483,27 +483,27 @@ _act_panic() {
     echo "${C_YEL}$(t install_hint panic "$(_tool_repo panic)")${C_RST}" >&2
     _pause; return
   fi
-  # Режим паники: МГНОВЕННО, без подтверждений — скорость и есть весь смысл кнопки. Всегда --hard
-  # (спрятать/запереть + прибить cloud-демоны + очистить recent). Защита от случайного нажатия — то,
-  # что пункт явно помечен «instant», а сам `panic now` требует явный verb. Паника обратима: это
-  # hide & lock, НЕ уничтожение данных (для уничтожения — securetrash destroy).
+  # Panic mode: INSTANT, no confirmations — speed is the whole point of the button. Always --hard
+  # (hide/lock + kill the cloud daemons + clear recents). The accidental-press protection is that
+  # the item is explicitly marked "instant" and `panic now` itself requires an explicit verb. Panic is
+  # reversible: it is hide & lock, NOT data destruction (for destruction — securetrash destroy).
   _run_tool panic now --hard
   _pause
 }
-# Спросить потолок размера для нового сейфа. Echo выбранного размера в stdout (пусто = дефолт
-# тула 1g), return 1 при неверном формате (caller отменяет create/reset). Подсказки/предупреждения
-# идут в stderr, чтобы не попасть в подставляемый аргумент. sparsebundle тонкий → это ЛИМИТ, не резерв.
+# Ask for the size cap of a new vault. Echoes the chosen size to stdout (empty = the tool's default
+# 1g), returns 1 on an invalid format (the caller cancels create/reset). Hints/warnings go to
+# stderr so they cannot end up in the substituted argument. sparsebundle is thin → this is a CAP, not a reservation.
 _ask_vault_size() {
   local free_g size num
   free_g="$(df -g "$HOME" 2>/dev/null | awk 'NR==2{print $4}')"
   [[ -n "$free_g" ]] && echo "  ${C_DIM}$(t size_free "$free_g")${C_RST}" >&2
   echo "  $(t size_prompt)" >&2
   read -r -p "  > " size <&0 || size=""
-  [[ -z "$size" ]] && return 0   # пусто → дефолт тула (на stdout ничего)
+  [[ -z "$size" ]] && return 0   # empty → the tool's default (nothing on stdout)
   if ! [[ "$size" =~ ^[0-9]+[gGmM]?$ ]]; then
     echo "  ${C_YEL}$(t size_bad)${C_RST}" >&2; return 1
   fi
-  # Потолок (в ГБ) больше свободного? Предупреждаем, но разрешаем — это лимит, не резерв.
+  # Cap (in GB) above free space? We warn but allow — it is a cap, not a reservation.
   if [[ -n "$free_g" && "$size" =~ ^([0-9]+)[gG]$ ]]; then
     num="${BASH_REMATCH[1]}"
     (( num > free_g )) && echo "  ${C_YEL}$(t size_cap_warn "$num" "$free_g")${C_RST}" >&2
@@ -511,9 +511,9 @@ _ask_vault_size() {
   echo "$size"
 }
 _act_vault() {
-  # Трёхсостоянийно: нет контейнера → создать (иначе пользователь упирался в тупик
-  # «нет контейнера, сначала vault create» без видимого пути к созданию); закрыт → открыть;
-  # открыт → закрыть. На создании спрашиваем размер (cap); пароль securetrash спросит сам.
+  # Three-state: no container → create (otherwise the user hit the dead end
+  # "no container, run vault create first" with no visible path to creation); closed → open;
+  # open → close. On creation we ask for the size (cap); securetrash asks for the password itself.
   case "$(_status_vault)" in
     open)   _run_tool securetrash vault close ;;
     closed) _run_tool securetrash vault open ;;
@@ -521,17 +521,17 @@ _act_vault() {
     none)
       echo "  $(t vault_setup_hint)"
       local sz
-      # неверный формат размера → _ask_vault_size вернёт 1 → отменяем создание (не тупик).
+      # invalid size format → _ask_vault_size returns 1 → we cancel creation (not a dead end).
       if sz="$(_ask_vault_size)"; then
-        # shellcheck disable=SC2086  # пусто → без аргумента = дефолтный размер тула
+        # shellcheck disable=SC2086  # empty → no argument = the tool's default size
         _run_tool securetrash vault create $sz
       fi
       ;;
   esac
   _pause
 }
-# Уничтожение сейфа — необратимо. Лаунчер предупреждает, но реальное подтверждение (yes)
-# и отказ при смонтированном томе с открытыми файлами — на стороне securetrash.
+# Destroying the vault is irreversible. The launcher warns, but the real confirmation (yes)
+# and the refusal on a mounted volume with open files are on the securetrash side.
 _act_destroy() {
   if ! _tool_installed securetrash; then
     echo "${C_YEL}$(t install_hint securetrash "$(_tool_repo securetrash)")${C_RST}" >&2
@@ -541,7 +541,7 @@ _act_destroy() {
   if [[ "$v" == none ]]; then
     echo "  $(t destroy_none)"; _pause; return
   fi
-  # Необратимая операция поверх состояния, которого мы не знаем, — не наш выбор.
+  # An irreversible operation on top of a state we do not know is not our call to make.
   if [[ "$v" == unknown ]]; then
     echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}"; _pause; return
   fi
@@ -549,10 +549,10 @@ _act_destroy() {
   _run_tool securetrash vault destroy
   _pause
 }
-# Очистить сейф = securetrash vault reset (crypto-shred контейнера + создать пустой заново).
-# Честная гарантия безвозвратности: in-place перезапись на SSD — best-effort (тот же ключ
-# продолжает расшифровывать остаточные блоки), а reset выкидывает ключ. Реальный yes-confirm
-# и запрос пароля нового сейфа — на стороне securetrash; лаунчер лишь предупреждает.
+# Emptying the vault = securetrash vault reset (crypto-shred the container + recreate it empty).
+# An honest irreversibility guarantee: in-place overwriting on an SSD is best-effort (the same key
+# keeps decrypting residual blocks), while reset throws the key away. The real yes-confirm
+# and the new vault's password prompt are on the securetrash side; the launcher only warns.
 _act_empty() {
   if ! _tool_installed securetrash; then
     echo "${C_YEL}$(t install_hint securetrash "$(_tool_repo securetrash)")${C_RST}" >&2
@@ -568,14 +568,14 @@ _act_empty() {
   echo "  ${C_YEL}$(t empty_hint)${C_RST}"
   local sz
   if sz="$(_ask_vault_size)"; then
-    # shellcheck disable=SC2086  # пусто → дефолтный размер тула
+    # shellcheck disable=SC2086  # empty → the tool's default size
     _run_tool securetrash vault reset $sz
   fi
   _pause
 }
-# Подсказка по выходу из редактора (иначе новичок застревает — особенно в vim). Показываем
-# ОБА пути (сохранить И выбросить) клавиатурой: F-клавиши в терминалах (Warp) ненадёжны,
-# а человек часто хочет именно выйти БЕЗ сохранения. Esc-then-... работает из любого режима.
+# A hint on exiting the editor (otherwise a novice gets stuck — especially in vim). We show
+# BOTH paths (save AND discard) via the keyboard: F-keys in terminals (Warp) are unreliable,
+# and a person often wants precisely to exit WITHOUT saving. Esc-then-... works from any mode.
 _editor_exit_hint() {
   if [[ "$LOCALE" == ru ]]; then
     case "$1" in
@@ -594,8 +594,8 @@ _editor_exit_hint() {
   fi
 }
 _act_split() {
-  # Промпт печатает сам seedsplit (он же читает ввод без эха) — свой убран, чтобы не давать
-  # двух разных инструкций сразу: старая обещала многострочный ввод с Ctrl-D.
+  # seedsplit prints the prompt itself (it also reads the input without echo) — ours was removed
+  # so as not to give two different instructions at once: the old one promised multi-line input with Ctrl-D.
   if _run_tool seedsplit split; then echo; echo "  $(t split_done)"; fi
   _pause
 }
@@ -604,10 +604,10 @@ _act_combine() {
   _run_tool seedsplit combine
   _pause
 }
-# Запуск `ghostdraft new` с подсказкой про редактор. $1 — опц. флаг (напр. --clipboard).
+# Runs `ghostdraft new` with an editor hint. $1 — optional flag (e.g. --clipboard).
 _ghost_new() {
   local flag="$1" ed
-  # Зеркалим выбор редактора ghostdraft (иначе подсказка врёт): $EDITOR → vim → nano.
+  # We mirror ghostdraft's editor choice (otherwise the hint lies): $EDITOR → vim → nano.
   if [[ -n "${EDITOR:-}" ]]; then ed="$EDITOR"
   elif command -v vim >/dev/null 2>&1; then ed="vim"
   else ed="nano"; fi
@@ -619,10 +619,10 @@ _ghost_new() {
     _run_tool ghostdraft new
   fi
 }
-# Подменю «Блокнот» (ghostdraft): два пункта — эфемерная заметка и просмотр буфера. Заметка
-# нигде не хранится: написал/правил/скопировал → на выходе исчезает (хочешь сохранить —
-# сам положи файл в открытый сейф). Копирование с авто-очисткой ~20с встроено в «заметку»
-# (ghostdraft new --clipboard сам предложит на выходе). Цикл до «назад» — можно подряд.
+# The "Notepad" submenu (ghostdraft): two items — an ephemeral note and a clipboard view. The note
+# is stored nowhere: write/edit/copy → it vanishes on exit (want to keep it —
+# put a file into the open vault yourself). Copying with ~20s auto-clear is built into the "note"
+# (ghostdraft new --clipboard offers it on exit itself). Loops until "back" — repeat as needed.
 _menu_notepad() {
   while true; do
     clear 2>/dev/null || true
@@ -632,10 +632,10 @@ _menu_notepad() {
     printf '  0) %s\n\n' "$(t back)"
     local c; read -r -p "  $(t choose): " c <&0 || return 0
     case "$c" in
-      # Единая «заметка»: new --clipboard — пишешь/правишь, на выходе предлагает копию в
-      # буфер с авто-очисткой ~20с; сам черновик шредится. Кто не хочет копировать — «no».
+      # A single "note": new --clipboard — you write/edit, on exit it offers a copy to the
+      # clipboard with ~20s auto-clear; the draft itself is shredded. Those who do not want to copy — "no".
       1) _ghost_new --clipboard ; _pause ;;
-      # pipe читает stdin — без него висел бы на пустом курсоре. Подаём буфер обмена.
+      # pipe reads stdin — without it, it would hang on an empty cursor. We feed it the clipboard.
       2) echo "  $(t ghost_pipe_hint)"; pbpaste 2>/dev/null | _run_tool ghostdraft pipe; _pause ;;
       0|q|Q) return 0 ;;
       *) : ;;
@@ -643,21 +643,21 @@ _menu_notepad() {
   done
 }
 _act_watch() {
-  # Охрана уже активна → п.7 работает как «снять» (toggle). Иначе из меню её было
-  # не выключить.
+  # The guard is already active → item 7 acts as "stop" (a toggle). Otherwise there
+  # was no way to turn it off from the menu.
   if [[ "$(_status_vaultwatch)" == active ]]; then
     _run_tool vaultwatch stop "$VAULT_VOLUME"
     _pause; return
   fi
-  # Сторожить том, про который неизвестно, смонтирован ли он, — это сессия охраны
-  # вокруг пустого места: состояние на диске появится, а охранять будет нечего.
+  # Guarding a volume whose mounted state is unknown is a guard session
+  # around an empty spot: state will appear on disk, yet there will be nothing to guard.
   if [[ "$(_status_vault)" == unknown ]]; then
     echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}"; _pause; return
   fi
   local ttl; read -r -p "  $(t ask_ttl) " ttl <&0 || ttl=""
   if [[ -n "$ttl" ]]; then
-    # Валидируем формат тут: иначе кривой ввод даёт ошибку vaultwatch + «idle» в
-    # дашборде, и непонятно, запустилось оно или нет.
+    # We validate the format here: otherwise malformed input yields a vaultwatch error + "idle"
+    # on the dashboard, and it is unclear whether it started or not.
     if ! [[ "$ttl" =~ ^[0-9]+[smhd]?$ ]]; then
       echo "  ${C_YEL}$(t ttl_bad)${C_RST}" >&2; _pause; return
     fi
@@ -668,11 +668,11 @@ _act_watch() {
   _pause
 }
 
-# Подменю «Сейф»: все операции с контейнером в одном месте (по просьбе Mr.Di — иначе плоское
-# меню было «лопатой»). vaultwatch сторожит ИМЕННО открытый сейф → она тоже здесь, не отдельным
-# блоком. Пункт 1 — динамический по состоянию (нет → создать; закрыт → открыть; открыт → закрыть),
-# переиспользует трёхсостоянийный _act_vault. Деструктив (empty/destroy) — серым при отсутствии
-# securetrash или сейфа; реальные confirm — внутри securetrash.
+# The "Vault" submenu: all container operations in one place (at Mr.Di's request — otherwise the flat
+# menu was a "shovel"). vaultwatch guards PRECISELY the open vault → it also lives here, not as a separate
+# block. Item 1 is dynamic by state (none → create; closed → open; open → close),
+# reusing the three-state _act_vault. The destructive items (empty/destroy) are greyed out when
+# securetrash or the vault is absent; the real confirms are inside securetrash.
 _menu_vault() {
   while true; do
     local v vw
@@ -683,11 +683,11 @@ _menu_vault() {
       none)    _menu_item 1 "$(t m_v_create)"  securetrash ;;
       closed)  _menu_item 1 "$(t m_v_open)"    securetrash ;;
       open)    _menu_item 1 "$(t m_v_close)"   securetrash ;;
-      # Состояние неизвестно — пункт остаётся видимым (иначе меню молча теряет строку),
-      # но обещает не действие, а честный отказ гадать.
+      # State unknown — the item stays visible (otherwise the menu silently loses a line),
+      # but it promises not an action but an honest refusal to guess.
       unknown) _menu_item 1 "$(t m_v_unknown)" securetrash ;;
     esac
-    # 2 Empty (reset) — серый при отсутствии securetrash / сейфа
+    # 2 Empty (reset) — greyed out when securetrash / the vault is absent
     if ! _tool_installed securetrash; then
       printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_empty)" "$(t not_installed)" "$C_RST"
     elif [[ "$v" == none ]]; then
@@ -697,7 +697,7 @@ _menu_vault() {
     else
       printf '  2) %s\n' "$(t m_empty)"
     fi
-    # 3 Destroy — серый при отсутствии securetrash / сейфа
+    # 3 Destroy — greyed out when securetrash / the vault is absent
     if ! _tool_installed securetrash; then
       printf '  %s3) 💣 %s (%s)%s\n' "$C_DIM" "$(t m_destroy)" "$(t not_installed)" "$C_RST"
     elif [[ "$v" == none ]]; then
@@ -707,7 +707,7 @@ _menu_vault() {
     else
       printf '  3) 💣 %s\n' "$(t m_destroy)"
     fi
-    # 4 Watch — toggle (active → снять, иначе → сторожить)
+    # 4 Watch — toggle (active → stop, otherwise → watch)
     if [[ "$vw" == active ]]; then
       _menu_item 4 "$(t m_unwatch)" vaultwatch
     else
@@ -725,7 +725,7 @@ _menu_vault() {
     esac
   done
 }
-# Подменю «Секреты» (seedsplit): разбить / собрать. Цикл до «назад».
+# The "Secrets" submenu (seedsplit): split / combine. Loops until "back".
 _menu_secrets() {
   while true; do
     clear 2>/dev/null || true
@@ -765,7 +765,7 @@ main() {
     *) echo "Unknown command: $1" >&2; usage >&2; return 1 ;;
   esac
 
-  # Ctrl-C в подпункте → назад в меню (не выход). На dashboard — чистый выход.
+  # Ctrl-C in a sub-item → back to the menu (not exit). On the dashboard — a clean exit.
   trap 'echo' INT
   local choice
   while true; do
@@ -779,7 +779,7 @@ main() {
       5) _menu_secrets ;;
       6) _act_update ;;
       0|q|Q) echo; return 0 ;;
-      *) : ;;   # неверный ввод → перерисовать меню
+      *) : ;;   # invalid input → redraw the menu
     esac
   done
 }

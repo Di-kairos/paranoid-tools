@@ -1,35 +1,35 @@
-﻿# install.ps1 — установщик panic для Windows (BETA) с проверкой целостности.
+﻿# install.ps1 — panic installer for Windows (BETA) with an integrity check.
 #
-# Тянет panic.ps1 и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и сверяет SHA256
-# ДО установки. Закрывает supply-chain риск «irm|iex из main без проверки»: содержимое
-# релизного тега неизменно (в отличие от подвижной main), хеш ловит повреждение, частичную/
-# кэш-подмену и рассинхрон с публикацией. Поверх целостности проверяется ПОДПИСЬ релиза
-# (ed25519 через `ssh-keygen -Y verify` над SHA256SUMS, зеркало install.sh) — это доказывает
-# ПОДЛИННОСТЬ (кто опубликовал), а не только совпадение хеша по одному каналу.
+# Pulls panic.ps1 and SHA256SUMS from a RELEASE tag (not the main branch) and checks the SHA256
+# BEFORE installing. Closes the "irm|iex from main, unverified" supply-chain risk: release-tag
+# content is immutable (unlike the moving main), the hash catches corruption, partial/
+# cache substitution and publication desync. On top of integrity, the release SIGNATURE is
+# verified (ed25519 via `ssh-keygen -Y verify` over SHA256SUMS, mirror of install.sh) — this
+# proves AUTHENTICITY (who published), not just a hash match over a single channel.
 #
-# Использование (рекомендуется verify-then-run, см. windows/README.md):
+# Usage (verify-then-run recommended, see windows/README.md):
 #   irm https://github.com/Di-kairos/panic/releases/latest/download/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/panic/releases/latest/download/SHA256SUMS  -OutFile SHA256SUMS
-#   # сверить хеш install.ps1 вручную, прочитать скрипт, затем:
+#   # check install.ps1's hash manually, read the script, then:
 #   pwsh -File install.ps1
 #
-# Переменные окружения:
-#   PANIC_VERSION       — конкретный тег (напр. 0.1.3). По умолчанию latest.
-#   PANIC_BASE_URL      — источник целиком: http(s) URL ИЛИ локальный каталог (тесты/форки).
-#   PANIC_INSTALL_DIR   — каталог установки. По умолчанию %LOCALAPPDATA%\Programs\panic.
-#   PANIC_SKIP_PATH     — '1' пропускает правку PATH (для тестов).
-#   PT_ALLOW_HASH_ONLY  — '1' разрешает установку ТОЛЬКО по хешу, если подпись нельзя проверить
-#                         (нет ssh-keygen или нет .sig). Громкое предупреждение. По умолчанию
-#                         fail-closed: без проверки подписи установка прерывается.
+# Environment variables:
+#   PANIC_VERSION       — a specific tag (e.g. 0.1.3). Defaults to latest.
+#   PANIC_BASE_URL      — the source in full: an http(s) URL OR a local directory (tests/forks).
+#   PANIC_INSTALL_DIR   — install directory. Defaults to %LOCALAPPDATA%\Programs\panic.
+#   PANIC_SKIP_PATH     — '1' skips the PATH edit (for tests).
+#   PT_ALLOW_HASH_ONLY  — '1' allows a hash-ONLY install when the signature cannot be verified
+#                         (no ssh-keygen or no .sig). Loud warning. Default is
+#                         fail-closed: without signature verification the install aborts.
 #
-# ВНИМАНИЕ: BETA-порт. Логика проверена через Pester (системные примитивы мокаются);
-# поведение на широком парке Windows-консолей/локалей/конфигов BitLocker не обкатано.
+# WARNING: BETA port. Logic is tested via Pester (system primitives are mocked);
+# behavior across the wide fleet of Windows consoles/locales/BitLocker configs is not field-tested.
 
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'Di-kairos/panic'
 
-# Источник: явный PANIC_BASE_URL → конкретный тег PANIC_VERSION → latest-релиз.
+# Source: explicit PANIC_BASE_URL → specific tag PANIC_VERSION → latest release.
 if ($env:PANIC_BASE_URL) {
     $BaseUrl = $env:PANIC_BASE_URL
 } elseif ($env:PANIC_VERSION) {
@@ -47,8 +47,8 @@ $ShimPath   = Join-Path $InstallDir 'panic.cmd'
 Write-Host 'panic (Windows, BETA) installer'
 Write-Host '-------------------------------'
 
-# Скачать файл из релиза: http(s) → Invoke-RestMethod; локальный каталог → копия.
-# Локальный путь поддержан, чтобы тесты гоняли проверку хеша без сети.
+# Download a release file: http(s) → Invoke-RestMethod; local directory → copy.
+# The local path is supported so tests can exercise the hash check without network.
 function Get-ReleaseFile {
     param([string]$Name, [string]$OutFile)
     if ($BaseUrl -match '^https?://') {
@@ -58,7 +58,7 @@ function Get-ReleaseFile {
     }
 }
 
-# Временный каталог под загрузку; чистим в любом случае.
+# Temporary download directory; cleaned up regardless.
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("panic-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
 try {
@@ -69,7 +69,7 @@ try {
     Get-ReleaseFile -Name 'panic.ps1'  -OutFile $tmpScript
     Get-ReleaseFile -Name 'SHA256SUMS' -OutFile $tmpSums
 
-    # Ожидаемый хеш для panic.ps1 из SHA256SUMS (формат: '<hash>  имя').
+    # Expected hash for panic.ps1 from SHA256SUMS (format: '<hash>  name').
     $expected = $null
     foreach ($line in Get-Content -Path $tmpSums) {
         $parts = $line -split '\s+', 2
@@ -90,11 +90,11 @@ try {
     }
     Write-Host 'Checksum OK.'
 
-    # --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
-    # Зеркалит install.sh: вшитый ed25519-pubkey → allowed_signers → `ssh-keygen -Y verify`
-    # над SHA256SUMS. FAIL-CLOSED: нет ssh-keygen ИЛИ нет .sig → отказ, кроме PT_ALLOW_HASH_ONLY=1
-    # (громкое предупреждение, ставим только по целостности). Подпись ЕСТЬ, но НЕ сошлась —
-    # всегда жёсткий отказ (явный признак подмены), без обхода.
+    # --- Release SIGNATURE check (authenticity on top of integrity) ---
+    # Mirrors install.sh: embedded ed25519 pubkey → allowed_signers → `ssh-keygen -Y verify`
+    # over SHA256SUMS. FAIL-CLOSED: no ssh-keygen OR no .sig → refuse, except PT_ALLOW_HASH_ONLY=1
+    # (loud warning, install on integrity only). Signature PRESENT but NOT matching —
+    # always a hard refusal (a clear sign of substitution), no bypass.
     $SigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
     $SignPrincipal = 'releases@paranoid-tools'
 
@@ -121,18 +121,18 @@ try {
             $allowedSigners = Join-Path $Tmp 'allowed_signers'
             Set-Content -LiteralPath $allowedSigners -Value "$SignPrincipal namespaces=`"file`" $SigningPubkey" -NoNewline
             Write-Host 'Verifying release signature...'
-            # SHA256SUMS подаётся на stdin ТОЧНЫМИ байтами (аналог `< SHA256SUMS` в install.sh):
-            # пайп PowerShell перекодировал бы содержимое (BOM, CRLF) и валидная подпись
-            # отвалилась бы как «incorrect signature». Копируем сырой поток файла.
-            # Зеркало канона securetrash/windows/install.ps1 — правишь здесь, правь во всех пяти.
+            # SHA256SUMS is fed to stdin as EXACT bytes (analog of `< SHA256SUMS` in install.sh):
+            # a PowerShell pipe would re-encode the content (BOM, CRLF) and a valid signature
+            # would fall over as "incorrect signature". We copy the raw file stream.
+            # Mirror of the securetrash/windows/install.ps1 canon — edit here, edit in all five.
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $sshKeygen.Source
             $vArgs = @('-Y','verify','-f',$allowedSigners,'-I',$SignPrincipal,'-n','file','-s',$tmpSig)
-            # `ArgumentList` появился только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
-            # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README —
-            # его не имеет: обращение к нему уронило бы установку на шаге проверки подписи.
-            # Там кладём строку сами. Каждый аргумент в кавычках (TEMP бывает с пробелом),
-            # хвостовые обратные слэши удваиваются — иначе слэш экранирует закрывающую кавычку.
+            # `ArgumentList` only appeared in .NET Core (PowerShell 7). Windows PowerShell 5.1 —
+            # the stock Windows shell and exactly the one the README one-liner runs in —
+            # does not have it: touching it would crash the install at the signature-check step.
+            # There we build the string ourselves. Every argument is quoted (TEMP can contain a
+            # space), trailing backslashes are doubled — otherwise a backslash would escape the closing quote.
             if ($psi.PSObject.Properties.Name -contains 'ArgumentList') {
                 foreach ($a in $vArgs) { $psi.ArgumentList.Add($a) }
             } else {
@@ -143,15 +143,15 @@ try {
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute        = $false
             $proc = [System.Diagnostics.Process]::Start($psi)
-            # stdout/stderr вычитываем АСИНХРОННО и ДО WaitForExit: перенаправленный, но не
-            # прочитанный поток упирается в буфер трубы — верификатор встаёт, а установщик
-            # ждёт его вечно. Тихо висящий установщик хуже честного отказа.
+            # stdout/stderr are drained ASYNCHRONOUSLY and BEFORE WaitForExit: a redirected but
+            # unread stream runs into the pipe buffer — the verifier stalls, and the installer
+            # waits for it forever. A silently hanging installer is worse than an honest refusal.
             $outTask = $proc.StandardOutput.ReadToEndAsync()
             $errTask = $proc.StandardError.ReadToEndAsync()
-            # Верификатор может завершиться, не дочитав stdin (кривые аргументы, чужой бинарь под
-            # тем же именем). Запись в закрытую трубу — это не наша авария: вердикт всё равно
-            # даёт код возврата, и пользователь должен увидеть честное «подпись не сошлась»,
-            # а не необработанное исключение установщика.
+            # The verifier may exit without reading stdin to the end (bad arguments, a foreign
+            # binary under the same name). Writing into a closed pipe is not our emergency: the
+            # verdict still comes from the exit code, and the user must see an honest "signature
+            # did not match", not an unhandled installer exception.
             $fs = [System.IO.File]::OpenRead($tmpSums)
             try { $fs.CopyTo($proc.StandardInput.BaseStream) } catch [System.IO.IOException] { } finally { $fs.Close() }
             try { $proc.StandardInput.Close() } catch [System.IO.IOException] { }
@@ -167,7 +167,7 @@ try {
         }
     }
 
-    # Хеш верный → устанавливаем.
+    # Hash is correct → install.
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
@@ -178,7 +178,7 @@ finally {
     Remove-Item -Path $Tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# .cmd-шим, чтобы вызывать просто `panic <command>` из cmd/PowerShell.
+# A .cmd shim so you can call just `panic <command>` from cmd/PowerShell.
 $shim = @"
 @echo off
 pwsh -NoProfile -File "%~dp0panic.ps1" %*
@@ -187,7 +187,7 @@ if errorlevel 1 exit /b %errorlevel%
 Set-Content -Path $ShimPath -Value $shim -Encoding ASCII
 Write-Host "Shim created: $ShimPath"
 
-# Добавить каталог в пользовательский PATH (idempotent). PANIC_SKIP_PATH=1 — пропустить.
+# Add the directory to the user PATH (idempotent). PANIC_SKIP_PATH=1 — skip.
 if ($env:PANIC_SKIP_PATH -ne '1') {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (-not $userPath) { $userPath = '' }

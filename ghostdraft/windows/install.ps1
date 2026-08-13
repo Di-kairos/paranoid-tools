@@ -1,37 +1,38 @@
-﻿# install.ps1 — установщик ghostdraft для Windows (BETA) с проверкой целостности.
+﻿# install.ps1 — ghostdraft installer for Windows (BETA) with an integrity check.
 #
-# Тянет ghostdraft.ps1 и SHA256SUMS из РЕЛИЗНОГО тега (не из ветки main) и сверяет SHA256
-# ДО установки. Закрывает supply-chain риск «irm|iex из main без проверки»: содержимое
-# релизного тега неизменно (в отличие от подвижной main), хеш ловит повреждение, частичную/
-# кэш-подмену и рассинхрон с публикацией. ЧЕСТНО: сумма и скрипт приходят по одному каналу —
-# от подмены САМОГО релиза это не защищает; для подлинности нужна подпись (SHA256SUMS.sig).
+# Pulls ghostdraft.ps1 and SHA256SUMS from a RELEASE tag (not the main branch) and verifies
+# the SHA256 BEFORE installing. Closes the "irm|iex from main without verification"
+# supply-chain risk: a release tag's contents are immutable (unlike the moving main), the hash
+# catches corruption, partial/cache tampering, and desync with the publication. HONESTLY: the
+# checksum and the script arrive over the same channel — this does not protect against the
+# RELEASE ITSELF being replaced; authenticity requires a signature (SHA256SUMS.sig).
 #
-# Использование (рекомендуется verify-then-run, см. windows/README.md):
+# Usage (verify-then-run recommended, see windows/README.md):
 #   irm https://github.com/Di-kairos/ghostdraft/releases/latest/download/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/ghostdraft/releases/latest/download/SHA256SUMS  -OutFile SHA256SUMS
-#   # сверить хеш install.ps1 вручную, прочитать скрипт, затем:
+#   # verify the install.ps1 hash manually, read the script, then:
 #   pwsh -File install.ps1
 #
-# Переменные окружения:
-#   GHOSTDRAFT_VERSION     — конкретный тег (напр. 0.1.6). По умолчанию latest.
-#   GHOSTDRAFT_BASE_URL    — источник целиком: http(s) URL ИЛИ локальный каталог (тесты/форки).
-#   GHOSTDRAFT_INSTALL_DIR — каталог установки. По умолчанию %LOCALAPPDATA%\Programs\ghostdraft.
-#   GHOSTDRAFT_SKIP_PATH   — '1' пропускает правку PATH (для тестов).
-#   PT_ALLOW_HASH_ONLY     — '1' разрешает установку по одной SHA256, если подпись релиза
-#                            недоступна (нет .sig ИЛИ нет ssh-keygen). ПЛОХАЯ подпись всё равно
-#                            фатальна. Громкое предупреждение. Только для старых/форк-релизов.
-#   GHOSTDRAFT_TEST_SIGNING_PUBKEY — ТОЛЬКО для тестов: подменяет доверенный release-pubkey.
-#     Использование печатает громкое предупреждение — обычной установке эта переменная не нужна.
-#   GHOSTDRAFT_SSH_KEYGEN     — путь/имя ssh-keygen (по умолчанию 'ssh-keygen'; для тестов).
+# Environment variables:
+#   GHOSTDRAFT_VERSION     — a specific tag (e.g. 0.1.6). Default: latest.
+#   GHOSTDRAFT_BASE_URL    — the source entirely: an http(s) URL OR a local directory (tests/forks).
+#   GHOSTDRAFT_INSTALL_DIR — install directory. Default: %LOCALAPPDATA%\Programs\ghostdraft.
+#   GHOSTDRAFT_SKIP_PATH   — '1' skips the PATH edit (for tests).
+#   PT_ALLOW_HASH_ONLY     — '1' allows installing on SHA256 alone when the release signature
+#                            is unavailable (no .sig OR no ssh-keygen). A BAD signature is still
+#                            fatal. Loud warning. Only for old/fork releases.
+#   GHOSTDRAFT_TEST_SIGNING_PUBKEY — for tests ONLY: replaces the trusted release pubkey.
+#     Using it prints a loud warning — a normal install does not need this variable.
+#   GHOSTDRAFT_SSH_KEYGEN     — ssh-keygen path/name (default 'ssh-keygen'; for tests).
 #
-# ВНИМАНИЕ: BETA-порт. Логика проверена через Pester (внешние эффекты мокаются);
-# поведение на широком парке Windows-консолей/локалей/editor'ов не обкатано.
+# WARNING: BETA port. The logic is verified via Pester (external effects are mocked);
+# behavior across the wide fleet of Windows consoles/locales/editors is not road-tested.
 
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'Di-kairos/ghostdraft'
 
-# Источник: явный GHOSTDRAFT_BASE_URL → конкретный тег GHOSTDRAFT_VERSION → latest-релиз.
+# Source: explicit GHOSTDRAFT_BASE_URL → specific tag GHOSTDRAFT_VERSION → latest release.
 if ($env:GHOSTDRAFT_BASE_URL) {
     $BaseUrl = $env:GHOSTDRAFT_BASE_URL
 } elseif ($env:GHOSTDRAFT_VERSION) {
@@ -49,8 +50,8 @@ $ShimPath   = Join-Path $InstallDir 'ghostdraft.cmd'
 Write-Host 'ghostdraft (Windows, BETA) installer'
 Write-Host '------------------------------------'
 
-# Скачать файл из релиза: http(s) → Invoke-RestMethod; локальный каталог → копия.
-# Локальный путь поддержан, чтобы тесты гоняли проверку хеша без сети.
+# Download a file from the release: http(s) → Invoke-RestMethod; local directory → copy.
+# The local path is supported so tests can exercise the hash check without the network.
 function Get-ReleaseFile {
     param([string]$Name, [string]$OutFile)
     if ($BaseUrl -match '^https?://') {
@@ -60,7 +61,7 @@ function Get-ReleaseFile {
     }
 }
 
-# Временный каталог под загрузку; чистим в любом случае.
+# Temporary directory for the download; cleaned up in any case.
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ghostdraft-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
 try {
@@ -71,7 +72,7 @@ try {
     Get-ReleaseFile -Name 'ghostdraft.ps1' -OutFile $tmpScript
     Get-ReleaseFile -Name 'SHA256SUMS'     -OutFile $tmpSums
 
-    # Ожидаемый хеш для ghostdraft.ps1 из SHA256SUMS (формат: '<hash>  имя').
+    # Expected hash for ghostdraft.ps1 from SHA256SUMS (format: '<hash>  name').
     $expected = $null
     foreach ($line in Get-Content -Path $tmpSums) {
         $parts = $line -split '\s+', 2
@@ -92,13 +93,13 @@ try {
     }
     Write-Host 'Checksum OK.'
 
-    # --- Проверка ПОДПИСИ релиза (аутентичность поверх целостности) ---
-    # Релизы подписаны выделенным ed25519-ключом экосистемы (ssh-keygen -Y sign, namespace 'file').
-    # Pubkey вшит ниже (тот же, что в install.sh). Fail-closed:
-    #   - нет ssh-keygen ИЛИ нет .sig → отказ, если только PT_ALLOW_HASH_ONLY=1 (громкий warn);
-    #   - .sig есть и НЕ сошёлся → ЖЁСТКИЙ отказ ВСЕГДА (активный признак подмены; hash-only не спасает).
-    # Подмена доверенного ключа — test-only и ГРОМКАЯ: молча доверять чужому ключу значит
-    # обесценить всю проверку подписи (остальные 4 тула такой переменной не имеют вовсе).
+    # --- Release SIGNATURE verification (authenticity on top of integrity) ---
+    # Releases are signed with the ecosystem's dedicated ed25519 key (ssh-keygen -Y sign, namespace 'file').
+    # Pubkey embedded below (same as in install.sh). Fail-closed:
+    #   - no ssh-keygen OR no .sig → refusal, unless PT_ALLOW_HASH_ONLY=1 (loud warn);
+    #   - .sig present and does NOT verify → HARD refusal ALWAYS (active sign of tampering; hash-only does not save you).
+    # Replacing the trusted key is test-only and LOUD: silently trusting someone else's key
+    # would devalue the whole signature check (the other 4 tools have no such variable at all).
     $ReleaseSigningPubkey = if ($env:GHOSTDRAFT_TEST_SIGNING_PUBKEY) {
         Write-Warning 'GHOSTDRAFT_TEST_SIGNING_PUBKEY задан: подпись проверяется ЧУЖИМ ключом, а не ключом релизов ghostdraft. Это режим тестов — в обычной установке так быть не должно.'
         $env:GHOSTDRAFT_TEST_SIGNING_PUBKEY
@@ -111,7 +112,7 @@ try {
     $Keygen = Get-Command $KeygenName -ErrorAction SilentlyContinue
 
     if (-not $Keygen) {
-        # ssh-keygen недоступен → подпись проверить нечем.
+        # ssh-keygen is unavailable → nothing to verify the signature with.
         if ($HashOnly) {
             Write-Warning 'ssh-keygen недоступен — подпись релиза НЕ проверена (PT_ALLOW_HASH_ONLY=1, только целостность по SHA256).'
         } else {
@@ -128,7 +129,7 @@ try {
             $haveSig = $false
         }
         if (-not $haveSig) {
-            # У релиза нет .sig.
+            # The release has no .sig.
             if ($HashOnly) {
                 Write-Warning 'Подпись релиза (SHA256SUMS.sig) отсутствует — продолжаю (PT_ALLOW_HASH_ONLY=1, только целостность по SHA256).'
             } else {
@@ -139,17 +140,17 @@ try {
             $allowedSigners = Join-Path $Tmp 'allowed_signers'
             Set-Content -LiteralPath $allowedSigners -Value ("$SignPrincipal namespaces=`"file`" $ReleaseSigningPubkey") -NoNewline
             Write-Host 'Verifying release signature...'
-            # ssh-keygen -Y verify читает подписанные данные (SHA256SUMS) из stdin. Кормим ТОЧНЫЕ
-            # байты файла через .NET Process (пайп PowerShell / Start-Process перекодировали бы
-            # контент → 'incorrect signature'); копируем сырой поток файла в stdin.
+            # ssh-keygen -Y verify reads the signed data (SHA256SUMS) from stdin. We feed the EXACT
+            # bytes of the file via .NET Process (a PowerShell pipe / Start-Process would re-encode
+            # the content → 'incorrect signature'); we copy the raw file stream into stdin.
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $Keygen.Source
             $vArgs = @('-Y','verify','-f',$allowedSigners,'-I',$SignPrincipal,'-n','file','-s',$tmpSig)
-            # `ArgumentList` появился только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
-            # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README —
-            # его не имеет: обращение к нему уронило бы установку на шаге проверки подписи.
-            # Там кладём строку сами. Каждый аргумент в кавычках (TEMP бывает с пробелом),
-            # хвостовые обратные слэши удваиваются — иначе слэш экранирует закрывающую кавычку.
+            # `ArgumentList` only appeared in .NET Core (PowerShell 7). Windows PowerShell 5.1 —
+            # the stock Windows shell and exactly the one people run the README one-liner in —
+            # does not have it: touching it would crash the install at the signature-check step.
+            # There we build the string ourselves. Every argument is quoted (TEMP can contain a
+            # space), trailing backslashes are doubled — otherwise a slash escapes the closing quote.
             if ($psi.PSObject.Properties.Name -contains 'ArgumentList') {
                 foreach ($a in $vArgs) { $psi.ArgumentList.Add($a) }
             } else {
@@ -160,15 +161,15 @@ try {
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute        = $false
             $proc = [System.Diagnostics.Process]::Start($psi)
-            # stdout/stderr вычитываем АСИНХРОННО и ДО WaitForExit: перенаправленный, но не
-            # прочитанный поток упирается в буфер трубы — верификатор встаёт, а установщик
-            # ждёт его вечно. Тихо висящий установщик хуже честного отказа.
+            # We drain stdout/stderr ASYNCHRONOUSLY and BEFORE WaitForExit: a redirected but
+            # unread stream runs into the pipe buffer — the verifier stalls, and the installer
+            # waits for it forever. A silently hanging installer is worse than an honest refusal.
             $outTask = $proc.StandardOutput.ReadToEndAsync()
             $errTask = $proc.StandardError.ReadToEndAsync()
-            # Верификатор может завершиться, не дочитав stdin (кривые аргументы, чужой бинарь под
-            # тем же именем). Запись в закрытую трубу — это не наша авария: вердикт всё равно
-            # даёт код возврата, и пользователь должен увидеть честное «подпись не сошлась»,
-            # а не необработанное исключение установщика.
+            # The verifier may exit without reading stdin to the end (bad arguments, a foreign
+            # binary under the same name). Writing into a closed pipe is not our emergency: the
+            # verdict is still given by the exit code, and the user must see an honest
+            # "signature did not verify", not an unhandled installer exception.
             $fs = [System.IO.File]::OpenRead($tmpSums)
             try { $fs.CopyTo($proc.StandardInput.BaseStream) } catch [System.IO.IOException] { } finally { $fs.Close() }
             try { $proc.StandardInput.Close() } catch [System.IO.IOException] { }
@@ -178,14 +179,14 @@ try {
             if ($proc.ExitCode -eq 0) {
                 Write-Host 'Signature OK (authenticity verified).'
             } else {
-                # Плохая подпись — фатально ВСЕГДА, PT_ALLOW_HASH_ONLY не обходит.
+                # A bad signature is fatal ALWAYS; PT_ALLOW_HASH_ONLY does not bypass it.
                 Write-Error 'Подпись релиза НЕ прошла проверку — установка прервана (возможна подмена).'
                 exit 1
             }
         }
     }
 
-    # Хеш верный → устанавливаем.
+    # Hash is correct → install.
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
@@ -196,7 +197,7 @@ finally {
     Remove-Item -Path $Tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# .cmd-шим, чтобы вызывать просто `ghostdraft <command>` из cmd/PowerShell.
+# .cmd shim so that `ghostdraft <command>` can be called plainly from cmd/PowerShell.
 $shim = @"
 @echo off
 pwsh -NoProfile -File "%~dp0ghostdraft.ps1" %*
@@ -205,7 +206,7 @@ if errorlevel 1 exit /b %errorlevel%
 Set-Content -Path $ShimPath -Value $shim -Encoding ASCII
 Write-Host "Shim created: $ShimPath"
 
-# Добавить каталог в пользовательский PATH (idempotent). GHOSTDRAFT_SKIP_PATH=1 — пропустить.
+# Add the directory to the user PATH (idempotent). GHOSTDRAFT_SKIP_PATH=1 — skip.
 if ($env:GHOSTDRAFT_SKIP_PATH -ne '1') {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (-not $userPath) { $userPath = '' }

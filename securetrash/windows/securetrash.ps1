@@ -1,14 +1,14 @@
-﻿# securetrash.ps1 — честное безопасное удаление файлов на Windows (BETA-порт).
-# Зеркало macOS-версии (bash). Baseline: Windows PowerShell 5.1 (без PS7-only синтаксиса).
-# ВАЖНО: порт помечен BETA — логика проверена через Pester, поведение
-# BitLocker/VHDX/VeraCrypt на реальном железе НЕ верифицировано.
+﻿# securetrash.ps1 — honest secure file deletion on Windows (BETA port).
+# Mirror of the macOS version (bash). Baseline: Windows PowerShell 5.1 (no PS7-only syntax).
+# IMPORTANT: the port is marked BETA — logic is tested via Pester, BitLocker/VHDX/VeraCrypt
+# behavior is NOT verified on real hardware.
 
 $VERSION = '0.5.6'
 
 # --- language detection ---
-# Выбор языка вывода. По умолчанию английский. Русский — если ST_LANG начинается
-# с 'ru' ИЛИ $PSUICulture начинается с 'ru'. Результат фиксируется один раз.
-# Заранее выставленный ST_LOCALE уважается (хост — лаунчер/GUI — может переопределить).
+# Output language selection. English by default. Russian — if ST_LANG starts
+# with 'ru' OR $PSUICulture starts with 'ru'. The result is fixed once.
+# A pre-set ST_LOCALE is respected (the host — launcher/GUI — may override it).
 function Get-StLocale {
     $want = $env:ST_LANG
     if ($want) {
@@ -20,7 +20,7 @@ function Get-StLocale {
 $script:ST_LOCALE = if ($env:ST_LOCALE) { $env:ST_LOCALE } else { Get-StLocale }
 
 # --- i18n strings ---
-# Хэш-таблица сообщений, ключ "<locale>:<key>". Динамические значения — через -f в T().
+# Message hashtable, key "<locale>:<key>". Dynamic values go through -f in T().
 $script:Messages = @{
     'en:beta_banner'        = 'BETA: Windows port. Logic tested via Pester; BitLocker/VHDX/VeraCrypt behavior NOT validated on real hardware.'
     'ru:beta_banner'        = 'BETA: порт под Windows. Логика проверена через Pester; поведение BitLocker/VHDX/VeraCrypt на реальном железе НЕ проверено.'
@@ -250,7 +250,7 @@ Flags:
     'en:vault_reset_done'   = 'Vault reset — old container crypto-shredded, fresh empty vault created. (Old contents are unrecoverable only if your password was strong and no copies/backups/snapshots (VSS, File History, cloud) remain.)'
     'ru:vault_reset_done'   = 'Сейф сброшен — старый контейнер crypto-shred, создан новый пустой. (Старое невосстановимо только если пароль был стойким и не осталось копий/бэкапов/снимков (VSS, История файлов, облако).)'
 
-    # VeraCrypt: автоматическое создание/монтирование отключено в BETA (пароль в argv утекает).
+    # VeraCrypt: automated creation/mounting is disabled in BETA (the password leaks via argv).
     'en:vault_vc_manual'    = 'VeraCrypt detected, but automated VeraCrypt vault is NOT supported in this BETA: passing the password on the command line would leak it (visible via ps/WMI/ETW). Create and mount the container with the VeraCrypt GUI instead, then move secrets into the mounted drive.'
     'ru:vault_vc_manual'    = 'VeraCrypt найден, но автоматический VeraCrypt-vault в этой BETA НЕ поддерживается: передача пароля в командной строке привела бы к его утечке (виден через ps/WMI/ETW). Создайте и смонтируйте контейнер через GUI VeraCrypt, затем перенесите секреты на смонтированный диск.'
 
@@ -279,8 +279,8 @@ Flags:
     'ru:unknown_cmd'        = 'Неизвестная команда: {0}'
 }
 
-# T — локализованная строка по ключу. Динамика — через -f с позиционными аргументами.
-# Fallback: если ключа нет в таблице, вернуть сам ключ.
+# T — localized string by key. Dynamics via -f with positional arguments.
+# Fallback: if the key is not in the table, return the key itself.
 function T {
     param(
         [Parameter(Mandatory = $true)][string]$Key,
@@ -296,15 +296,15 @@ function T {
 }
 
 # --- output helpers ---
-# info → stdout, warn/err → stderr. Так же, как в bash-версии (info в stdout, warn/err в &2)
-# и в остальных четырёх ps1-портах. Write-Host сюда не годится: он пишет в host, поэтому
-# `securetrash check > file` и разбор вывода лаунчером (windows/paranoid.ps1) получали пустоту.
+# info → stdout, warn/err → stderr. Same as the bash version (info to stdout, warn/err to &2)
+# and the other four ps1 ports. Write-Host won't do here: it writes to the host, so
+# `securetrash check > file` and output parsing by the launcher (windows/paranoid.ps1) got nothing.
 function Write-StInfo { param([string]$Msg) Write-Output "[ok] $Msg" }
 function Write-StWarn { param([string]$Msg) [Console]::Error.WriteLine("[!] $Msg") }
 function Write-StErr  { param([string]$Msg) [Console]::Error.WriteLine("[x] $Msg") }
 
-# Завершение команды с кодом возврата. Внутри команд НЕ зовём exit напрямую
-# (это убило бы Pester-раннер) — кидаем StExit, диспетчер ловит и делает exit.
+# Finish a command with an exit code. Inside commands we do NOT call exit directly
+# (that would kill the Pester runner) — we throw StExit, the dispatcher catches it and exits.
 class StExit : System.Exception {
     [int]$Code
     StExit([int]$code) : base("StExit:$code") { $this.Code = $code }
@@ -314,10 +314,10 @@ function Stop-StCommand {
     throw [StExit]::new($Code)
 }
 
-# Флаг --yes (выставляется в Invoke-Main). По умолчанию подтверждение требуется.
+# The --yes flag (set in Invoke-Main). Confirmation is required by default.
 $script:ST_ASSUME_YES_FLAG = $false
 
-# Спросить подтверждение. Обходится флагом --yes (script-scope) или ST_ASSUME_YES=1 (тесты).
+# Ask for confirmation. Bypassed by the --yes flag (script scope) or ST_ASSUME_YES=1 (tests).
 function Confirm-StAction {
     param([string]$Prompt)
     if ($script:ST_ASSUME_YES_FLAG) { return $true }
@@ -326,12 +326,12 @@ function Confirm-StAction {
     return ($ans -eq 'yes')
 }
 
-# --- platform detection (каждая функция оборачивает внешний вызов для Mock) ---
+# --- platform detection (each function wraps an external call for Mock) ---
 
-# Тип диска — tri-state: 'ssd' | 'hdd' | 'unknown' (обёртка для Mock). Честность важнее
-# догадок (зеркало macOS _disk_kind): неизвестный MediaType НЕ приравниваем к HDD — иначе
-# на SSD без определимого типа мы бы успокаивали пользователя «HDD, перезапись помогает».
-# 'unknown' трактуется как наихудший случай (может быть SSD → перезапись не гарантия).
+# Disk kind — tri-state: 'ssd' | 'hdd' | 'unknown' (wrapper for Mock). Honesty over
+# guessing (mirror of macOS _disk_kind): an unknown MediaType is NOT treated as HDD — otherwise
+# on an SSD with an undeterminable type we would reassure the user "HDD, overwriting helps".
+# 'unknown' is read as the worst case (may be an SSD → overwriting is not a guarantee).
 function Get-StDiskKind {
     try {
         $disks = Get-PhysicalDisk -ErrorAction Stop
@@ -339,14 +339,14 @@ function Get-StDiskKind {
         $kinds = @($disks | ForEach-Object { $_.MediaType })
         if ($kinds -contains 'SSD') { return 'ssd' }
         if ($kinds -contains 'HDD') { return 'hdd' }
-        return 'unknown'   # MediaType пуст/Unspecified → честно неизвестно
+        return 'unknown'   # MediaType empty/Unspecified → honestly unknown
     } catch {
         return 'unknown'
     }
 }
 
-# BitLocker системного диска включён? ProtectionStatus -eq 'On'.
-# try/catch: на Windows Home cmdlet отсутствует → $false.
+# Is BitLocker on for the system drive? ProtectionStatus -eq 'On'.
+# try/catch: on Windows Home the cmdlet is absent → $false.
 function Get-StBitLockerOn {
     try {
         $v = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop
@@ -356,10 +356,10 @@ function Get-StBitLockerOn {
     }
 }
 
-# Tri-state BitLocker: on / off / unknown. Отличает «выключено» от «не смогли определить»
-# (cmdlet отсутствует на Windows Home / статус не On и не Off), чтобы `check` не выдавал
-# ложное «ВЫКЛЮЧЕН», когда статус на деле неизвестен. Зеркало macOS `_fv_state` (F5, v0.4.12).
-# Булев Get-StBitLockerOn не трогаем — он остаётся корректным guard'ом в setup/rm-путях.
+# Tri-state BitLocker: on / off / unknown. Distinguishes "off" from "could not determine"
+# (cmdlet absent on Windows Home / status neither On nor Off), so that `check` does not print
+# a false "OFF" when the status is actually unknown. Mirror of macOS `_fv_state` (F5, v0.4.12).
+# The boolean Get-StBitLockerOn is untouched — it remains a correct guard on the setup/rm paths.
 function Get-StBitLockerState {
     try {
         $v = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop
@@ -371,8 +371,8 @@ function Get-StBitLockerState {
     }
 }
 
-# Доступны ли BitLocker-cmdlet'ы (для native VHDX-пути vault)?
-# Наличие Enable-BitLocker = на машине есть BitLocker management.
+# Are the BitLocker cmdlets available (for the native VHDX vault path)?
+# The presence of Enable-BitLocker = the machine has BitLocker management.
 function Get-StBitLockerCapable {
     try {
         $cmd = Get-Command Enable-BitLocker -ErrorAction Stop
@@ -382,13 +382,13 @@ function Get-StBitLockerCapable {
     }
 }
 
-# Путь к VeraCrypt: в PATH или в стандартном Program Files.
+# Path to VeraCrypt: on PATH or in the standard Program Files.
 function Get-StVeraCryptPath {
     try {
         $cmd = Get-Command VeraCrypt -ErrorAction SilentlyContinue
         if ($cmd) { return $cmd.Source }
     } catch { }
-    # На Windows ProgramFiles всегда задан; защищаемся от null (кросс-платформенный прогон).
+    # On Windows ProgramFiles is always set; guard against null (cross-platform run).
     if ($env:ProgramFiles) {
         $std = Join-Path $env:ProgramFiles 'VeraCrypt\VeraCrypt.exe'
         if (Test-Path $std) { return $std }
@@ -396,10 +396,10 @@ function Get-StVeraCryptPath {
     return $null
 }
 
-# --- input validation (#3: защита от diskpart-инъекций) ---
+# --- input validation (#3: protection against diskpart injection) ---
 
-# Проверить размер: только цифры (МБ для diskpart), ноль запрещён — `reset 0` прошёл бы
-# валидацию, уничтожил сейф и упал на recreate (Codex review AUDIT_2026-08-03 P0-1).
+# Validate the size: digits only (MB for diskpart), zero is forbidden — `reset 0` would pass
+# validation, destroy the vault and fail on recreate (Codex review AUDIT_2026-08-03 P0-1).
 function Assert-StValidSize {
     param([string]$Size)
     if ($Size -notmatch '^\d+[bkmgtBKMGT]?$' -or (Convert-StSizeToMb -Size $Size) -le 0) {
@@ -407,16 +407,16 @@ function Assert-StValidSize {
     }
 }
 
-# Размер в МБ для diskpart. bash принимает суффиксы hdiutil (`1g`, `500m`), и пользователь,
-# пришедший из macOS-версии или из GUIDE, пишет их же — раньше ps1 их просто отвергал.
-# Голое число трактуем как МБ (исторический формат ps1, его же ждёт diskpart).
-# Дробный результат округляем ВВЕРХ: `vault create 1500k` должен дать контейнер, а не 1 МБ.
+# Size in MB for diskpart. bash accepts hdiutil suffixes (`1g`, `500m`), and a user
+# coming from the macOS version or from the GUIDE writes those — ps1 used to just reject them.
+# A bare number is read as MB (the historical ps1 format, and what diskpart expects).
+# A fractional result is rounded UP: `vault create 1500k` must yield a container, not 1 MB.
 function Convert-StSizeToMb {
     param([string]$Size)
     if ($Size -notmatch '^(\d+)([bkmgtBKMGT]?)$') { return 0 }
-    # Регексп пропускает сколько угодно цифр. Без этой отсечки `vault create 999...9t`
-    # ронял бы [int64]-каст сырым OverflowException мимо Write-StErr/Stop-StCommand.
-    # 0 = «невалидный размер» → Assert-StValidSize отработает штатной ошибкой.
+    # The regex lets through any number of digits. Without this cutoff `vault create 999...9t`
+    # would crash the [int64] cast with a raw OverflowException past Write-StErr/Stop-StCommand.
+    # 0 = "invalid size" → Assert-StValidSize handles it with the regular error.
     if ($Matches[1].Length -gt 15) { return 0 }
     $n = [double]$Matches[1]
     $mb = switch ($Matches[2].ToLower()) {
@@ -424,24 +424,24 @@ function Convert-StSizeToMb {
         'k' { $n / 1KB }
         'g' { $n * 1KB }
         't' { $n * 1MB }
-        default { $n }        # '' и 'm' — уже мегабайты
+        default { $n }        # '' and 'm' are already megabytes
     }
     return [int64][Math]::Ceiling($mb)
 }
 
-# Проверить букву диска: ровно одна A-Z.
+# Validate the drive letter: exactly one A-Z.
 function Assert-StValidDriveLetter {
     param([string]$DriveLetter)
     if ($DriveLetter -notmatch '^[A-Za-z]$') { Write-StErr (T 'bad_letter' $DriveLetter); Stop-StCommand }
 }
 
-# Проверить путь контейнера: без CR/LF и двойных кавычек (иначе ломает diskpart-скрипт).
+# Validate the container path: no CR/LF or double quotes (they break the diskpart script).
 function Assert-StValidVaultPath {
     param([string]$Path)
     if ($Path -match '["\r\n]') { Write-StErr (T 'bad_path' $Path); Stop-StCommand }
 }
 
-# Выбрать СВОБОДНУЮ букву диска D..Z (первую не занятую FileSystem-провайдером).
+# Pick a FREE drive letter D..Z (the first one not taken by the FileSystem provider).
 function Get-StFreeDriveLetter {
     $used = @(Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue |
               ForEach-Object { $_.Name.ToUpperInvariant() })
@@ -451,12 +451,12 @@ function Get-StFreeDriveLetter {
     Write-StErr (T 'no_free_letter'); Stop-StCommand
 }
 
-# --- vault external-call wrappers (для Mock в Pester) ---
-# TODO: long-term, заменить diskpart на нативные cmdlet New-VHD / Mount-DiskImage
-#       (они не требуют генерации текстового скрипта и устойчивее к инъекциям).
+# --- vault external-call wrappers (for Mock in Pester) ---
+# TODO: long-term, replace diskpart with the native cmdlets New-VHD / Mount-DiskImage
+#       (they need no text-script generation and are more injection-resistant).
 
-# Создать BitLocker-защищённый VHDX. Обёртка над diskpart + Enable-BitLocker.
-# $Size/$DriveLetter/$Path должны быть провалидированы вызывающей стороной (#3).
+# Create a BitLocker-protected VHDX. Wrapper over diskpart + Enable-BitLocker.
+# $Size/$DriveLetter/$Path must be validated by the caller (#3).
 function New-StBitLockerVault {
     param(
         [string]$Path,
@@ -464,7 +464,7 @@ function New-StBitLockerVault {
         [System.Security.SecureString]$Password,
         [string]$DriveLetter = 'V'
     )
-    # diskpart-скрипт: создать vdisk, attach, partition, format NTFS, assign.
+    # diskpart script: create vdisk, attach, partition, format NTFS, assign.
     $script = @"
 create vdisk file="$Path" maximum=$Size type=expandable
 select vdisk file="$Path"
@@ -477,7 +477,7 @@ assign letter=$DriveLetter
     Enable-BitLocker -MountPoint "$($DriveLetter):" -PasswordProtector -Password $Password -EncryptionMethod Aes256 -ErrorAction Stop | Out-Null
 }
 
-# Запустить diskpart со скриптом (обёртка для Mock). Проверяем код возврата (#3).
+# Run diskpart with a script (wrapper for Mock). We check the exit code (#3).
 function Invoke-StDiskpart {
     param([string]$Script)
     $tmp = [System.IO.Path]::GetTempFileName()
@@ -490,11 +490,11 @@ function Invoke-StDiskpart {
     }
 }
 
-# Best-effort перезапись свободного места на корне диска цели (#1a).
-# cipher /w НЕ даёт гарантий на SSD/COW; только обёртка для вызова + Mock.
+# Best-effort free-space overwrite on the target's drive root (#1a).
+# cipher /w gives NO guarantees on SSD/COW; just a call wrapper + Mock.
 function Invoke-StCipherWipe { param([string]$DriveRoot) & cipher /w:$DriveRoot | Out-Null }
 
-# Разблокировать BitLocker-том и проверить статус (#9). Обёртка для Mock.
+# Unlock a BitLocker volume and check the status (#9). Wrapper for Mock.
 function Unlock-StBitLockerVault {
     param([string]$MountPoint, [System.Security.SecureString]$Password)
     Unlock-BitLocker -MountPoint $MountPoint -Password $Password -ErrorAction Stop | Out-Null
@@ -502,12 +502,12 @@ function Unlock-StBitLockerVault {
     return ($v.LockStatus -eq 'Unlocked')
 }
 
-# Состояние BitLocker/vhdx-контейнера — tri-state (обёртка для Mock). Печатает одно из:
-#   'mounted'   — vhdx attached (том может быть расшифрован и активен);
-#   'unmounted' — vhdx точно НЕ attached;
-#   'unknown'   — определить не удалось (нет Get-DiskImage / ошибка / не-Windows прогон).
-# Критично для destroy: при 'unknown' удалять вслепую нельзя (fail-closed) — иначе
-# неопределённость трактовалась бы как «не смонтирован» и мы стёрли бы живой том.
+# State of the BitLocker/vhdx container — tri-state (wrapper for Mock). Prints one of:
+#   'mounted'   — vhdx attached (the volume may be decrypted and live);
+#   'unmounted' — vhdx definitely NOT attached;
+#   'unknown'   — could not determine (no Get-DiskImage / error / non-Windows run).
+# Critical for destroy: on 'unknown' we must not delete blindly (fail-closed) — otherwise
+# uncertainty would be read as "not mounted" and we would wipe a live volume.
 function Get-StVaultState {
     param([string]$Path)
     try {
@@ -519,8 +519,8 @@ function Get-StVaultState {
     }
 }
 
-# Текущий корень смонтированного VHDX (напр. 'D:\'); $null, если определить не удалось
-# (нет Storage-модуля / нет буквы). Обёртка для Mock.
+# Current root of the mounted VHDX (e.g. 'D:\'); $null if it could not be determined
+# (no Storage module / no letter). Wrapper for Mock.
 function Get-StMountedVaultRoot {
     param([string]$Path)
     try {
@@ -531,7 +531,7 @@ function Get-StMountedVaultRoot {
     return $null
 }
 
-# Размонтировать/отсоединить контейнер (обёртка для Mock).
+# Unmount/detach the container (wrapper for Mock).
 function Dismount-StVault {
     param([string]$Path)
     $script = @"
@@ -541,20 +541,20 @@ detach vdisk
     Invoke-StDiskpart -Script $script
 }
 
-# Удалить файл-контейнер = crypto-shred (обёртка для Mock).
+# Delete the container file = crypto-shred (wrapper for Mock).
 function Remove-StVaultContainer {
     param([string]$Path)
     Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
 }
 
-# --- «отставить старый контейнер в сторону» (reset без окна потери данных) ---
-# reset обязан пережить падение create: старый сейф уезжает в <vault>.old, новый
-# создаётся на штатном месте, и только после успеха старый крипто-шредится.
-# Зеркало bash (_vault_aside_path / mv). Обёртки — чтобы Pester мог их мокать.
-# ВАЖНО: .old вставляется ПЕРЕД расширением, а не в конец. Get-DiskImage принимает
-# только .vhd/.vhdx/.iso — при имени `SecureVault.vhdx.old` любая проверка состояния
-# отвечала бы ошибкой, вечным 'unknown' и fail-closed отказом, то есть отставленный
-# контейнер было бы нечем ни проверить, ни удалить.
+# --- "set the old container aside" (reset without a data-loss window) ---
+# reset must survive a create failure: the old vault moves to <vault>.old, the new one
+# is created in the regular place, and only after success is the old one crypto-shredded.
+# Mirror of bash (_vault_aside_path / mv). Wrappers — so Pester can mock them.
+# IMPORTANT: .old is inserted BEFORE the extension, not appended. Get-DiskImage accepts
+# only .vhd/.vhdx/.iso — with the name `SecureVault.vhdx.old` any state check
+# would answer with an error, an eternal 'unknown' and a fail-closed refusal, i.e. there
+# would be nothing to check or delete the set-aside container with.
 function Get-StAsidePath {
     param([string]$VaultPath)
     $ext = [System.IO.Path]::GetExtension($VaultPath)
@@ -563,9 +563,9 @@ function Get-StAsidePath {
     return "$base.old$ext"
 }
 
-# Есть ли отставленный контейнер. Намеренно через .NET, а не Test-Path: проверка идёт
-# на КАЖДОЙ vault-команде, а Test-Path в тестах замокан узкими -ParameterFilter —
-# лишний вызов ронял бы чужие тесты («no mock matched the call»).
+# Is there a set-aside container. Deliberately via .NET, not Test-Path: the check runs
+# on EVERY vault command, and Test-Path is mocked in tests with narrow -ParameterFilter —
+# an extra call would break unrelated tests ("no mock matched the call").
 function Test-StAsidePresent {
     param([string]$VaultPath)
     $p = Get-StAsidePath $VaultPath
@@ -575,9 +575,9 @@ function Test-StAsidePresent {
 function Move-StVaultAside {
     param([string]$VaultPath)
     $aside = Get-StAsidePath $VaultPath
-    # Существующий .old — ДАННЫЕ пользователя, удалять его здесь нельзя. Вызывающий
-    # обязан отказаться заранее; проверка продублирована, потому что Move-Item -Force
-    # при существующем КАТАЛОГЕ .old положил бы контейнер ВНУТРЬ него и промолчал.
+    # An existing .old is the user's DATA, deleting it here is forbidden. The caller
+    # must refuse beforehand; the check is duplicated because Move-Item -Force
+    # with an existing .old DIRECTORY would put the container INSIDE it and stay silent.
     if (Test-StAsidePresent -VaultPath $VaultPath) { Write-StErr (T 'vault_aside_exists' $aside); Stop-StCommand }
     Move-Item -LiteralPath $VaultPath -Destination $aside -ErrorAction Stop
 }
@@ -587,19 +587,19 @@ function Restore-StVaultAside {
     $aside = Get-StAsidePath $VaultPath
     if (-not (Test-StAsidePresent -VaultPath $VaultPath)) { return }
     if ([System.IO.File]::Exists($VaultPath) -or [System.IO.Directory]::Exists($VaultPath)) {
-        # Самый вероятный провал create — Enable-BitLocker уже ПОСЛЕ того, как diskpart
-        # прицепил vhdx. Такой файл залочен: без detach его не удалить и откат не пройдёт.
+        # The most likely create failure is Enable-BitLocker AFTER diskpart has already
+        # attached the vhdx. Such a file is locked: without detach it can't be deleted and the rollback won't pass.
         try { Dismount-StVault -Path $VaultPath } catch { }
         Remove-Item -LiteralPath $VaultPath -Force -Recurse -ErrorAction SilentlyContinue
     }
-    # Move-Item -Force в существующий КАТАЛОГ кладёт источник ВНУТРЬ него и молчит,
-    # поэтому цель обязана быть свободна: честнее упасть, чем «успешно» закопать сейф.
+    # Move-Item -Force into an existing DIRECTORY puts the source INSIDE it and stays silent,
+    # so the target must be free: more honest to fail than to "successfully" bury the vault.
     if ([System.IO.File]::Exists($VaultPath) -or [System.IO.Directory]::Exists($VaultPath)) { throw "restore target still present: $VaultPath" }
     Move-Item -LiteralPath $aside -Destination $VaultPath -ErrorAction Stop
 }
 
-# Ограничить ACL объекта текущим пользователем + SYSTEM/Administrators (#15).
-# Обёртка для Mock: на не-Windows / при отсутствии API тихо пропускаем.
+# Restrict the object's ACL to the current user + SYSTEM/Administrators (#15).
+# Wrapper for Mock: on non-Windows / with the API absent we skip silently.
 function Set-StPrivateAcl {
     param([string]$Path)
     try {
@@ -607,7 +607,7 @@ function Set-StPrivateAcl {
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
             $acl = New-Object System.Security.AccessControl.FileSecurity
         }
-        $acl.SetAccessRuleProtection($true, $false)  # отключить наследование, убрать унаследованные
+        $acl.SetAccessRuleProtection($true, $false)  # disable inheritance, drop inherited entries
         $rights = [System.Security.AccessControl.FileSystemRights]::FullControl
         $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
         $prop = [System.Security.AccessControl.PropagationFlags]::None
@@ -623,12 +623,12 @@ function Set-StPrivateAcl {
         }
         Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
     } catch {
-        # ACL — best-effort упрочнение; на не-Windows прогоне (Pester на mac) недоступно.
+        # ACL is best-effort hardening; unavailable on a non-Windows run (Pester on mac).
     }
 }
 
-# --- backend metadata (#10: какой бэкенд создал контейнер) ---
-# Sidecar-файл <vault>.backend хранит 'bitlocker' или 'veracrypt' (одна строка).
+# --- backend metadata (#10: which backend created the container) ---
+# The sidecar file <vault>.backend holds 'bitlocker' or 'veracrypt' (one line).
 function Get-StBackendPath { param([string]$VaultPath) return "$VaultPath.backend" }
 
 function Write-StVaultBackend {
@@ -638,7 +638,7 @@ function Write-StVaultBackend {
     Set-StPrivateAcl -Path $bp
 }
 
-# Прочитать записанный бэкенд; если sidecar нет — $null (legacy/неизвестно).
+# Read the recorded backend; if there is no sidecar — $null (legacy/unknown).
 function Read-StVaultBackend {
     param([string]$VaultPath)
     $bp = Get-StBackendPath $VaultPath
@@ -646,19 +646,19 @@ function Read-StVaultBackend {
     return $null
 }
 
-# Похоже ли на валидный контейнер (а не произвольный путь)? Зеркало bash
-# _is_sparsebundle: destroy/reset не должны уничтожать то, что мы не создавали
-# (например, ST_VAULT_PATH указал на каталог или чужой файл). VHDX начинается
-# с magic 'vhdxfile'; VeraCrypt-контейнер — неотличимые случайные байты, для
-# него остаётся только структурная проверка (файл, не каталог).
+# Does it look like a valid container (not an arbitrary path)? Mirror of bash
+# _is_sparsebundle: destroy/reset must not destroy what we did not create
+# (e.g. ST_VAULT_PATH pointed at a directory or a foreign file). VHDX starts
+# with the magic 'vhdxfile'; a VeraCrypt container is indistinguishable random bytes,
+# so only the structural check remains for it (a file, not a directory).
 function Test-StVaultContainer {
     param([string]$Path)
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     if (-not $item -or $item.PSIsContainer) { return $false }
     if ((Read-StVaultBackend -VaultPath $Path) -eq 'veracrypt') { return $true }
     try {
-        # FileShare ReadWrite|Delete: смонтированный VHDX держит virtual-disk stack —
-        # обычный OpenRead упал бы и легитимный destroy получил бы ложный bad_container.
+        # FileShare ReadWrite|Delete: a mounted VHDX is held by the virtual-disk stack —
+        # a plain OpenRead would fail and a legitimate destroy would get a false bad_container.
         $fs = [System.IO.FileStream]::new($item.FullName,
             [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read,
             [System.IO.FileShare]([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
@@ -668,29 +668,29 @@ function Test-StVaultContainer {
             return ([System.Text.Encoding]::ASCII.GetString($buf) -eq 'vhdxfile')
         } finally { $fs.Dispose() }
     } catch {
-        # Файл есть, но не читается (залочен смонтированным стеком) — опровергнуть не можем,
-        # пропускаем: сам destroy остаётся fail-closed по состоянию (Get-StVaultState).
+        # The file exists but is unreadable (locked by the mounted stack) — we cannot disprove it,
+        # so we let it pass: destroy itself stays fail-closed on state (Get-StVaultState).
         return $true
     }
 }
 
-# --- vault lifecycle hooks (точка интеграции экосистемы; зеркало bash ST_HOOK_DIR) ---
-# Каталог хуков совпадает с тем, куда `vaultwatch install-hooks` кладёт post-open.cmd/
-# post-close.cmd. Резолвим на момент вызова — env-override (ST_HOOK_DIR) работает в тестах.
+# --- vault lifecycle hooks (ecosystem integration point; mirror of bash ST_HOOK_DIR) ---
+# The hook directory matches where `vaultwatch install-hooks` puts post-open.cmd/
+# post-close.cmd. Resolved at call time — the env override (ST_HOOK_DIR) works in tests.
 function Get-StHookDir {
     if ($env:ST_HOOK_DIR) { return $env:ST_HOOK_DIR }
     return (Join-Path (Get-StHomeDir) '.securetrash\hooks')
 }
 
-# Запустить хук жизненного цикла vault (контракт securetrash/CLAUDE.md + зеркало bash
-# _run_vault_hook): дёргаем, ТОЛЬКО если файл есть; падение хука НЕ роняет vault-операцию
-# (только warn) — интеграция (vaultwatch/panic) необязательна.
+# Run a vault lifecycle hook (securetrash/CLAUDE.md contract + mirror of bash
+# _run_vault_hook): invoked ONLY if the file exists; a hook failure does NOT fail the vault
+# operation (warn only) — the integration (vaultwatch/panic) is optional.
 function Invoke-StVaultHook {
     param([string]$Event, [string]$Mount)
     $hook = Join-Path (Get-StHookDir) "$Event.cmd"
     if (-not (Test-Path -LiteralPath $hook)) { return }
     try {
-        $global:LASTEXITCODE = 0   # сбросить, чтобы stale-код не дал ложный warn
+        $global:LASTEXITCODE = 0   # reset so a stale code doesn't produce a false warn
         & $hook $Mount | Out-Null
         if ($LASTEXITCODE -ne 0) { Write-StWarn (T 'vault_hook_failed' $Event) }
     } catch {
@@ -698,9 +698,9 @@ function Invoke-StVaultHook {
     }
 }
 
-# Открыть смонтированный том в Explorer, чтобы пользователь сразу видел, куда класть файлы
-# (зеркало macOS `open <mount>`). Том УЖЕ смонтирован → reveal best-effort: ошибка запуска
-# Explorer НЕ роняет успешный open. Отключить: ST_VAULT_NO_REVEAL=1.
+# Open the mounted volume in Explorer so the user immediately sees where to put files
+# (mirror of macOS `open <mount>`). The volume is ALREADY mounted → reveal is best-effort: an
+# Explorer launch error does NOT fail a successful open. Disable: ST_VAULT_NO_REVEAL=1.
 function Show-StVaultInExplorer {
     param([string]$Mount)
     if ($env:ST_VAULT_NO_REVEAL -eq '1') { return }
@@ -708,9 +708,9 @@ function Show-StVaultInExplorer {
     catch { Write-StWarn (T 'vault_reveal_failed') }
 }
 
-# Sidecar <vault>.mount хранит активную точку монтирования (буква диска с '\'). Нужен потому,
-# что Get-StFreeDriveLetter выбирает букву динамически: close-хук и launcher (paranoid.ps1)
-# иначе не знают реальный том. Пишется при open, читается при close, чистится при close/destroy.
+# The sidecar <vault>.mount holds the active mount point (drive letter with '\'). Needed because
+# Get-StFreeDriveLetter picks the letter dynamically: the close hook and the launcher (paranoid.ps1)
+# otherwise don't know the real volume. Written on open, read on close, cleaned on close/destroy.
 function Get-StMountPath { param([string]$VaultPath) return "$VaultPath.mount" }
 
 function Write-StVaultMount {
@@ -734,16 +734,16 @@ function Remove-StVaultMount {
 }
 
 # --- paths ---
-# База профиля: USERPROFILE на Windows; HOME — fallback (кросс-платформенный прогон Pester).
+# Profile base: USERPROFILE on Windows; HOME as fallback (cross-platform Pester run).
 function Get-StHomeDir {
     if ($env:USERPROFILE) { return $env:USERPROFILE }
     if ($env:HOME) { return $env:HOME }
     return (Get-Location).Path
 }
 function Get-StTrashDir { return (Join-Path (Get-StHomeDir) 'SecureTrash') }
-# ST_VAULT_PATH позволяет GUI/tray/launcher (paranoid.ps1 читает те же env) указать
-# нестандартный контейнер — иначе destroy/reset/open молча работали бы с дефолтом, пока UI
-# показывает кастомный (AUDIT_2026-07-03 P0-1). Паритет с bash securetrash.
+# ST_VAULT_PATH lets a GUI/tray/launcher (paranoid.ps1 reads the same env) point at a
+# non-standard container — otherwise destroy/reset/open would silently work on the default
+# while the UI shows a custom one (AUDIT_2026-07-03 P0-1). Parity with bash securetrash.
 function Get-StVaultPath {
     if ($env:ST_VAULT_PATH) { return $env:ST_VAULT_PATH }
     return (Join-Path (Get-StHomeDir) 'SecureVault.vhdx')
@@ -755,8 +755,8 @@ function Invoke-StVersion {
     Write-Output "securetrash $VERSION (Windows, beta)"
 }
 
-# Аудит окружения: честный вердикт о гарантиях удаления.
-# Запущены ли мы с правами администратора (обёртка для Mock).
+# Environment audit: an honest verdict on deletion guarantees.
+# Are we running with administrator rights (wrapper for Mock).
 function Test-StElevated {
     try {
         $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -767,15 +767,15 @@ function Test-StElevated {
     }
 }
 
-# Сколько теневых копий (VSS) держит система — Windows-аналог локальных снимков APFS.
-# Копия, снятая пока файл ещё лежал вне сейфа, хранит его ЦЕЛИКОМ: ни shred, ни
-# `cipher /w` туда не дотянутся. Обёртка для Mock; недоступность CIM → 'unknown'.
+# How many shadow copies (VSS) the system holds — the Windows analog of local APFS snapshots.
+# A copy taken while the file still lay outside the vault stores it IN FULL: neither shred
+# nor `cipher /w` can reach into it. Wrapper for Mock; CIM unavailability → 'unknown'.
 function Get-StSnapshotCount {
-    # Без прав администратора провайдер VSS отдаёт ПУСТОЙ список, а не ошибку —
-    # посчитать это за «копий нет» значило бы соврать в самую опасную сторону.
+    # Without administrator rights the VSS provider returns an EMPTY list, not an error —
+    # counting that as "no copies" would mean lying in the most dangerous direction.
     if (-not (Test-StElevated)) { return 'unknown' }
     try {
-        # Зависший провайдер VSS/WMI иначе подвесил бы каждый shred.
+        # A hung VSS/WMI provider would otherwise stall every shred.
         $shadows = @(Get-CimInstance -ClassName Win32_ShadowCopy -OperationTimeoutSec 10 -ErrorAction Stop)
         return $shadows.Count
     } catch {
@@ -797,7 +797,7 @@ function Invoke-StCheck {
     switch (Get-StBitLockerState) {
         'on'    { Write-StInfo (T 'bl_on') }
         'off'   { Write-StWarn (T 'bl_off_check') }
-        default { Write-StWarn (T 'bl_unknown_check') }   # не определили → консервативно, считаем незащищённым
+        default { Write-StWarn (T 'bl_unknown_check') }   # undetermined → conservative, assume unprotected
     }
 
     switch (Get-StDiskKind) {
@@ -816,7 +816,7 @@ function Invoke-StCheck {
         }
     }
 
-    # Доступность vault: native BitLocker / VeraCrypt fallback / нет.
+    # Vault availability: native BitLocker / VeraCrypt fallback / none.
     if (Get-StBitLockerCapable) {
         Write-StInfo (T 'vault_native')
     } elseif (Get-StVeraCryptPath) {
@@ -831,20 +831,20 @@ function Invoke-StCheck {
     Write-Output (T 'check_verdict')
 }
 
-# Подготовка окружения: папка-корзина, предупреждение про BitLocker. Идемпотентно.
+# Environment setup: trash folder, BitLocker warning. Idempotent.
 function Invoke-StSetup {
     $trash = Get-StTrashDir
     if (-not (Test-Path -LiteralPath $trash)) {
         New-Item -ItemType Directory -Path $trash -Force | Out-Null
     }
-    Set-StPrivateAcl -Path $trash   # #15: ограничить доступ к корзине
+    Set-StPrivateAcl -Path $trash   # #15: restrict access to the trash folder
     Write-StInfo (T 'setup_dir_ready' $trash)
     if (-not (Get-StBitLockerOn)) {
         Write-StWarn (T 'bl_off_setup')
     }
 }
 
-# Корень диска (например 'C:\') для заданного пути — цель cipher /w.
+# Drive root (e.g. 'C:\') for a given path — the target of cipher /w.
 function Get-StDriveRootForPath {
     param([string]$Path)
     try {
@@ -855,9 +855,9 @@ function Get-StDriveRootForPath {
     return $null
 }
 
-# Честное примечание о гарантиях по типу диска.
-# Заметка после shred: тип диска + теневые копии. Снимки бьют мимо типа диска —
-# даже там, где перезапись честная, копия в теневой копии переживает удаление.
+# Honest note on guarantees by disk kind.
+# Post-shred note: disk kind + shadow copies. Snapshots cut across disk type —
+# even where the overwrite is honest, a copy inside a shadow copy survives the deletion.
 function Write-StHonestDiskNote {
     $kind = Get-StDiskKind
     if ($kind -eq 'ssd') {
@@ -871,8 +871,8 @@ function Write-StHonestDiskNote {
     Write-StSnapshotNote
 }
 
-# Best-effort перезаписать свободное место на корнях затронутых дисков (#1a).
-# Это НЕ гарантия (особенно SSD/COW) — честно предупреждаем. cipher /w медленный.
+# Best-effort overwrite of free space on the roots of affected drives (#1a).
+# This is NOT a guarantee (especially SSD/COW) — we warn honestly. cipher /w is slow.
 function Invoke-StFreeSpaceWipe {
     param([string[]]$Paths)
     $roots = @($Paths | ForEach-Object { Get-StDriveRootForPath $_ } |
@@ -884,15 +884,15 @@ function Invoke-StFreeSpaceWipe {
     }
 }
 
-# Удалить путь без следования junction/symlink/reparse-point.
-# Remove-Item -Recurse в PS 5.1 обходит junction'ы и удаляет содержимое target-каталога.
-# Решение: рекурсивно обходим сами; каждый ReparsePoint удаляем без -Recurse (только запись-ссылку).
+# Delete a path without following junctions/symlinks/reparse points.
+# Remove-Item -Recurse in PS 5.1 traverses junctions and deletes the target directory's contents.
+# Solution: recurse ourselves; each ReparsePoint is deleted without -Recurse (the link entry only).
 function Remove-StItemSafe {
     param([string]$Path)
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     if (-not $item) { return }
     if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-        # Удалить только запись junction/symlink, НЕ target.
+        # Delete only the junction/symlink entry, NOT the target.
         Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
         return
     }
@@ -906,44 +906,44 @@ function Remove-StItemSafe {
     }
 }
 
-# Защищённый системный путь? Отказываемся shred'ить корни дисков и системные деревья
-# (Windows, ProgramFiles, ProgramData, корень Users, сам профиль пользователя). Дети
-# профиля (~\file) и user-temp разрешены. Зеркало macOS _is_protected_path: canon-путь
-# через GetFullPath (резолвит .., нормализует разделители) + сравнение case-insensitive
-# (Windows-ФС регистронезависима). GetFullPath не резолвит reparse-точки — именно этого мы
-# и хотим (проверка guard-пути «как задан»; reparse-точки ловит отдельная проверка ниже).
-# их не трогает) — guard ловит путь как задан; для CLI локального удаления это приемлемо.
+# Protected system path? We refuse to shred drive roots and system trees
+# (Windows, ProgramFiles, ProgramData, the Users root, the user's own profile). Children
+# of the profile (~\file) and user-temp are allowed. Mirror of macOS _is_protected_path: canon
+# path via GetFullPath (resolves .., normalizes separators) + case-insensitive comparison
+# (the Windows FS is case-insensitive). GetFullPath does not resolve reparse points — which is
+# exactly what we want (the guard checks the path "as given"; reparse points are caught by the
+# separate check below) — the guard catches the path as given; acceptable for a local-deletion CLI.
 function Test-StProtectedPath {
     param([string]$Path)
-    # Не распарсили → fail-closed. На .NET Framework (Windows PowerShell 5.1) сюда попадают
-    # и пути со звёздочкой: GetFullPath там бросает на `*`/`?`, а на .NET Core (7) — нет.
-    # Такое имя файла NTFS всё равно не даст создать, так что отказ никого не блокирует.
+    # Failed to parse → fail-closed. On .NET Framework (Windows PowerShell 5.1) paths with
+    # an asterisk land here too: GetFullPath throws on `*`/`?` there, while .NET Core (7) doesn't.
+    # NTFS won't let such a filename be created anyway, so the refusal blocks no one.
     try { $full = [System.IO.Path]::GetFullPath($Path) } catch { return $true }
     if (-not $full) { return $true }
     $norm = $full.TrimEnd('\')
-    if ($norm -match '^[A-Za-z]:$') { $norm = "$norm\" }   # "C:" → "C:\" (корень диска)
+    if ($norm -match '^[A-Za-z]:$') { $norm = "$norm\" }   # "C:" → "C:\" (drive root)
 
     $sysDrive = if ($env:SystemDrive) { $env:SystemDrive.TrimEnd('\') } else { 'C:' }
     $sysRoot  = if ($env:SystemRoot)  { $env:SystemRoot.TrimEnd('\') }  else { "$sysDrive\Windows" }
     $userProf = if ($env:USERPROFILE) { $env:USERPROFILE.TrimEnd('\') } else { '' }
 
-    # Точные совпадения: корень системного диска, системные деревья, корень Users, сам профиль.
+    # Exact matches: system drive root, system trees, the Users root, the profile itself.
     $exact = @("$sysDrive\", $sysRoot, "$sysDrive\Program Files",
                "$sysDrive\Program Files (x86)", "$sysDrive\ProgramData", "$sysDrive\Users")
     if ($userProf) { $exact += $userProf }
     foreach ($e in $exact) { if ($e -and ($norm -ieq $e)) { return $true } }
 
-    # Системные поддеревья — по префиксу (но НЕ \Users\*: дети профилей разрешены).
+    # System subtrees — by prefix (but NOT \Users\*: profile children are allowed).
     $prefixes = @($sysRoot, "$sysDrive\Program Files",
                   "$sysDrive\Program Files (x86)", "$sysDrive\ProgramData")
     foreach ($pre in $prefixes) { if ($pre -and ($norm -like "$pre\*")) { return $true } }
 
-    # Корень любого диска X:\ (не только системного).
+    # The root of any drive X:\ (not just the system one).
     if ($norm -match '^[A-Za-z]:\\$') { return $true }
     return $false
 }
 
-# Безвозвратно удалить указанные пути + best-effort wipe + честное примечание (#1,#7).
+# Permanently delete the given paths + best-effort wipe + honest note (#1,#7).
 function Invoke-StShred {
     param([string[]]$Paths)
     if (-not $Paths -or $Paths.Count -eq 0) {
@@ -968,7 +968,7 @@ function Invoke-StShred {
     Write-StHonestDiskNote
 }
 
-# Опустошить папку-корзину, сохранив саму папку (#1,#7).
+# Empty the trash folder while keeping the folder itself (#1,#7).
 function Invoke-StEmpty {
     $trash = Get-StTrashDir
     if (-not (Test-Path -LiteralPath $trash)) { Write-StErr (T 'empty_no_dir' $trash); Stop-StCommand }
@@ -977,7 +977,7 @@ function Invoke-StEmpty {
     if (-not (Confirm-StAction (T 'empty_confirm' $trash))) {
         Write-StWarn (T 'cancelled'); Stop-StCommand
     }
-    # Перечисляем содержимое и удаляем через Remove-StItemSafe — junction'ы не следуем.
+    # Enumerate the contents and delete via Remove-StItemSafe — junctions are not followed.
     Get-ChildItem -LiteralPath $trash -Force | ForEach-Object {
         Remove-StItemSafe -Path $_.FullName
     }
@@ -986,50 +986,50 @@ function Invoke-StEmpty {
     Write-StHonestDiskNote
 }
 
-# Прочитать пароль контейнера как SecureString (#13: держим пароль SecureString
-# end-to-end, plaintext не материализуем). ST_VAULT_PASS — ТОЛЬКО тестовый хук
-# (документирован как test-only), плейн-пароль в проде на argv не уходит (#2).
+# Read the container password as a SecureString (#13: keep the password SecureString
+# end-to-end, never materialize plaintext). ST_VAULT_PASS is a TEST-ONLY hook
+# (documented as test-only); in production the plain password never goes to argv (#2).
 function Get-StVaultPasswordSecure {
     param([string]$Prompt = (T 'vault_pass'))
-    # TEST-ONLY hook: ST_VAULT_PASS используется только в Pester/скриптах, не в проде.
+    # TEST-ONLY hook: ST_VAULT_PASS is used only in Pester/scripts, not in production.
     if ($env:ST_VAULT_PASS) {
         return (ConvertTo-SecureString -String $env:ST_VAULT_PASS -AsPlainText -Force)
     }
     return (Read-Host -AsSecureString $Prompt)
 }
 
-# --- общие низкоуровневые операции (переиспользуются create/destroy/reset) ---
-# Создать контейнер. БЕЗ проверки существования — её делает вызывающий (create проверяет;
-# reset вызывает уже после destroy, когда контейнера заведомо нет). Size — в МБ для diskpart.
+# --- shared low-level operations (reused by create/destroy/reset) ---
+# Create the container. WITHOUT an existence check — the caller does it (create checks;
+# reset calls after destroy, when the container is known to be gone). Size is in MB for diskpart.
 function Invoke-StVaultCreateNow {
     param([string]$Size = '1024')
     $vaultPath = Get-StVaultPath
     Assert-StValidVaultPath -Path $vaultPath
     Assert-StValidSize -Size $Size
     if (Get-StBitLockerCapable) {
-        # Native: VHDX + Enable-BitLocker. Пароль — SecureString end-to-end (#13).
+        # Native: VHDX + Enable-BitLocker. The password is SecureString end-to-end (#13).
         $sec = Get-StVaultPasswordSecure
-        $letter = Get-StFreeDriveLetter                 # #3: свободная буква, не хардкод 'V'
+        $letter = Get-StFreeDriveLetter                 # #3: a free letter, not a hardcoded 'V'
         Assert-StValidDriveLetter -DriveLetter $letter
-        # diskpart понимает только МБ-число: суффиксы (1g/500m) разворачиваем здесь,
-        # в сообщении оставляем то, что ввёл пользователь.
+        # diskpart understands only an MB number: suffixes (1g/500m) are expanded here,
+        # the message keeps what the user typed.
         New-StBitLockerVault -Path $vaultPath -Size (Convert-StSizeToMb -Size $Size) -Password $sec -DriveLetter $letter
-        Set-StPrivateAcl -Path $vaultPath               # #15: ACL на контейнер
+        Set-StPrivateAcl -Path $vaultPath               # #15: ACL on the container
         Write-StVaultBackend -VaultPath $vaultPath -Backend 'bitlocker'  # #10
         Write-StInfo (T 'vault_created' $vaultPath $Size)
         Write-StWarn (T 'vault_preventive')
     } elseif (Get-StVeraCryptPath) {
-        # #2: автоматический VeraCrypt отключён (пароль в argv утёк бы). В GUI.
+        # #2: automated VeraCrypt is disabled (the password would leak via argv). Use the GUI.
         Write-StWarn (T 'vault_vc_manual'); Stop-StCommand
     } else {
         Write-StErr (T 'vault_unavailable'); Stop-StCommand
     }
 }
-# Механизм уничтожения контейнера БЕЗ confirm (его делает вызывающий: destroy и reset
-# подтверждают по-своему). fail-closed как на macOS: BitLocker/vhdx удаляем ТОЛЬКО при
-# достоверном 'unmounted' (mounted → размонтировать и перепроверить; unknown → отказ).
-# VeraCrypt: состояние через Get-DiskImage не определить — Remove с -ErrorAction Stop
-# сам упадёт, если файл занят (тоже fail-closed). Подчищает sidecar'ы backend+mount.
+# Container destruction mechanism WITHOUT confirm (the caller does it: destroy and reset
+# confirm their own way). fail-closed as on macOS: a BitLocker/vhdx is deleted ONLY on a
+# reliable 'unmounted' (mounted → unmount and re-check; unknown → refusal).
+# VeraCrypt: the state cannot be determined via Get-DiskImage — Remove with -ErrorAction Stop
+# fails on its own if the file is busy (also fail-closed). Cleans up the backend+mount sidecars.
 function Assert-StVaultUnmounted {
     param([string]$VaultPath)
     $backend = Read-StVaultBackend -VaultPath $VaultPath
@@ -1058,16 +1058,16 @@ function Invoke-StVaultDestroyNow {
     Write-StInfo (T 'vault_destroyed')
 }
 
-# Управление зашифрованным контейнером: create|open|close|reset|destroy.
-# Бэкенд (#10): create записывает sidecar <vault>.backend; open/close/destroy
-# читают его и диспетчеризуют. VeraCrypt-путь (#2) — только инструкция для GUI,
-# пароль НИКОГДА не уходит в argv.
+# Encrypted container management: create|open|close|reset|destroy.
+# Backend (#10): create writes the sidecar <vault>.backend; open/close/destroy
+# read it and dispatch. The VeraCrypt path (#2) is GUI instructions only;
+# the password NEVER goes to argv.
 function Invoke-StVault {
     param([string[]]$VaultArgs)
     $sub = if ($VaultArgs -and $VaultArgs.Count -ge 1) { $VaultArgs[0] } else { '' }
     $vaultPath = Get-StVaultPath
-    # Уцелевший .old — след прерванного reset. Пользователь должен узнать, ГДЕ его
-    # данные: status иначе покажет «сейф закрыт», а сейф-то другой (зеркало bash).
+    # A surviving .old is the trace of an interrupted reset. The user must learn WHERE their
+    # data is: status would otherwise show "vault closed", but it's a different vault (mirror of bash).
     if (Test-StAsidePresent -VaultPath $vaultPath) {
         Write-StWarn (T 'vault_aside_notice' (Get-StAsidePath $vaultPath))
     }
@@ -1075,16 +1075,16 @@ function Invoke-StVault {
     switch ($sub) {
         'create' {
             if (Test-Path -LiteralPath $vaultPath) { Write-StErr (T 'vault_exists' $vaultPath); Stop-StCommand }
-            $size = if ($VaultArgs.Count -ge 2) { $VaultArgs[1] } else { '1024' }  # МБ для diskpart
+            $size = if ($VaultArgs.Count -ge 2) { $VaultArgs[1] } else { '1024' }  # MB for diskpart
             Invoke-StVaultCreateNow -Size $size
         }
         'open' {
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container_open'); Stop-StCommand }
-            # Идемпотентность: уже смонтирован → не дублируем attach (AUDIT P2-5, паритет с bash).
+            # Idempotency: already mounted → don't duplicate the attach (AUDIT P2-5, parity with bash).
             if ((Get-StVaultState -Path $vaultPath) -eq 'mounted') {
-                # Освежаем mount-sidecar: legacy-vault мог быть смонтирован до появления
-                # sidecar'а (или запись провалилась) — без него ghostdraft/paranoid не находят
-                # реальную букву тома (AUDIT_2026-08-03 P0-3, Codex review). Best-effort.
+                # Refresh the mount sidecar: a legacy vault may have been mounted before the
+                # sidecar existed (or the write failed) — without it ghostdraft/paranoid can't find
+                # the volume's real letter (AUDIT_2026-08-03 P0-3, Codex review). Best-effort.
                 try {
                     $curRoot = Get-StMountedVaultRoot -Path $vaultPath
                     if ($curRoot) { Write-StVaultMount -VaultPath $vaultPath -Mount $curRoot }
@@ -1092,11 +1092,11 @@ function Invoke-StVault {
                 Write-StInfo (T 'vault_already_open' $vaultPath); return
             }
             $backend = Read-StVaultBackend -VaultPath $vaultPath
-            # Legacy/неизвестный sidecar: считаем bitlocker, только если cmdlet есть.
+            # Legacy/unknown sidecar: assume bitlocker only if the cmdlet exists.
             if (-not $backend) { $backend = if (Get-StBitLockerCapable) { 'bitlocker' } else { '' } }
 
             if ($backend -eq 'veracrypt') {
-                # #2/#10: VeraCrypt-контейнер открывается только через GUI.
+                # #2/#10: a VeraCrypt container opens only through the GUI.
                 Write-StWarn (T 'vault_vc_manual'); Stop-StCommand
             } elseif ($backend -eq 'bitlocker') {
                 Assert-StValidVaultPath -Path $vaultPath
@@ -1105,16 +1105,16 @@ function Invoke-StVault {
                 # Attach VHDX...
                 Invoke-StDiskpart -Script "select vdisk file=`"$vaultPath`"`nattach vdisk`nselect partition 1`nassign letter=$letter"
                 $vol = "$($letter):"
-                # ...затем разблокировать BitLocker и проверить статус (#9).
+                # ...then unlock BitLocker and check the status (#9).
                 $sec = Get-StVaultPasswordSecure -Prompt (T 'vault_unlock_prompt')
                 if (-not (Unlock-StBitLockerVault -MountPoint $vol -Password $sec)) {
                     Write-StErr (T 'vault_unlock_fail'); Stop-StCommand
                 }
                 Write-StInfo (T 'vault_mounted' $vol)
                 Write-StWarn (T 'vault_preventive')
-                # Пост-монтажные действия — best-effort: том УЖЕ смонтирован, поэтому ошибка
-                # записи sidecar/ACL или хука НЕ должна превращать успешный open в провал
-                # (зеркало политики хуков: падение интеграции = warn, не fatal).
+                # Post-mount actions are best-effort: the volume is ALREADY mounted, so a
+                # sidecar/ACL write error or a hook failure must NOT turn a successful open into a
+                # failure (mirror of the hook policy: an integration failure = warn, not fatal).
                 try {
                     $mountRoot = "$($letter):\"
                     Write-StVaultMount -VaultPath $vaultPath -Mount $mountRoot
@@ -1122,7 +1122,7 @@ function Invoke-StVault {
                 } catch {
                     Write-StWarn (T 'vault_hook_failed' 'post-open')
                 }
-                # Reveal — после хука и независимо от его исхода (зеркало macOS-порядка).
+                # Reveal — after the hook and regardless of its outcome (mirror of the macOS order).
                 Show-StVaultInExplorer -Mount "$($letter):\"
             } else {
                 Write-StErr (T 'vault_unavailable'); Stop-StCommand
@@ -1133,12 +1133,12 @@ function Invoke-StVault {
             if ($backend -eq 'veracrypt') {
                 Write-StWarn (T 'vault_vc_manual'); Stop-StCommand
             }
-            # Реальный том читаем ДО размонтирования (после detach буква исчезает).
+            # Read the real volume BEFORE unmounting (after detach the letter disappears).
             $mount = Read-StVaultMount -VaultPath $vaultPath
             try {
                 Dismount-StVault -Path $vaultPath
                 Write-StInfo (T 'vault_closed')
-                # post-close хук + очистка mount-sidecar (только после успешного detach).
+                # post-close hook + mount-sidecar cleanup (only after a successful detach).
                 if ($mount) { Invoke-StVaultHook -Event 'post-close' -Mount $mount }
                 Remove-StVaultMount -VaultPath $vaultPath
             } catch {
@@ -1146,8 +1146,8 @@ function Invoke-StVault {
             }
         }
         'destroy' {
-            # Проверяем ДО confirm-промпта: не спрашивать про несуществующий/чужой путь
-            # (зеркало bash _vault_assert_destroyable).
+            # Checked BEFORE the confirm prompt: don't ask about a nonexistent/foreign path
+            # (mirror of bash _vault_assert_destroyable).
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container' $vaultPath); Stop-StCommand }
             if (-not (Test-StVaultContainer -Path $vaultPath)) { Write-StErr (T 'vault_bad_container' $vaultPath); Stop-StCommand }
             if (-not (Confirm-StAction (T 'vault_destroy_confirm' $vaultPath))) {
@@ -1156,12 +1156,12 @@ function Invoke-StVault {
             Invoke-StVaultDestroyNow
         }
         'reset' {
-            # «Очистить сейф, сам сейф оставить» с РЕАЛЬНОЙ гарантией: in-place перезапись
-            # — best-effort (тот же ключ продолжает расшифровывать остаточные блоки). Честный
-            # путь — crypto-shred контейнера (выкинуть ключ) + создать новый пустой (новый ключ
-            # → старое мертво). Один confirm на всю операцию.
-            # Размер валидируем ДО destroy: опечатка в размере не должна успеть уничтожить
-            # старый сейф (зеркало bash, AUDIT_2026-07-03 P2-2 / AUDIT_2026-08-03 P0-1).
+            # "Clear the vault, keep the vault itself" with a REAL guarantee: in-place overwrite
+            # is best-effort (the same key keeps decrypting the residual blocks). The honest
+            # way is a crypto-shred of the container (throw away the key) + create a new empty one
+            # (new key → the old is dead). One confirm for the whole operation.
+            # The size is validated BEFORE destroy: a typo in the size must not get to destroy
+            # the old vault (mirror of bash, AUDIT_2026-07-03 P2-2 / AUDIT_2026-08-03 P0-1).
             $resetSize = if ($VaultArgs.Count -ge 2) { $VaultArgs[1] } else { '1024' }
             Assert-StValidSize -Size $resetSize
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container' $vaultPath); Stop-StCommand }
@@ -1169,19 +1169,19 @@ function Invoke-StVault {
             if (-not (Confirm-StAction (T 'vault_reset_confirm' $vaultPath))) {
                 Write-StWarn (T 'cancelled'); Stop-StCommand
             }
-            # Между «старого сейфа уже нет» и «новый готов» не должно быть окна: раньше
-            # destroy шёл первым, и падение create (нет места, отказ diskpart/BitLocker,
-            # отмена на промпте пароля) оставляло пользователя вообще без сейфа. Теперь
-            # старый контейнер отставляется в <vault>.old, новый создаётся на штатном
-            # месте, и только после успеха старый крипто-шредится. Зеркало bash.
+            # There must be no window between "the old vault is gone" and "the new one is
+            # ready": destroy used to go first, and a create failure (no space, diskpart/BitLocker
+            # refusal, cancel at the password prompt) left the user with no vault at all. Now
+            # the old container is set aside to <vault>.old, the new one is created in the
+            # regular place, and only after success is the old one crypto-shredded. Mirror of bash.
             $aside = Get-StAsidePath $vaultPath
-            # Уцелевший .old — прерванный reset или ручной бэкап пользователя. Молча
-            # снести его = уничтожить единственную копию данных. Отказываемся.
+            # A surviving .old is an interrupted reset or the user's manual backup. Silently
+            # razing it = destroying the only copy of the data. We refuse.
             if (Test-StAsidePresent -VaultPath $vaultPath) { Write-StErr (T 'vault_aside_exists' $aside); Stop-StCommand }
-            Assert-StVaultUnmounted -VaultPath $vaultPath   # переименовать можно только отцепленный vhdx
+            Assert-StVaultUnmounted -VaultPath $vaultPath   # only a detached vhdx may be renamed
             Move-StVaultAside -VaultPath $vaultPath
-            # finally, а не catch: откат обязан отработать и при отмене/StExit изнутри
-            # create, и исходная ошибка при этом не должна быть проглочена.
+            # finally, not catch: the rollback must run even on a cancel/StExit from inside
+            # create, and the original error must not be swallowed in the process.
             $stCreated = $false
             try {
                 Invoke-StVaultCreateNow -Size $resetSize
@@ -1196,13 +1196,13 @@ function Invoke-StVault {
                     }
                 }
             }
-            # Пока шёл create, том мог быть смонтирован из .old — шредить вслепую
-            # нельзя, это снесло бы backing store живого расшифрованного тома (зеркало bash).
+            # While create was running, a volume may have been mounted from .old — shredding
+            # blindly is forbidden, it would raze the backing store of a live decrypted volume (mirror of bash).
             if ((Get-StVaultState -Path $aside) -ne 'unmounted') {
                 Write-StErr (T 'vault_aside_busy' $aside); Stop-StCommand
             }
-            # Старый контейнер уничтожаем только теперь. Провал здесь — не мелочь:
-            # рядом с новым сейфом остаётся копия, расшифровываемая старым паролем.
+            # Only now is the old container destroyed. A failure here is no small thing:
+            # a copy decryptable with the old password remains next to the new vault.
             try {
                 Remove-StVaultContainer -Path $aside
             } catch {
@@ -1213,9 +1213,9 @@ function Invoke-StVault {
             Write-StInfo (T 'vault_reset_done')
         }
         'destroy-old' {
-            # Штатный способ убрать контейнер, отставленный прерванным reset.
-            # Отдельная команда, а не часть destroy: цели разные, и смешивать их
-            # в одном подтверждении — прямой путь к промаху.
+            # The official way to remove a container set aside by an interrupted reset.
+            # A separate command, not part of destroy: the targets differ, and mixing them
+            # in one confirmation is a straight road to a miss.
             $oldPath = Get-StAsidePath $vaultPath
             if (-not (Test-StAsidePresent -VaultPath $vaultPath)) {
                 Write-StErr (T 'vault_old_none' $oldPath); Stop-StCommand
@@ -1223,16 +1223,16 @@ function Invoke-StVault {
             if (-not (Test-StVaultContainer -Path $oldPath)) {
                 Write-StErr (T 'vault_bad_container' $oldPath); Stop-StCommand
             }
-            # Ранняя проверка — чтобы не спрашивать про заведомо занятый том.
+            # Early check — so we don't ask about a volume known to be busy.
             if ((Get-StVaultState -Path $oldPath) -ne 'unmounted') {
                 Write-StErr (T 'vault_aside_busy' $oldPath); Stop-StCommand
             }
             if (-not (Confirm-StAction (T 'vault_old_confirm' $oldPath))) {
                 Write-StWarn (T 'cancelled'); Stop-StCommand
             }
-            # И ПОВТОРНО перед удалением: подтверждение ждёт ввода сколько угодно,
-            # за это время контейнер можно смонтировать. Backing store живого
-            # расшифрованного тома сносить нельзя.
+            # And AGAIN before the deletion: the confirmation waits for input indefinitely,
+            # and in that time the container can be mounted. The backing store of a live
+            # decrypted volume must not be razed.
             if ((Get-StVaultState -Path $oldPath) -ne 'unmounted') {
                 Write-StErr (T 'vault_aside_busy' $oldPath); Stop-StCommand
             }
@@ -1240,17 +1240,17 @@ function Invoke-StVault {
             Write-StInfo (T 'vault_old_destroyed' $oldPath)
         }
         'status' {
-            # Только чтение: есть ли контейнер и смонтирован ли он. Зеркало bash `vault status`
-            # (нет контейнера → ошибка и ненулевой код; иначе OPEN/CLOSED).
+            # Read-only: does the container exist and is it mounted. Mirror of bash `vault status`
+            # (no container → error and a non-zero code; otherwise OPEN/CLOSED).
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container' $vaultPath); Stop-StCommand }
             $state = Get-StVaultState -Path $vaultPath
-            # 'unknown' (нет Storage-модуля, Get-DiskImage упал) — НЕ то же самое, что «закрыт».
-            # Сказать «ЗАКРЫТ», не сумев проверить, значит соврать в успокаивающую сторону.
-            # Расхождение с bash намеренное: у hdiutil такого режима отказа нет.
+            # 'unknown' (no Storage module, Get-DiskImage failed) is NOT the same as "closed".
+            # Saying "CLOSED" without having been able to check means lying in the reassuring direction.
+            # The divergence from bash is deliberate: hdiutil has no such failure mode.
             if ($state -eq 'unknown') {
                 Write-StWarn (T 'vault_status_unknown' $vaultPath)
             } elseif ($state -eq 'mounted') {
-                # Реальный том, а не догадка: буква выбирается динамически при open.
+                # The real volume, not a guess: the letter is picked dynamically at open.
                 $mount = Get-StMountedVaultRoot -Path $vaultPath
                 if (-not $mount) { $mount = Read-StVaultMount -VaultPath $vaultPath }
                 if (-not $mount) { $mount = $vaultPath }
@@ -1269,11 +1269,11 @@ function Show-StUsage {
     Write-Output (T 'usage')
 }
 
-# Диспетчер подкоманд. Команды кидают StExit при ошибке — ловим и делаем exit.
+# Subcommand dispatcher. Commands throw StExit on error — we catch and exit.
 function Invoke-Main {
     param([string[]]$Argv)
     try {
-        # #14: --yes — глобальный флаг подтверждения. Вырезаем из args, ставим script-scope.
+        # #14: --yes is the global confirmation flag. Cut it from args, set script scope.
         $script:ST_ASSUME_YES_FLAG = $false
         if ($Argv -and ($Argv -contains '--yes')) {
             $script:ST_ASSUME_YES_FLAG = $true
@@ -1281,12 +1281,12 @@ function Invoke-Main {
         }
         $cmd = if ($Argv -and $Argv.Count -ge 1) { $Argv[0] } else { '' }
         if (-not $cmd) { Show-StUsage; exit 1 }
-        # Внешний @() обязателен: if как выражение разворачивает одноэлементный
-        # массив в скаляр-строку, и индексация дала бы первый СИМВОЛ, не аргумент.
+        # The outer @() is mandatory: if-as-expression unwraps a one-element
+        # array into a scalar string, and indexing would yield the first CHARACTER, not the argument.
         $rest = @(if ($Argv.Count -ge 2) { $Argv[1..($Argv.Count - 1)] } else { @() })
 
-        # Алиасы -v/--version/-h/--help — паритет с bash: пользователь, пришедший из
-        # macOS-версии или просто из привычки, не должен получать «Unknown command».
+        # Aliases -v/--version/-h/--help — parity with bash: a user coming from the
+        # macOS version or plain habit must not get "Unknown command".
         switch ($cmd) {
             { $_ -in @('version', '-v', '--version') } { Invoke-StVersion; break }
             { $_ -in @('help', '-h', '--help') }       { Show-StUsage; break }
@@ -1307,8 +1307,8 @@ function Invoke-Main {
 }
 
 # --- dot-source guard ---
-# При dot-source ($MyInvocation.InvocationName -eq '.') или ST_NO_MAIN=1 диспетчер
-# НЕ запускается — определяются только функции (нужно для Pester).
+# On dot-source ($MyInvocation.InvocationName -eq '.') or ST_NO_MAIN=1 the dispatcher
+# does NOT run — only the functions are defined (needed for Pester).
 if ($MyInvocation.InvocationName -ne '.' -and -not $env:ST_NO_MAIN) {
     Invoke-Main -Argv $args
 }

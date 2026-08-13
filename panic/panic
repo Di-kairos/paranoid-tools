@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# panic — kill-switch на один шаг (экосистема Paranoid Tools).
+# panic — one-step kill-switch (Paranoid Tools ecosystem).
 #
-# Сценарий: граница / принуждение / «кто-то идёт». Одной командой `panic now`
-# прячет и запирает: закрывает открытые vault'ы securetrash, размонтирует тома,
-# чистит буфер обмена и блокирует экран. Удобно повесить на хоткей через launchd.
+# Scenario: border crossing / coercion / "someone is coming". A single `panic now`
+# hides and locks: closes open securetrash vaults, detaches volumes, clears the
+# clipboard and locks the screen. Handy to bind to a hotkey via launchd.
 #
-# ЧЕСТНО: panic ПРЯЧЕТ и ЗАПИРАЕТ, но НЕ уничтожает и НЕ чистит swap (для
-# уничтожения — securetrash). `detach -force` при открытых файлах может повредить
-# данные — осознанный trade-off режима паники (спрятать важнее). Полное ядро —
-# в следующих паках; см. README «Scope & limitations».
+# HONESTLY: panic HIDES and LOCKS, but does NOT destroy and does NOT wipe swap (for
+# destruction — securetrash). `detach -force` with open files may corrupt data —
+# a deliberate panic-mode trade-off (hiding matters more). The full core comes in
+# later packs; see README "Scope & limitations".
 set -euo pipefail
 
 VERSION="0.1.15"
 
-# Локер экрана. Метод 1 — CGSession -suspend (login-window switch, не зависит от настройки
-# «требовать пароль»); бандл Menu Extras удалён в свежих macOS (≥12), поэтому это лишь legacy-путь.
-# Метод 2 (fallback) — Ctrl+Cmd+Q через osascript (современный macOS; нужен Accessibility-доступ
-# хост-приложению). Оба переопределяемы для тестов. _lock_screen честно возвращает статус.
+# Screen locker. Method 1 — CGSession -suspend (login-window switch, independent of the
+# "require password" setting); the Menu Extras bundle is gone in recent macOS (≥12), so this is legacy-only.
+# Method 2 (fallback) — Ctrl+Cmd+Q via osascript (modern macOS; the host app needs
+# Accessibility access). Both overridable for tests. _lock_screen honestly returns its status.
 PANIC_CGSESSION="${PANIC_CGSESSION:-/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession}"
 PANIC_OSASCRIPT="${PANIC_OSASCRIPT:-/usr/bin/osascript}"
 
-# Каталог shared file lists (Recent items). Переопределяемо для тестов.
+# Shared file lists directory (Recent items). Overridable for tests.
 PANIC_SFL_DIR="${PANIC_SFL_DIR:-${HOME}/Library/Application Support/com.apple.sharedfilelist}"
 
-# Cloud-демоны, которых --hard прибивает (точные имена процессов для pkill -x).
+# Cloud daemons that --hard kills (exact process names for pkill -x).
 PANIC_CLOUD_DAEMONS=(Dropbox OneDrive bird "Google Drive")
 
-# Глобальный хоткей (`panic hotkey`): чистый Bash глобальный хоткей на macOS невозможен —
-# нужен резидентный слушатель с правом Accessibility. Используем skhd (крошечный hotkey-демон).
-# Конфиг и комбинация по умолчанию переопределяемы (тесты/иной combo).
+# Global hotkey (`panic hotkey`): a pure-Bash global hotkey is impossible on macOS —
+# it takes a resident listener with the Accessibility right. We use skhd (a tiny hotkey daemon).
+# The config and the default combo are overridable (tests / a different combo).
 SKHD_CONFIG="${SKHD_CONFIG:-${HOME}/.config/skhd/skhdrc}"
 PANIC_HOTKEY_COMBO="${PANIC_HOTKEY_COMBO:-cmd + alt - p}"
 PANIC_HK_BEGIN="# === BEGIN panic hotkey (managed by panic) ==="
@@ -198,10 +198,10 @@ if [[ -z "${_ST_COMMON_LOADED:-}" ]]; then
 fi
 # === END vendored common ===
 
-# --- i18n (таблица строк panic; общие примитивы — в vendored common) ---
+# --- i18n (panic string table; shared primitives live in the vendored common) ---
 t() {
   local key="$1"; shift
-  # Все строки ниже — литеральный display-текст; бэктики в них не подстановка команды.
+  # All strings below are literal display text; backticks in them are not command substitution.
   # shellcheck disable=SC2016
   case "$ST_LOCALE:$key" in
     en:usage)
@@ -290,23 +290,23 @@ EOF
 
 usage() { t usage; }
 
-# Точки монтирования смонтированных disk image'ов под /Volumes (vault'ы, dmg).
-# Парсим `hdiutil info`: dev-строки TAB-разделены → mountpoint (3-е поле) корректен
-# даже с пробелами. Фильтр /Volumes/ исключает system-образы (монтируются вне /Volumes).
+# Mount points of mounted disk images under /Volumes (vaults, dmg).
+# We parse `hdiutil info`: dev lines are TAB-separated → the mountpoint (3rd field) is correct
+# even with spaces. The /Volumes/ filter excludes system images (mounted outside /Volumes).
 _mounted_images() {
   hdiutil info 2>/dev/null | awk -F'\t' '/^\/dev\/disk/ && $3 ~ /^\/Volumes\// {print $3}'
 }
 
-# Блокировка экрана через настраиваемый локер.
-# Заблокировать экран. Возвращает 0 ТОЛЬКО если блокировка реально инициирована — иначе
-# cmd_now честно сообщит, что экран НЕ заперт (а не соврёт «locked screen», как раньше при
-# молча падавшем CGSession на современных macOS). Методы по убыванию надёжности.
+# Screen lock via the configurable locker.
+# Lock the screen. Returns 0 ONLY if the lock was actually initiated — otherwise
+# cmd_now honestly reports the screen is NOT locked (instead of lying "locked screen", as it
+# used to when CGSession failed silently on modern macOS). Methods in decreasing reliability.
 _lock_screen() {
   if [[ -x "$PANIC_CGSESSION" ]] && "$PANIC_CGSESSION" -suspend >/dev/null 2>&1; then
     return 0
   fi
-  # Ctrl+Cmd+Q — системный лок на современном macOS. Без Accessibility-доступа osascript
-  # вернёт ошибку → честно НЕ считаем за успех.
+  # Ctrl+Cmd+Q is the system lock on modern macOS. Without Accessibility access osascript
+  # returns an error → honestly NOT counted as success.
   if [[ -x "$PANIC_OSASCRIPT" ]] && \
      "$PANIC_OSASCRIPT" -e 'tell application "System Events" to keystroke "q" using {control down, command down}' >/dev/null 2>&1; then
     return 0
@@ -314,7 +314,7 @@ _lock_screen() {
   return 1
 }
 
-# --hard: прибить известные cloud-демоны (best-effort, отсутствие процесса — не ошибка).
+# --hard: kill known cloud daemons (best-effort, a missing process is not an error).
 _kill_cloud_daemons() {
   local d
   for d in "${PANIC_CLOUD_DAEMONS[@]}"; do
@@ -322,15 +322,15 @@ _kill_cloud_daemons() {
   done
 }
 
-# --hard: почистить Recent items (shared file lists). ЧЕСТНО: покрывает глобальные
-# списки в PANIC_SFL_DIR; per-app «недавние» внутри приложений этим не стираются.
+# --hard: clear Recent items (shared file lists). HONESTLY: covers the global
+# lists in PANIC_SFL_DIR; per-app "recents" inside applications are not erased by this.
 _clear_recent_items() {
   rm -f "$PANIC_SFL_DIR"/*.sfl* 2>/dev/null || true
 }
 
-# Kill-switch: спрятать и запереть. БЕЗ confirm — это режим паники (скорость важнее);
-# защита от случайного запуска — явный verb `now`. detach -force при открытых файлах
-# может повредить данные: осознанный trade-off (см. README «Scope & limitations»).
+# Kill-switch: hide and lock. NO confirm — this is panic mode (speed matters more);
+# the guard against accidental runs is the explicit `now` verb. detach -force with open
+# files may corrupt data: a deliberate trade-off (see README "Scope & limitations").
 cmd_now() {
   require_macos
   local hard=0 a
@@ -338,7 +338,7 @@ cmd_now() {
     case "$a" in --hard) hard=1 ;; esac
   done
 
-  # 1. Размонтировать все смонтированные disk image'ы (force — паника важнее открытых файлов).
+  # 1. Detach all mounted disk images (force — panic outranks open files).
   local n=0 mp
   while IFS= read -r mp; do
     [[ -n "$mp" ]] || continue
@@ -349,21 +349,21 @@ cmd_now() {
     fi
   done < <(_mounted_images)
 
-  # 2. Очистить буфер обмена. 3. Заблокировать экран (статус — для честного отчёта).
+  # 2. Clear the clipboard. 3. Lock the screen (status kept for an honest report).
   pbcopy </dev/null >/dev/null 2>&1 || true
   local locked=0
   if _lock_screen; then locked=1; fi
 
-  # 4. --hard: прибить cloud-демоны + почистить Recent items.
+  # 4. --hard: kill cloud daemons + clear Recent items.
   if [[ "$hard" == "1" ]]; then
     _kill_cloud_daemons
     _clear_recent_items
   fi
 
-  # Пост-отчёт — best-effort: под `set -euo pipefail` многострочный вывод в закрытый pipe
-  # (`panic now | head -n1`) даёт SIGPIPE→141, хотя паника уже отработала. Отчёт не должен
-  # ронять exit-код успешной паники: `trap '' PIPE` гасит сигнал (echo вернёт EPIPE, а не
-  # умрёт), а `|| true` страхует от set -e на этом возврате. Это последнее действие cmd_now.
+  # The post-report is best-effort: under `set -euo pipefail`, multi-line output into a closed
+  # pipe (`panic now | head -n1`) yields SIGPIPE→141 even though the panic already ran. The report
+  # must not sink the exit code of a successful panic: `trap '' PIPE` mutes the signal (echo returns
+  # EPIPE instead of dying), and `|| true` guards against set -e on that return. This is cmd_now's last action.
   trap '' PIPE
   info "$(t now_report "$n")" || true
   if [[ "$locked" == "1" ]]; then info "$(t lock_ok)" || true; else warn "$(t lock_fail)" || true; fi
@@ -374,7 +374,7 @@ cmd_status() {
   require_macos
   info "$(t status_header)"
 
-  # Смонтированные disk image'ы (vault'ы, dmg) — `panic now` размонтирует их.
+  # Mounted disk images (vaults, dmg) — `panic now` would detach them.
   local images=() mp
   while IFS= read -r mp; do
     [[ -n "$mp" ]] && images+=("$mp")
@@ -386,10 +386,10 @@ cmd_status() {
     info "$(t status_no_images)"
   fi
 
-  # Буфер обмена — best-effort. Под `set -euo pipefail` упавший `pbpaste` (headless / нет
-  # pasteboard-сессии) вернул бы non-zero и оборвал бы read-only статус с кодом 1. Изолируем
-  # именно отказ pbpaste через `|| pb_ok=0` (а НЕ всю pipeline — иначе сломанный wc/tr тоже
-  # молча дал бы «неизвестно»); непустоту проверяем прямо `[[ -n ]]`, без подсчёта байт.
+  # Clipboard — best-effort. Under `set -euo pipefail` a failing `pbpaste` (headless / no
+  # pasteboard session) would return non-zero and abort the read-only status with code 1. We isolate
+  # exactly the pbpaste failure via `|| pb_ok=0` (NOT the whole pipeline — otherwise a broken wc/tr
+  # would silently yield "unknown" too); non-emptiness is checked directly with `[[ -n ]]`, no byte counting.
   local clip="" pb_ok=1
   clip="$(pbpaste 2>/dev/null)" || pb_ok=0
   if [[ "$pb_ok" == "0" ]]; then
@@ -400,14 +400,14 @@ cmd_status() {
     info "$(t status_clip_empty)"
   fi
 
-  # FileVault — честный контекст.
+  # FileVault — honest context.
   if filevault_on; then
     info "$(t status_fv_on)"
   else
     warn "$(t status_fv_off)"
   fi
 
-  # Cloud-демоны (--hard убьёт).
+  # Cloud daemons (--hard would kill them).
   local d
   for d in "${PANIC_CLOUD_DAEMONS[@]}"; do
     if pgrep -x "$d" >/dev/null 2>&1; then
@@ -416,29 +416,29 @@ cmd_status() {
   done
 }
 
-# Убрать managed-блок panic из skhd-конфига (чужие строки не трогаем). awk сравнивает
-# строки литерально — без возни с экранированием спецсимволов в маркерах.
+# Remove panic's managed block from the skhd config (foreign lines untouched). awk compares
+# lines literally — no fuss escaping special characters in the markers.
 _hotkey_strip() {
   [[ -f "$SKHD_CONFIG" ]] || return 0
   local tmp; tmp="$(mktemp)" || return 1
-  # Удаляем ТОЛЬКО полные managed-блоки (begin..end). Незакрытый блок (повреждённый
-  # конфиг) НЕ режем до конца файла — буферизуем и возвращаем, чтобы не снести чужие строки.
+  # We delete ONLY complete managed blocks (begin..end). An unclosed block (corrupted
+  # config) is NOT cut to end-of-file — we buffer and put it back, so foreign lines are not wiped.
   awk -v b="$PANIC_HK_BEGIN" -v e="$PANIC_HK_END" '
     $0==b && !inblock { inblock=1; buf=$0 ORS; next }
     inblock { buf=buf $0 ORS; if ($0==e) { inblock=0; buf="" } next }
     { print }
     END { if (inblock) printf "%s", buf }
   ' "$SKHD_CONFIG" > "$tmp" || { rm -f "$tmp"; return 1; }
-  # Содержимое переливаем в существующий файл, а не подменяем его через mv: mv принёс бы
-  # права mktemp (600) и владельца текущего пользователя на чужой skhdrc. Копию чужого
-  # конфига убираем сразу — оставлять её в TMPDIR незачем (trap RETURN тут не годится:
-  # в bash он глобальный и сработал бы на возврате любой другой функции).
+  # We pour the content into the existing file rather than swap it via mv: mv would bring
+  # mktemp's permissions (600) and the current user's ownership onto someone else's skhdrc. The
+  # copy of the foreign config is removed right away — no reason to leave it in TMPDIR (trap RETURN
+  # is no good here: in bash it is global and would fire on the return of any other function).
   cat "$tmp" > "$SKHD_CONFIG"
   rm -f "$tmp"
 }
 
-# (Пере)запустить skhd-сервис best-effort: для уже установленного сервиса хватает restart;
-# на чистой системе — install + start. Ошибки не валят команду (skhd может требовать прав).
+# (Re)start the skhd service best-effort: for an already installed service restart suffices;
+# on a clean system — install + start. Errors do not fail the command (skhd may require rights).
 _hotkey_reload() {
   command -v skhd >/dev/null 2>&1 || return 0
   skhd --restart-service >/dev/null 2>&1 && return 0
@@ -446,8 +446,8 @@ _hotkey_reload() {
   skhd --start-service   >/dev/null 2>&1 || true
 }
 
-# Глобальный хоткей паники через skhd. Лаунчер хоткея только дёргает `panic now` —
-# секретов не трогает. Конфиг-блок managed, не затирает чужие биндинги skhd.
+# Global panic hotkey via skhd. The hotkey launcher only invokes `panic now` —
+# it touches no secrets. The config block is managed and does not clobber foreign skhd bindings.
 cmd_hotkey() {
   require_macos
   local sub="${1:-status}"; shift || true
@@ -455,20 +455,20 @@ cmd_hotkey() {
     install)
       command -v skhd >/dev/null 2>&1 || { err "$(t hk_no_skhd)"; exit 1; }
       local combo="${1:-$PANIC_HOTKEY_COMBO}"
-      # combo не должен содержать ':' (разделитель skhd) или перевод строки — иначе можно
-      # инжектить лишние строки/биндинги в skhdrc.
+      # The combo must not contain ':' (skhd's separator) or a newline — otherwise extra
+      # lines/bindings could be injected into skhdrc.
       if [[ "$combo" == *:* || "$combo" == *$'\n'* ]]; then err "$(t hk_bad_combo)"; exit 1; fi
       local self; self="$(_abspath "${BASH_SOURCE[0]}")"
       mkdir -p "$(dirname "$SKHD_CONFIG")"
       _hotkey_strip
-      # Разделитель считаем ДО открытия редиректа (иначе shellcheck SC2094: read+write).
+      # Compute the separator BEFORE opening the redirect (otherwise shellcheck SC2094: read+write).
       local sep=""
       [[ -s "$SKHD_CONFIG" ]] && sep=$'\n'
       {
         printf '%s' "$sep"
         printf '%s\n' "$PANIC_HK_BEGIN"
-        # Путь закавычен: установка идёт из путей с пробелами (напр. /Volumes/X10 Pro/...);
-        # без кавычек skhd разорвал бы команду по пробелу.
+        # The path is quoted: installs happen from paths with spaces (e.g. /Volumes/X10 Pro/...);
+        # without quotes skhd would split the command on the space.
         printf '%s : "%s" now\n' "$combo" "$self"
         printf '%s\n' "$PANIC_HK_END"
       } >> "$SKHD_CONFIG"

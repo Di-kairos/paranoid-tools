@@ -1,28 +1,29 @@
-﻿# vaultwatch.ps1 — честный сторож открытого vault (Paranoid Tools), Windows-порт (BETA).
-# Зеркало macOS-версии (bash). Требует PowerShell 7+ (pwsh): TTL-таск и хуки зовут pwsh.exe,
-# под Windows PowerShell 5.1 не работают — старт fail-closed (см. Assert-VwPs7).
+﻿# vaultwatch.ps1 — an honest guard for an open vault (Paranoid Tools), Windows port (BETA).
+# Mirror of the macOS version (bash). Requires PowerShell 7+ (pwsh): the TTL task and hooks
+# call pwsh.exe and do not work under Windows PowerShell 5.1 — startup is fail-closed (see Assert-VwPs7).
 #
-# Активен ТОЛЬКО пока vault примонтирован: сужает каналы утечки открытого plaintext и
-# восстанавливает всё при закрытии. Стартует/гаснет из хуков securetrash vault open/close.
+# Active ONLY while the vault is mounted: narrows the leak channels for open plaintext and
+# restores everything on close. Started/stopped by the securetrash vault open/close hooks.
 #
-# Маппинг macOS → Windows (см. README «What maps to what»):
-#   - Spotlight off (mdutil)      → исключение из Windows Search через атрибут каталога
-#                                    NotContentIndexed (обратимо; на stop снимаем, если ставили мы).
-#   - --ttl авто-detach (launchd) → одноразовая задача Task Scheduler (Register-ScheduledTask),
-#                                    по истечении вызывает `vaultwatch _ttl_fire <mount>`.
-#   - cloud-чек (pgrep+папки)     → Get-Process (OneDrive/Dropbox/GoogleDriveFS) + эвристика папок.
-#   - Time Machine / снапшоты     → ЧЕСТНО: Windows не даёт чисто исключить backup из CLI. Поэтому
-#                                    активного исключения НЕ делаем — РЕПОРТИМ существующие
-#                                    VSS shadow copies (vssadmin), которые могли захватить plaintext.
+# macOS → Windows mapping (see README "What maps to what"):
+#   - Spotlight off (mdutil)      → exclusion from Windows Search via the directory attribute
+#                                    NotContentIndexed (reversible; removed on stop if we set it).
+#   - --ttl auto-detach (launchd) → a one-shot Task Scheduler task (Register-ScheduledTask),
+#                                    on expiry it calls `vaultwatch _ttl_fire <mount>`.
+#   - cloud check (pgrep+folders) → Get-Process (OneDrive/Dropbox/GoogleDriveFS) + folder heuristic.
+#   - Time Machine / snapshots    → HONEST: Windows offers no clean CLI way to exclude a backup. So
+#                                    we make NO active exclusion — we REPORT existing
+#                                    VSS shadow copies (vssadmin) that may have captured plaintext.
 #   - FileVault                   → BitLocker (Get-BitLockerVolume).
 #
-# ЧЕСТНО: vaultwatch НЕ чистит pagefile (swap) и НЕ телепортирует данные из облаков — делает
-# обратимые исключения на время сессии и честно отчитывается о пределах. BETA: логика покрыта
-# Pester (системные эффекты мокаются); поведение на реальном железе широко не обкатано.
+# HONEST: vaultwatch does NOT wipe the pagefile (swap) and does NOT teleport data out of clouds —
+# it makes reversible exclusions for the duration of the session and honestly reports its limits.
+# BETA: the logic is covered by Pester (system effects are mocked); behavior on real hardware has
+# not been widely field-tested.
 
 $VERSION = '0.1.14'
 
-# --- настраиваемые пути (зеркало bash VW_*/ST_HOOK_DIR; переопределяемы в тестах) ---
+# --- configurable paths (mirror of bash VW_*/ST_HOOK_DIR; overridable in tests) ---
 $script:VW_STATE_DIR = if ($env:VW_STATE_DIR) { $env:VW_STATE_DIR } else {
     Join-Path $env:USERPROFILE '.vaultwatch\sessions'
 }
@@ -31,7 +32,7 @@ $script:ST_HOOK_DIR = if ($env:ST_HOOK_DIR) { $env:ST_HOOK_DIR } else {
 }
 $script:VW_HOOK_SIGNATURE = '# managed-by: vaultwatch'
 
-# Известные cloud-демоны: имя процесса | метка | папки (через ';').
+# Known cloud daemons: process name | label | folders (';'-separated).
 $script:VW_CLOUD_TABLE = @(
     @{ Proc = 'OneDrive';      Label = 'OneDrive';      Folders = @($env:OneDrive, (Join-Path $env:USERPROFILE 'OneDrive')) }
     @{ Proc = 'Dropbox';       Label = 'Dropbox';       Folders = @((Join-Path $env:USERPROFILE 'Dropbox')) }
@@ -52,7 +53,7 @@ function Write-VwInfo { param([string]$Msg) Write-Output "[+] $Msg" }
 function Write-VwWarn { param([string]$Msg) [Console]::Error.WriteLine("[!] $Msg") }
 function Write-VwErr  { param([string]$Msg) [Console]::Error.WriteLine("[x] $Msg") }
 
-# --- exit через исключение (Pester-safe) ---
+# --- exit via an exception (Pester-safe) ---
 class VwExit : System.Exception {
     [int]$Code
     VwExit([int]$code) : base("VwExit:$code") { $this.Code = $code }
@@ -67,7 +68,7 @@ function Confirm-Vw {
     return ((Read-Host "$Prompt $suffix") -eq 'yes')
 }
 
-# --- i18n (зеркало bash t(), Windows-адаптация) ---
+# --- i18n (mirror of bash t(), Windows adaptation) ---
 function T {
     param([string]$Key, [string]$A)
     switch ("$($script:VW_LOCALE):$Key") {
@@ -187,9 +188,9 @@ start/stop are normally invoked by the securetrash vault open/close hooks.
 '@
 }
 
-# === системные примитивы (обёртки — мокаются в Pester) ===
+# === system primitives (wrappers — mocked in Pester) ===
 
-# Состояние индексации каталога: 'enabled' (индексируется) | 'disabled' (NotContentIndexed) | 'unknown'.
+# Directory indexing state: 'enabled' (indexed) | 'disabled' (NotContentIndexed) | 'unknown'.
 function Get-VwSearchState {
     param([string]$Path)
     try {
@@ -199,7 +200,7 @@ function Get-VwSearchState {
     } catch { return 'unknown' }
 }
 
-# Исключить каталог из Windows Search (выставить NotContentIndexed). Best-effort.
+# Exclude a directory from Windows Search (set NotContentIndexed). Best-effort.
 function Disable-VwSearchIndex {
     param([string]$Path)
     try {
@@ -208,7 +209,7 @@ function Disable-VwSearchIndex {
     } catch { }
 }
 
-# Вернуть индексацию каталога (снять NotContentIndexed). Возвращает $true при успехе.
+# Bring back directory indexing (clear NotContentIndexed). Returns $true on success.
 function Enable-VwSearchIndex {
     param([string]$Path)
     try {
@@ -218,7 +219,7 @@ function Enable-VwSearchIndex {
     } catch { return $false }
 }
 
-# Число существующих VSS shadow copies (честный аналог tmutil listlocalsnapshots). Best-effort.
+# Count of existing VSS shadow copies (honest analog of tmutil listlocalsnapshots). Best-effort.
 function Get-VwShadowCount {
     try {
         $out = & vssadmin list shadows 2>$null
@@ -227,7 +228,7 @@ function Get-VwShadowCount {
     } catch { return 0 }
 }
 
-# Cloud-детект: вернуть массив @{ Sev='ok'|'warn'; Text=... } по активным демонам.
+# Cloud detection: return an array of @{ Sev='ok'|'warn'; Text=... } for active daemons.
 function Get-VwCloudLines {
     param([string]$Mount)
     $lines = @()
@@ -247,15 +248,15 @@ function Get-VwCloudLines {
     return $lines
 }
 
-# Аргумент для командной строки Windows: хвостовые обратные слэши перед закрывающей кавычкой
-# экранируют её (CommandLineToArgvW), поэтому путь тома вида 'V:\' превращался в 'V:"' и задача
-# получала битый аргумент. Удваиваем только хвостовые слэши — внутри пути они не экранируют ничего.
+# Argument for a Windows command line: trailing backslashes before the closing quote escape
+# it (CommandLineToArgvW), so a volume path like 'V:\' turned into 'V:"' and the task got a
+# broken argument. Only trailing backslashes are doubled — inside the path they escape nothing.
 function ConvertTo-VwArgvSafe {
     param([string]$Value)
     return ($Value -replace '(\\+)$', '$1$1')
 }
 
-# Зарегистрировать одноразовую задачу авто-выхода. Возвращает label (или '' при провале).
+# Register the one-shot auto-exit task. Returns the label (or '' on failure).
 function Register-VwTtlTask {
     param([string]$Mount, [int]$Seconds, [string]$Self)
     $label = 'vaultwatch-ttl-' + (($Mount -replace '[^a-zA-Z0-9]', '_'))
@@ -271,36 +272,37 @@ function Register-VwTtlTask {
     }
 }
 
-# Снять задачу авто-выхода (идемпотентно).
+# Remove the auto-exit task (idempotent).
 function Unregister-VwTtlTask {
     param([string]$Label)
     if (-not $Label) { return }
     try { Unregister-ScheduledTask -TaskName $Label -Confirm:$false -ErrorAction Stop } catch { }
 }
 
-# --- unmount-guard: авто-restore Search-exclusion, если том исчезает мимо `vaultwatch stop` ---
-# Зачем: eject VHDX через Explorer (или detach в обход securetrash post-close hook) оставляет
-# NotContentIndexed висеть бессрочно. macOS ловит это событийно (launchd WatchPaths). На Windows
-# надёжного и проверяемого события removal для VHDX нет, поэтому guard — ПОЛЛИНГ: повторяющаяся
-# задача Task Scheduler раз в минуту зовёт `vaultwatch _guard_fire <mount>`. Тот восстанавливает
-# ТОЛЬКО если том реально исчез (иначе no-op). Отличие от macOS: латентность до ~1 минуты (честно
-# задокументировано в README). Требует PS7 (как и весь тул, см. Assert-VwPs7).
+# --- unmount-guard: auto-restore of the Search exclusion when the volume vanishes bypassing `vaultwatch stop` ---
+# Why: ejecting a VHDX via Explorer (or a detach bypassing the securetrash post-close hook) leaves
+# NotContentIndexed hanging indefinitely. macOS catches this with an event (launchd WatchPaths). On
+# Windows there is no reliable, verifiable removal event for a VHDX, so the guard is POLLING: a
+# repeating Task Scheduler task calls `vaultwatch _guard_fire <mount>` once a minute. That one
+# restores ONLY if the volume is really gone (otherwise no-op). Difference from macOS: latency of
+# up to ~1 minute (honestly documented in the README). Requires PS7 (like the whole tool, see Assert-VwPs7).
 function Get-VwGuardLabel {
     param([string]$Mount)
     return 'vaultwatch-guard-' + (($Mount -replace '[^a-zA-Z0-9]', '_'))
 }
 
-# Зарегистрировать поллинг-guard. Возвращает label (или '' при провале). Системный адаптер
-# (New-ScheduledTask*/Register-ScheduledTask) — как Register-VwTtlTask, логика покрыта на _guard_fire.
+# Register the polling guard. Returns the label (or '' on failure). System adapter
+# (New-ScheduledTask*/Register-ScheduledTask) — like Register-VwTtlTask, logic is covered via _guard_fire.
 function Register-VwGuardTask {
     param([string]$Mount, [string]$Self)
     $label = Get-VwGuardLabel -Mount $Mount
     try {
         $arg = "-NoProfile -File `"$(ConvertTo-VwArgvSafe $Self)`" _guard_fire `"$(ConvertTo-VwArgvSafe $Mount)`""
         $action  = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $arg
-        # -RepetitionDuration ОБЯЗАТЕЛЕН: без него -RepetitionInterval регистрируется как one-shot
-        # (срабатывает один раз сразу, пока том ещё смонтирован → no-op — и больше не повторяется,
-        # guard молча мёртв). 10 лет = практически бессрочный поллинг; stop/_guard_fire снимут раньше.
+        # -RepetitionDuration is MANDATORY: without it -RepetitionInterval registers as a one-shot
+        # (fires once immediately, while the volume is still mounted → no-op — and never repeats
+        # again, the guard is silently dead). 10 years = practically indefinite polling;
+        # stop/_guard_fire remove it sooner.
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
                      -RepetitionInterval (New-TimeSpan -Minutes 1) `
                      -RepetitionDuration (New-TimeSpan -Days 3650)
@@ -312,7 +314,7 @@ function Register-VwGuardTask {
     }
 }
 
-# Снять guard-задачу по mount (идемпотентно, race-safe: label выводится из mount, не из state).
+# Remove the guard task by mount (idempotent, race-safe: the label is derived from the mount, not from state).
 function Unregister-VwGuardTask {
     param([string]$Mount)
     if (-not $Mount) { return }
@@ -320,29 +322,30 @@ function Unregister-VwGuardTask {
     try { Unregister-ScheduledTask -TaskName $label -Confirm:$false -ErrorAction Stop } catch { }
 }
 
-# Том занят открытыми файлами? Best-effort: Get-SmbOpenFile ловит только СЕТЕВЫЕ (SMB) открытия
-# файлов на этом хосте; локальные хэндлы Windows дёшево не перечислить. Потому детект positive-only:
-# $true только если точно нашли открытый файл на диске тома, иначе $false. Жёсткий fail-closed для
-# локальных хэндлов даёт сам Invoke-VwDismount (без -Force BitLocker откажется запирать занятый том).
-# Паритет с bash `lsof` — частичный и честно ограничен (манифест > фичи).
+# Is the volume busy with open files? Best-effort: Get-SmbOpenFile only catches NETWORK (SMB)
+# file opens on this host; Windows local handles cannot be enumerated cheaply. Hence the detection
+# is positive-only: $true only if we definitely found an open file on the volume's drive, else
+# $false. The hard fail-closed for local handles comes from Invoke-VwDismount itself (without
+# -Force BitLocker will refuse to lock a busy volume).
+# Parity with bash `lsof` is partial and honestly limited (manifesto > features).
 function Test-VwMountBusy {
     param([string]$Mount)
     if ($Mount.Length -lt 2) { return $false }
-    $drive = $Mount.Substring(0, 2)   # "V:" из "V:\"
+    $drive = $Mount.Substring(0, 2)   # "V:" out of "V:\"
     try {
         $open = @(Get-SmbOpenFile -ErrorAction Stop | Where-Object {
             $_.Path -and $_.Path.StartsWith($drive, [System.StringComparison]::OrdinalIgnoreCase)
         })
         return ($open.Count -gt 0)
     } catch {
-        return $false   # детект недоступен — safety держит Invoke-VwDismount
+        return $false   # detection unavailable — safety is held by Invoke-VwDismount
     }
 }
 
-# Размонтировать/запереть vault. С -Force → BitLocker -ForceDismount (рвёт открытые хэндлы,
-# риск data-loss — только по явному --force + подтверждению). Без -Force → обычный Lock-BitLocker:
-# BitLocker сам ОТКАЖЕТСЯ запирать занятый том (fail-closed, паритет с bash `hdiutil detach` без -force).
-# Возвращает $true при успехе.
+# Dismount/lock the vault. With -Force → BitLocker -ForceDismount (tears open handles,
+# data-loss risk — only via an explicit --force + confirmation). Without -Force → plain
+# Lock-BitLocker: BitLocker itself REFUSES to lock a busy volume (fail-closed, parity with
+# bash `hdiutil detach` without -force). Returns $true on success.
 function Invoke-VwDismount {
     param([string]$Mount, [bool]$Force)
     try {
@@ -355,9 +358,9 @@ function Invoke-VwDismount {
     } catch { return $false }
 }
 
-# Точки монтирования всех томов — буквы дисков И folder mount points (`C:\Vault\`).
-# Обёртка для Mock. $null означает «таблицу прочитать не удалось»: нет CIM-командлетов
-# (не-Windows прогон тестов), отказ WMI или нехватка прав — это НЕ «ничего не смонтировано».
+# Mountpoints of all volumes — drive letters AND folder mount points (`C:\Vault\`).
+# A wrapper for Mock. $null means "could not read the table": no CIM cmdlets
+# (non-Windows test run), WMI refusal, or missing privileges — that is NOT "nothing is mounted".
 function Get-VwMountPoints {
     try {
         $vols = Get-CimInstance -ClassName Win32_Volume -ErrorAction Stop
@@ -366,13 +369,14 @@ function Get-VwMountPoints {
     } catch { return $null }
 }
 
-# Том ТОЧНО исчез? Спрашиваем таблицу томов, а не наличие каталога: сейф, примонтированный
-# в папку (`C:\Vault`), после eject оставляет саму папку на месте, и `Test-Path` считал такой
-# сейф открытым. Цена ошибки максимальная: guard молчал, и NotContentIndexed не снимался
-# НИКОГДА, а сессия висела, блокируя следующий start (зеркало bash `_vault_gone`).
+# Is the volume DEFINITELY gone? We ask the volume table, not for directory existence: a vault
+# mounted into a folder (`C:\Vault`) leaves the folder itself in place after an eject, and
+# `Test-Path` treated such a vault as open. The cost of a mistake is maximal: the guard stayed
+# silent, NotContentIndexed was NEVER cleared, and the session hung around, blocking the next
+# start (mirror of bash `_vault_gone`).
 #
-# «Не смогли прочитать» трактуем как «может быть открыт»: снимать защиту с тома, про
-# который мы не знаем, нельзя.
+# "Could not read" is treated as "might be open": removing protection from a volume we
+# know nothing about is not allowed.
 function Test-VwVaultGone {
     param([string]$Mount)
     if (-not $Mount) { return $false }
@@ -393,7 +397,7 @@ function Get-VwStateFile {
     return (Join-Path $script:VW_STATE_DIR $safe)
 }
 
-# Прочитать state-файл в hashtable (key=value построчно).
+# Read the state file into a hashtable (key=value per line).
 function Read-VwState {
     param([string]$Path)
     $h = @{}
@@ -405,7 +409,7 @@ function Read-VwState {
     return $h
 }
 
-# Длительность ("30m"/"2h"/"45s"/"1d"/секунды) → секунды; $null при мусоре.
+# Duration ("30m"/"2h"/"45s"/"1d"/seconds) → seconds; $null on garbage.
 function ConvertFrom-VwDuration {
     param([string]$S)
     if ($S -notmatch '^([0-9]+)([smhd]?)$') { return $null }
@@ -419,7 +423,7 @@ function ConvertFrom-VwDuration {
     }
 }
 
-# Секунды → "Hh Mm Ss" / "Mm Ss".
+# Seconds → "Hh Mm Ss" / "Mm Ss".
 function Format-VwDuration {
     param([int]$S)
     $h = [math]::Floor($S / 3600); $m = [math]::Floor(($S % 3600) / 60); $sec = $S % 60
@@ -428,7 +432,7 @@ function Format-VwDuration {
 
 function Get-VwNow { return [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
 
-# Валидировать/канонизировать аргумент-точку монтирования (для start: должен существовать).
+# Validate/canonicalize the mountpoint argument (for start: it must exist).
 function Resolve-VwMount {
     param([string]$Raw, [bool]$MustExist = $true)
     if (-not $Raw) { Write-VwErr (T 'need_mount'); Stop-VwCommand 1 }
@@ -477,7 +481,7 @@ function Invoke-VwUninstallHooks {
     if ($removed) { Write-VwInfo (T 'hooks_removed' $script:ST_HOOK_DIR) }
 }
 
-# === команды ===
+# === commands ===
 
 function Invoke-VwStart {
     param([string[]]$ArgList, [string]$Self)
@@ -499,26 +503,28 @@ function Invoke-VwStart {
     }
     $mount = Resolve-VwMount -Raw $raw -MustExist $true
 
-    # Уже есть сессия для этого mount? Повторный start перезаписал бы сохранённое до-сессионное
-    # состояние текущим (Search уже excluded) → stop не восстановит исходное (Search OFF навсегда).
-    # Идемпотентно отказываемся (P2-6, паритет с bash).
+    # Session already exists for this mount? A repeated start would overwrite the saved
+    # pre-session state with the current one (Search already excluded) → stop would not restore
+    # the original (Search OFF forever). We refuse idempotently (P2-6, parity with bash).
     $carrySearchEnabled = $false
     $sfExisting = Get-VwStateFile -Mount $mount
     if (Test-Path -LiteralPath $sfExisting) {
-        # Сессия с невыполненным восстановлением: прошлый stop не смог вернуть индексацию,
-        # потому что том к тому моменту уже отмонтировали (штатный путь — securetrash
-        # закрывает сейф ДО вызова post-close хука). Атрибут живёт на самом томе и переживает
-        # перемонтирование, поэтому долг ждал именно этого момента: том снова перед нами.
-        # Гасим и продолжаем обычный start — иначе исключение осталось бы навсегда,
-        # а сессия-призрак блокировала бы слежение. Зеркало bash.
+        # Session with an unfinished restore: the previous stop could not bring indexing back
+        # because the volume had already been unmounted by then (the normal path — securetrash
+        # closes the vault BEFORE invoking the post-close hook). The attribute lives on the
+        # volume itself and survives remounting, so the debt has been waiting for exactly this
+        # moment: the volume is in front of us again. Pay it off and continue with a normal
+        # start — otherwise the exclusion would remain forever and the ghost session would
+        # block watching. Mirror of bash.
         $stPending = Read-VwState -Path $sfExisting
         if ($stPending['pending_restore'] -eq '1' -and -not (Test-VwVaultGone -Mount $mount)) {
             if (Enable-VwSearchIndex -Path $mount) {
                 Write-VwInfo (T 'restore_finished' $mount)
             } else {
-                # Погасить не удалось. Долг НЕ теряем: до нас индексация была ВКЛЮЧЕНА, и новая
-                # сессия обязана унести это знание — иначе её stop «восстановит» состояние
-                # «было выключено», и NotContentIndexed останется на томе навсегда, молча.
+                # Could not pay it off. We do NOT lose the debt: before us, indexing was
+                # ENABLED, and the new session must carry that knowledge — otherwise its stop
+                # would "restore" a "was disabled" state, and NotContentIndexed would stay on
+                # the volume forever, silently.
                 Write-VwWarn (T 'restore_search_fail' $mount)
                 $carrySearchEnabled = $true
             }
@@ -528,15 +534,15 @@ function Invoke-VwStart {
         }
     }
 
-    # Windows Search: запомнить состояние, затем исключить каталог.
+    # Windows Search: remember the state, then exclude the directory.
     $searchWas = Get-VwSearchState -Path $mount
-    # Непогашенный долг сильнее того, что мы видим сейчас: сейчас «исключено» именно потому,
-    # что исключили мы, а снять не смогли.
+    # An unpaid debt trumps what we observe now: it reads "excluded" now precisely because
+    # we excluded it and could not clear it.
     if ($carrySearchEnabled) { $searchWas = 'enabled' }
     $searchSet = 0
     if ($searchWas -ne 'disabled') { Disable-VwSearchIndex -Path $mount; $searchSet = 1 }
 
-    # Состояние сессии.
+    # Session state.
     New-Item -ItemType Directory -Path $script:VW_STATE_DIR -Force | Out-Null
     $sf = Get-VwStateFile -Mount $mount
     $lines = @(
@@ -548,14 +554,14 @@ function Invoke-VwStart {
         "ttl_force=$([int]$ttlForce)"
     )
 
-    # TTL авто-выход через Task Scheduler. VW_NO_SPAWN=1 подавляет (юнит-тесты state).
+    # TTL auto-exit via Task Scheduler. VW_NO_SPAWN=1 suppresses it (state unit tests).
     if ($ttlSecs -gt 0 -and $env:VW_NO_SPAWN -ne '1') {
         $label = Register-VwTtlTask -Mount $mount -Seconds $ttlSecs -Self $Self
         $lines += "ttl_label=$label"
     }
 
-    # unmount-guard: всегда (не только при TTL) — чтобы eject мимо stop авто-восстановил
-    # Search-exclusion. VW_NO_SPAWN=1 подавляет реальную регистрацию (юнит-тесты). Паритет с bash.
+    # unmount-guard: always (not only with TTL) — so an eject bypassing stop also auto-restores
+    # the Search exclusion. VW_NO_SPAWN=1 suppresses the actual registration (unit tests). Parity with bash.
     if ($env:VW_NO_SPAWN -ne '1') {
         $glabel = Register-VwGuardTask -Mount $mount -Self $Self
         if ($glabel) { $lines += "guard_label=$glabel" }
@@ -573,11 +579,11 @@ function Invoke-VwStop {
     param([string[]]$ArgList)
     $raw = [string]$ArgList[0]
     if (-not $raw) { Write-VwErr (T 'need_mount'); Stop-VwCommand 1 }
-    # На close vault уже размонтирован — каталога может не быть; не требуем существования.
+    # On close the vault is already unmounted — the directory may be absent; existence not required.
     $mount = Resolve-VwMount -Raw $raw -MustExist $false
     $sf = Get-VwStateFile -Mount $mount
     if (-not (Test-Path -LiteralPath $sf)) {
-        Unregister-VwGuardTask -Mount $mount   # снять возможный осиротевший guard даже без сессии (LOW-2)
+        Unregister-VwGuardTask -Mount $mount   # remove a possible orphaned guard even without a session (LOW-2)
         Write-VwWarn (T 'no_session' $mount); return
     }
 
@@ -587,24 +593,25 @@ function Invoke-VwStop {
     $searchSet = $st['search_set']
     $ttlLabel = $st['ttl_label']
 
-    # Снять таймер авто-выхода (закрыт вручную раньше TTL, либо вызов из _ttl_fire).
+    # Remove the auto-exit timer (closed manually before the TTL, or called from _ttl_fire).
     if ($ttlLabel) { Unregister-VwTtlTask -Label $ttlLabel }
-    # Снять unmount-guard безусловно по mount (race-safe: даже если guard_label не успел лечь в state).
+    # Remove the unmount-guard unconditionally by mount (race-safe: even if guard_label never made it into state).
     Unregister-VwGuardTask -Mount $mount
 
-    # Восстановить РОВНО изменённое.
+    # Restore EXACTLY what was changed.
     $restoreOk = $true
     $searchNa = $false
     if ($searchSet -eq '1') {
         if (Test-VwVaultGone -Mount $mount) {
-            $searchNa = $true   # включать нечего — но и «включили» писать нельзя (см. отчёт ниже)
-            # Том уже размонтирован (напр. Explorer-eject → guard вызвал stop) — индексировать
-            # НЕЧЕГО, restore N/A, это НЕ ошибка (зеркало bash). Иначе stale state-файл
-            # навсегда блокировал следующий start: guard уже снят, а сессия «висит»
-            # (AUDIT_2026-08-03 P0-4). Оставшаяся после eject папка-mountpoint — сюда же.
+            $searchNa = $true   # nothing to re-enable — but claiming "re-enabled" is off-limits too (see report below)
+            # The volume is already unmounted (e.g. Explorer eject → guard invoked stop) — there
+            # is NOTHING to index, restore is N/A, and that is NOT an error (mirror of bash).
+            # Otherwise a stale state file would block the next start forever: the guard is
+            # already removed, yet the session "hangs" (AUDIT_2026-08-03 P0-4). A mountpoint
+            # folder left behind after an eject lands here too.
         } elseif (-not (Enable-VwSearchIndex -Path $mount)) {
-            # TOCTOU: том мог исчезнуть МЕЖДУ проверкой и Enable — перепроверяем; исчез →
-            # та же ветка N/A, иначе честный провал restore (Codex review P0-4).
+            # TOCTOU: the volume could vanish BETWEEN the check and Enable — recheck; gone →
+            # the same N/A branch, otherwise an honest restore failure (Codex review P0-4).
             if (-not (Test-VwVaultGone -Mount $mount)) { $restoreOk = $false }
         }
     }
@@ -613,8 +620,8 @@ function Invoke-VwStop {
     $dur = [int]((Get-VwNow) - $started)
     Write-Output (T 'rep_header')
     Write-Output (T 'rep_duration' (Format-VwDuration $dur))
-    # «Включили обратно» — только если правда включили. Атрибут пережил бы перемонтирование
-    # тома, поэтому про несмонтированный том отчёт говорит прямо, что индексация всё ещё выключена.
+    # "Re-enabled" — only if we truly re-enabled it. The attribute would survive the volume
+    # being remounted, so for an unmounted volume the report says outright that indexing is still off.
     if ($searchSet -ne '1') { Write-Output (T 'rep_search_keep') }
     elseif ($searchNa) { Write-Output (T 'rep_search_na') }
     else { Write-Output (T 'rep_search_on' $mount) }
@@ -627,10 +634,11 @@ function Invoke-VwStop {
     Write-Output (T 'rep_swap')
 
     if ($searchNa) {
-        # Восстановление ещё должны: исключение ставили мы, а снять его можно только на
-        # смонтированном томе. Сессию НЕ удаляем — иначе совет из отчёта невыполним, а
-        # следующий start ничего не знает о долге и атрибут остаётся на томе навсегда.
-        # Файл переписываем: таймер и страж уже сняты, остаётся сам долг. Зеркало bash.
+        # The restore is still owed: we were the ones who set the exclusion, and it can only be
+        # cleared on a mounted volume. We do NOT delete the session — otherwise the report's
+        # advice is unactionable, the next start knows nothing about the debt, and the attribute
+        # stays on the volume forever. We rewrite the file: the timer and the guard are already
+        # removed, only the debt itself remains. Mirror of bash.
         Set-Content -LiteralPath $sf -Encoding utf8 -Value @(
             "mount=$mount"
             "started=$started"
@@ -641,21 +649,22 @@ function Invoke-VwStop {
     }
     elseif ($restoreOk) { Remove-Item -LiteralPath $sf -Force -ErrorAction SilentlyContinue }
     else {
-        # Ненулевой код обязателен: stop, не восстановивший исключения, — не успех.
-        # Иначе post-close хук securetrash и планировщик считали бы сессию закрытой,
-        # хотя индексация тома всё ещё выключена, а state-файл жив (зеркало bash).
+        # A non-zero exit code is mandatory: a stop that failed to restore the exclusions is
+        # not a success. Otherwise the securetrash post-close hook and the scheduler would
+        # consider the session closed, while the volume's indexing is still off and the
+        # state file is alive (mirror of bash).
         Write-VwWarn (T 'restore_incomplete' $mount)
         Stop-VwCommand 1
     }
 }
 
-# Внутренняя команда: срабатывает по истечении --ttl (из задачи Task Scheduler).
+# Internal command: fires when --ttl expires (from the Task Scheduler task).
 function Invoke-VwTtlFire {
     param([string[]]$ArgList)
     $raw = [string]$ArgList[0]; if (-not $raw) { return }
     $mount = Resolve-VwMount -Raw $raw -MustExist $false
     $sf = Get-VwStateFile -Mount $mount
-    if (-not (Test-Path -LiteralPath $sf)) { return }   # сессии нет (закрыт вручную) — тихо
+    if (-not (Test-Path -LiteralPath $sf)) { return }   # no session (closed manually) — stay quiet
 
     $st = Read-VwState -Path $sf
     $ttlForce = ($st['ttl_force'] -eq '1')
@@ -676,14 +685,14 @@ function Invoke-VwTtlFire {
     Invoke-VwStop -ArgList @($mount)
 }
 
-# Внутренняя команда: срабатывает по поллинг-задаче guard'а. Восстанавливает исключение ТОЛЬКО
-# если том реально исчез (eject мимо stop); пока том на месте — no-op (зеркало bash cmd_guard_fire).
+# Internal command: fires from the guard's polling task. Restores the exclusion ONLY if the
+# volume is really gone (eject bypassing stop); while the volume is in place — no-op (mirror of bash cmd_guard_fire).
 function Invoke-VwGuardFire {
     param([string[]]$ArgList)
     $raw = [string]$ArgList[0]; if (-not $raw) { return }
     $mount = Resolve-VwMount -Raw $raw -MustExist $false
-    if (-not (Test-VwVaultGone -Mount $mount)) { return }   # том на месте (или не знаем) → no-op
-    Invoke-VwStop -ArgList @($mount)                # том исчез → restore + чистка сессии (+ снятие guard)
+    if (-not (Test-VwVaultGone -Mount $mount)) { return }   # volume in place (or unknown) → no-op
+    Invoke-VwStop -ArgList @($mount)                # volume gone → restore + session cleanup (+ guard removal)
 }
 
 function Invoke-VwStatus {
@@ -710,9 +719,9 @@ function Invoke-VwStatus {
 
 function Invoke-VwVersion { Write-Output "vaultwatch $VERSION (Windows, beta)" }
 
-# Требуем PowerShell 7+: TTL-таск (Register-ScheduledTask -Execute pwsh.exe) и .cmd-хуки зовут
-# pwsh.exe. Под Windows PowerShell 5.1 они молча не стартуют → auto-dismount и Search-exclusion не
-# срабатывают без единой ошибки. Fail-closed с ясным сообщением (P2-8).
+# Require PowerShell 7+: the TTL task (Register-ScheduledTask -Execute pwsh.exe) and the .cmd
+# hooks call pwsh.exe. Under Windows PowerShell 5.1 they silently fail to start → auto-dismount
+# and the Search exclusion never fire, without a single error. Fail-closed with a clear message (P2-8).
 function Assert-VwPs7 {
     param([version]$Version = $PSVersionTable.PSVersion)
     if ($Version.Major -lt 7) {
@@ -726,9 +735,9 @@ function Invoke-VwMain {
     try {
         Assert-VwPs7
         $self = $PSCommandPath
-        # --yes где угодно в аргументах == ST_ASSUME_YES=1 (контракт securetrash).
-        # После `--` аргументы литеральные: `stop -- --yes` — это точка монтирования
-        # с таким именем, а не флаг (зеркало bash).
+        # --yes anywhere in the arguments == ST_ASSUME_YES=1 (securetrash contract).
+        # After `--` arguments are literal: `stop -- --yes` is a mountpoint with that
+        # name, not a flag (mirror of bash).
         if ($Argv -and ($Argv -contains '--yes')) {
             $kept = @(); $literal = $false
             foreach ($a in $Argv) {
@@ -758,7 +767,7 @@ function Invoke-VwMain {
     }
 }
 
-# Dot-source guard: при `. vaultwatch.ps1` (Pester) main НЕ запускается; ST_NO_MAIN=1 тоже глушит.
+# Dot-source guard: under `. vaultwatch.ps1` (Pester) main is NOT run; ST_NO_MAIN=1 silences it too.
 if ($MyInvocation.InvocationName -ne '.' -and -not $env:ST_NO_MAIN) {
     Invoke-VwMain -Argv $args
 }

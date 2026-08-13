@@ -1,23 +1,23 @@
-﻿# paranoid.ps1 — интерактивный лаунчер экосистемы Paranoid Tools, Windows-зеркало (BETA).
-# Зеркало macOS-версии (bash `paranoid`). Baseline: Windows PowerShell 5.1.
+﻿# paranoid.ps1 — interactive launcher for the Paranoid Tools ecosystem, Windows mirror (BETA).
+# Mirror of the macOS version (bash `paranoid`). Baseline: Windows PowerShell 5.1.
 #
-# ЧЕСТНО: тонкий лаунчер, не новый инструмент. Не содержит крипты и НЕ трогает секреты —
-# секреты вводятся напрямую в нужный CLI. Запускает те же пять подписанных PowerShell-портов
-# (через .cmd-шимы на PATH) и показывает их вывод как есть (Scope & limitations и вердикты
-# `check` не прячет). Глобального хоткея/демона тут нет — это Фаза B (нативный tray).
+# HONESTLY: a thin launcher, not a new tool. Contains no crypto and does NOT touch secrets —
+# secrets are entered directly into the relevant CLI. It runs the same five signed PowerShell
+# ports (via .cmd shims on PATH) and shows their output as is (Scope & limitations and `check`
+# verdicts are not hidden). No global hotkey/daemon here — that is Phase B (native tray).
 #
-# Зависимостей — ноль сверх PowerShell. Установленные тулы ищутся на PATH по имени; отсутствующий
-# тул показывается «(not installed)» с хинтом, а не подделывается.
+# Zero dependencies beyond PowerShell. Installed tools are looked up on PATH by name; a missing
+# tool is shown as "(not installed)" with a hint, not faked.
 #
-# Запуск через .cmd-шим = pwsh 7 (UTF-8 по умолчанию), как и у пяти портов. Синтаксис держим
-# 5.1-совместимым. Дашборд — ТЕКСТОВЫЙ (без ANSI-цвета): честность несёт текст («at risk»,
-# «(not installed)»), а цветные dot'ы macOS-версии — полировка Фазы B, не дрейф.
+# Launch via the .cmd shim = pwsh 7 (UTF-8 by default), same as the five ports. The syntax is kept
+# 5.1-compatible. The dashboard is TEXT-ONLY (no ANSI color): honesty is carried by the text
+# ("at risk", "(not installed)"), and the colored dots of the macOS version are Phase B polish, not drift.
 
 $PARANOID_VERSION = '0.1.0'
 
-# Активный том vault. securetrash на Windows выбирает ПЕРВУЮ СВОБОДНУЮ букву динамически
-# (Get-StFreeDriveLetter — не хардкод V:) и пишет её в sidecar <vault>.vhdx.mount при open.
-# Резолвим реальную букву оттуда; ST_VAULT_VOLUME переопределяет вручную. $null = vault закрыт.
+# Active vault volume. On Windows securetrash picks the FIRST FREE drive letter dynamically
+# (Get-StFreeDriveLetter — not a hardcoded V:) and writes it to the sidecar <vault>.vhdx.mount on open.
+# We resolve the real letter from there; ST_VAULT_VOLUME overrides it manually. $null = vault closed.
 function Get-PnVaultMount {
     if ($env:ST_VAULT_VOLUME) { return $env:ST_VAULT_VOLUME }
     $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
@@ -40,7 +40,7 @@ function Get-PnLocale {
 }
 $script:PN_LOCALE = if ($env:ST_LOCALE) { $env:ST_LOCALE } else { Get-PnLocale }
 
-# --- i18n (только chrome лаунчера; вывод тулов локализуют они сами) ---
+# --- i18n (launcher chrome only; the tools localize their own output themselves) ---
 function T {
     param([string]$Key, [string]$A, [string]$B)
     switch ("$($script:PN_LOCALE):$Key") {
@@ -67,9 +67,9 @@ function T {
         'en:vw_active'    { return 'active' }       'ru:vw_active'    { return 'активен' }
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
         'en:update_avail' { return 'update available:' } 'ru:update_avail' { return 'доступно обновление:' }
-        # Пункта меню «Обновить» тут нет (в отличие от macOS-лаунчера): umbrella-установщика
-        # для Windows не существует — у каждого тула свой windows/install.ps1, и запоминать
-        # «откуда ставили» нечему. Осознанный разрыв паритета, а не недосмотр.
+        # There is no "Update" menu item here (unlike the macOS launcher): no umbrella installer
+        # exists for Windows — each tool has its own windows/install.ps1, and there is nothing
+        # to remember "where it was installed from". A deliberate parity break, not an oversight.
         'en:update_how'   { return 'to update: re-run install.ps1 or brew upgrade' }
         'ru:update_how'   { return 'обновить: перезапусти install.ps1 или brew upgrade' }
         'en:m_status'     { return 'Status — full read-only check' }
@@ -96,7 +96,7 @@ function T {
         'en:m_unwatch'    { return 'Stop watching the vault (vaultwatch)' }
         'ru:m_unwatch'    { return 'Снять охрану сейфа (vaultwatch)' }
         'en:m_quit'       { return 'Quit' }         'ru:m_quit'       { return 'Выход' }
-        # --- top-level group items (открывают подменю) ---
+        # --- top-level group items (open submenus) ---
         'en:m_t_vault'   { return 'Vault >        open / empty / destroy / watch' }
         'ru:m_t_vault'   { return 'Сейф >         открыть / очистить / уничтожить / сторожить' }
         'en:m_t_notepad' { return 'Notepad >      ghostdraft: ephemeral note / clipboard' }
@@ -104,14 +104,14 @@ function T {
         'en:m_t_secrets' { return 'Secrets >      seedsplit: split / combine' }
         'ru:m_t_secrets' { return 'Секреты >      seedsplit: разбить / собрать' }
         'en:back'        { return 'Back' }          'ru:back'        { return 'Назад' }
-        # --- подменю-заголовки ---
+        # --- submenu headers ---
         'en:h_vault'     { return 'Vault — encrypted container' }
         'ru:h_vault'     { return 'Сейф — зашифрованный контейнер' }
         'en:h_notepad'   { return 'Notepad — ephemeral text (ghostdraft)' }
         'ru:h_notepad'   { return 'Блокнот — эфемерный текст (ghostdraft)' }
         'en:h_secrets'   { return 'Secrets — Shamir shares (seedsplit)' }
         'ru:h_secrets'   { return 'Секреты — доли Шамира (seedsplit)' }
-        # --- vault submenu: динамический пункт 1 по состоянию ---
+        # --- vault submenu: item 1 is dynamic, driven by state ---
         'en:m_v_create'  { return 'Create a vault' }  'ru:m_v_create'  { return 'Создать сейф' }
         'en:m_v_open'    { return 'Open the vault' }   'ru:m_v_open'    { return 'Открыть сейф' }
         'en:m_v_close'   { return 'Close the vault' }  'ru:m_v_close'   { return 'Закрыть сейф' }
@@ -125,7 +125,7 @@ function T {
         'ru:empty_none'  { return 'Очищать нечего — сначала создай сейф.' }
         'en:empty_hint'  { return 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place). It runs "securetrash vault reset", NOT "securetrash empty" (that one only clears the ~/SecureTrash drop folder). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' }
         'ru:empty_hint'  { return 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте). Запускается «securetrash vault reset», а НЕ «securetrash empty» (та команда лишь чистит папку-приёмник ~/SecureTrash). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' }
-        # --- выбор размера (Windows: МБ для diskpart; cap, не резерв) ---
+        # --- size choice (Windows: MB for diskpart; a cap, not a reserve) ---
         'en:size_prompt' { return 'Vault size cap in MB (e.g. 1024 = 1 GB; empty = default 1024 MB). A ceiling, not reserved space — the VHDX grows as you add files:' }
         'ru:size_prompt' { return 'Потолок размера сейфа в МБ (напр. 1024 = 1 ГБ; пусто = по умолчанию 1024 МБ). Это лимит, не резерв — VHDX растёт по мере добавления файлов:' }
         'en:size_bad'    { return 'Invalid size — use a whole number of megabytes (e.g. 1024, 5120). Cancelled.' }
@@ -141,12 +141,12 @@ function T {
         'ru:ghost_note'   { return 'заметка — написать, править, скопировать; на выходе исчезает (буфер: на Windows без авто-очистки)' }
         'en:ghost_pipe'   { return 'show clipboard — paste & view, write nothing to disk' }
         'ru:ghost_pipe'   { return 'показать буфер — вставь и посмотри, на диск ничего' }
-        # Windows clipboard НЕ авто-чистится (история Win+V + Cloud Clipboard) — подпись
-        # честно отличается от macOS-варианта «auto-wipes after ~20s». Сам ghostdraft Win-порт
-        # дополнительно показывает DANGER и просит confirm перед записью в буфер.
+        # The Windows clipboard is NOT auto-cleared (Win+V history + Cloud Clipboard) — the label
+        # honestly differs from the macOS variant "auto-wipes after ~20s". The ghostdraft Win port
+        # itself additionally shows DANGER and asks for confirm before writing to the clipboard.
         'en:ghost_clip_hint' { return 'On exit the draft is copied to the clipboard (after a confirmation). Windows has NO auto-clear — Win+V history and Cloud Clipboard keep it — so clear it yourself.' }
         'ru:ghost_clip_hint' { return 'По выходу черновик копируется в буфер (после подтверждения). На Windows авто-очистки НЕТ — история Win+V и Cloud Clipboard его хранят — чисти сам.' }
-        # Подсказки ввода (паритет с bash). На Windows конец ввода — Ctrl-Z затем Enter (НЕ Ctrl-D).
+        # Input hints (parity with bash). On Windows end-of-input is Ctrl-Z then Enter (NOT Ctrl-D).
         'en:combine_prompt'  { return 'Paste the shares — one per line — then press Ctrl-Z and Enter:' }
         'ru:combine_prompt'  { return 'Вставь доли — по одной на строку — затем нажми Ctrl-Z и Enter:' }
         'en:ghost_pipe_hint' { return 'Paste text, then Ctrl-Z and Enter — nothing is written to disk:' }
@@ -155,8 +155,8 @@ function T {
     }
 }
 
-# --- инструменты экосистемы: репо для хинта ---
-# После монорепо-миграции все тулы живут в одном репозитории.
+# --- ecosystem tools: repo for the install hint ---
+# After the monorepo migration all tools live in a single repository.
 function Get-PnToolRepo {
     param([string]$Tool)
     'https://github.com/Di-kairos/paranoid-tools'
@@ -164,7 +164,7 @@ function Get-PnToolRepo {
 
 function Test-PnTool { param([string]$Tool) [bool](Get-Command $Tool -ErrorAction SilentlyContinue) }
 
-# Запустить тул (через .cmd-шим на PATH), не роняя цикл. Нет тула → хинт. Мокается в Pester.
+# Run a tool (via its .cmd shim on PATH) without crashing the loop. No tool → hint. Mocked in Pester.
 function Invoke-PnTool {
     param([string]$Tool, [string[]]$ToolArgs = @())
     if (-not (Test-PnTool $Tool)) {
@@ -174,17 +174,17 @@ function Invoke-PnTool {
     & $Tool @ToolArgs
 }
 
-# --- статус для dashboard (только чтение; деградирует в unknown, не угадывает) ---
-# Файл-контейнер vault (securetrash default: ~/SecureVault.vhdx). Отличает «закрыт» от «не создан».
+# --- status for the dashboard (read-only; degrades to unknown, never guesses) ---
+# Vault container file (securetrash default: ~/SecureVault.vhdx). Tells "closed" apart from "not created".
 function Get-PnVaultContainer {
     if ($env:ST_VAULT_PATH) { return $env:ST_VAULT_PATH }
     $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
     if (-not $homeDir) { return $null }
     return (Join-Path $homeDir 'SecureVault.vhdx')
 }
-# Точки монтирования всех томов — буквы дисков И folder mount points (`C:\Vault\`).
-# Обёртка для Mock. $null = таблицу прочитать не удалось (нет CIM-командлетов, отказ WMI,
-# нехватка прав) — это НЕ «ничего не смонтировано».
+# Mount points of all volumes — drive letters AND folder mount points (`C:\Vault\`).
+# A wrapper for Mock. $null = the table could not be read (no CIM cmdlets, WMI refusal,
+# insufficient rights) — this is NOT "nothing is mounted".
 function Get-PnMountPoints {
     try {
         $vols = Get-CimInstance -ClassName Win32_Volume -ErrorAction Stop
@@ -193,11 +193,11 @@ function Get-PnMountPoints {
     } catch { return $null }
 }
 function Get-PnVaultState {
-    # Четыре состояния: open = том реально в таблице томов; closed = контейнер есть, но не
-    # смонтирован; none = контейнера ещё нет; unknown = таблицу прочитать не удалось.
-    # Спрашиваем таблицу, а не `Test-Path`: сейф, примонтированный в папку, оставляет её на
-    # месте после eject, и дашборд пугал бы «ОТКРЫТ · данные под угрозой» над закрытым сейфом
-    # (зеркало bash `_status_vault`). Guard на $null/пустое (Test-Path '' кидает).
+    # Four states: open = the volume is actually in the volume table; closed = the container
+    # exists but is not mounted; none = no container yet; unknown = the table could not be read.
+    # We ask the table, not `Test-Path`: a vault mounted into a folder leaves the folder in
+    # place after eject, and the dashboard would scare with "OPEN · data at risk" over a closed
+    # vault (mirror of bash `_status_vault`). Guard against $null/empty (Test-Path '' throws).
     if ($script:VAULT_VOLUME) {
         $points = Get-PnMountPoints
         if ($null -eq $points) { return 'unknown' }
@@ -225,8 +225,8 @@ function Get-PnVaultwatchState {
         if ($out -match '(?i)session:|сессия:') { return 'active' } else { return 'idle' }
     } catch { return 'idle' }
 }
-# TTL-строка активной сессии (для dashboard). Отдельная функция — чтобы Pester мог замокать
-# и рендер дашборда не дёргал реальный vaultwatch. Пусто, если строки TTL нет/тула нет.
+# TTL line of the active session (for the dashboard). A separate function — so Pester can mock
+# it and the dashboard render does not hit the real vaultwatch. Empty if no TTL line / no tool.
 function Get-PnVaultwatchTtl {
     try {
         $m = & vaultwatch status 2>$null | Select-String -Pattern 'TTL|auto-exit|авто-выход' | Select-Object -First 1
@@ -235,12 +235,12 @@ function Get-PnVaultwatchTtl {
     return ''
 }
 
-# --- opt-in проверка обновлений (по умолчанию ВЫКЛ; сеть только с явного согласия) ---
-# Privacy-контракт: никакой телеметрии/фонового «стука домой». Идёт ТОЛЬКО если
-# $env:PARANOID_UPDATE_CHECK='1', делает лишь HEAD-редирект к GitHub releases/latest,
-# троттлится кэшем на 24ч и при любой ошибке сети тихо пропускает тул.
+# --- opt-in update check (OFF by default; network only with explicit consent) ---
+# Privacy contract: no telemetry / background "phoning home". Runs ONLY if
+# $env:PARANOID_UPDATE_CHECK='1', does nothing but a HEAD redirect to GitHub releases/latest,
+# is throttled by a 24h cache and silently skips a tool on any network error.
 
-# Установленная версия тула как x.y.z (пусто, если тула нет / версию не распарсить).
+# Installed tool version as x.y.z (empty if the tool is missing / the version cannot be parsed).
 function Get-PnToolVersion {
     param([string]$Tool)
     if (-not (Test-PnTool $Tool)) { return '' }
@@ -253,8 +253,8 @@ function Get-PnToolVersion {
     return ''
 }
 
-# Последний релизный тег тула. В тестах подменяется файлом $env:PARANOID_UPDATE_FEED
-# (строки `tool=vX.Y.Z`), иначе — редирект releases/latest → .../tag/vX.Y.Z.
+# The tool's latest release tag. In tests it is substituted by the $env:PARANOID_UPDATE_FEED
+# file (`tool=vX.Y.Z` lines), otherwise — the releases/latest redirect → .../tag/vX.Y.Z.
 function Get-PnLatestTag {
     param([string]$Tool)
     if ($env:PARANOID_UPDATE_FEED) {
@@ -267,9 +267,9 @@ function Get-PnLatestTag {
         return ''
     }
     try {
-        # -Method Head: тянем только заголовки редиректа, не тело GitHub-страницы (минимизация,
-        # паритет с bash `curl -I`). -UseBasicParsing — для PS 5.1. Короткий таймаут: рендер ждёт
-        # по всем тулам, кэш на 24ч делает медленный путь редким.
+        # -Method Head: fetch only the redirect headers, not the GitHub page body (minimization,
+        # parity with bash `curl -I`). -UseBasicParsing — for PS 5.1. Short timeout: the render
+        # waits across all tools, the 24h cache makes the slow path rare.
         $u = "https://github.com/Di-kairos/$Tool/releases/latest"
         $r = Invoke-WebRequest -Uri $u -Method Head -MaximumRedirection 5 -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
         $final = ''
@@ -280,20 +280,20 @@ function Get-PnLatestTag {
     return ''
 }
 
-# true, если $Latest (x.y.z) строго новее $Installed. Через [version] — равные не новее.
+# true if $Latest (x.y.z) is strictly newer than $Installed. Via [version] — equal is not newer.
 function Test-PnVerGt {
     param([string]$Latest, [string]$Installed)
     try { return ([version]$Latest) -gt ([version]$Installed) } catch { return $false }
 }
 
-# Сводка «тул inst→latest, …» по установленным тулам со свежим релизом. Пусто, если проверка
-# выключена, всё свежее или сеть недоступна. Результат кэшируется на 24ч.
+# A "tool inst→latest, …" summary over installed tools with a newer release. Empty if the check
+# is disabled, everything is fresh, or the network is unavailable. The result is cached for 24h.
 function Get-PnUpdateSummary {
     if ($env:PARANOID_UPDATE_CHECK -ne '1') { return '' }
     $cacheDir = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'paranoid-tools' }
                 elseif ($env:HOME) { Join-Path $env:HOME '.cache/paranoid-tools' } else { $null }
     $cache = if ($cacheDir) { Join-Path $cacheDir 'update-check' } else { $null }
-    # Свежий кэш (<24ч) отдаём как есть; feed-режим (тесты) кэш не трогает — всегда пересчёт.
+    # A fresh cache (<24h) is returned as is; feed mode (tests) never touches the cache — always recomputes.
     if (-not $env:PARANOID_UPDATE_FEED -and $cache -and (Test-Path -LiteralPath $cache)) {
         $age = (Get-Date) - (Get-Item -LiteralPath $cache).LastWriteTime
         if ($age.TotalSeconds -lt 86400) { return (Get-Content -LiteralPath $cache -Raw -ErrorAction SilentlyContinue) }
@@ -304,7 +304,7 @@ function Get-PnUpdateSummary {
         $inst = Get-PnToolVersion $tool
         if (-not $inst) { continue }
         $latest = (Get-PnLatestTag $tool) -replace '^v', ''
-        # Только чистый x.y.z: иначе [version] считает 1.2.0 новее 1.2 (ложное «новее»). Паритет с bash.
+        # Only a clean x.y.z: otherwise [version] deems 1.2.0 newer than 1.2 (a false "newer"). Parity with bash.
         if ($latest -notmatch '^\d+\.\d+\.\d+$') { continue }
         if (Test-PnVerGt $latest $inst) { $parts += "$tool $inst$([char]0x2192)$latest" }
     }
@@ -316,11 +316,11 @@ function Get-PnUpdateSummary {
     return $summary
 }
 
-# --- текст dashboard отдельной функцией (Pester проверяет строки без запуска цикла) ---
+# --- dashboard text as a separate function (Pester checks the lines without running the loop) ---
 function Get-PnDashboard {
-    # Перечитываем активный том перется каждым рендером — буква могла появиться/исчезнуть
-    # (securetrash open/close между тиками). Тесты задают $script:VAULT_VOLUME напрямую и
-    # мокают Get-PnVaultState, поэтому refresh их вердикты не трогает.
+    # Re-read the active volume before every render — the letter could have appeared/vanished
+    # (securetrash open/close between ticks). Tests set $script:VAULT_VOLUME directly and
+    # mock Get-PnVaultState, so the refresh does not affect their verdicts.
     $script:VAULT_VOLUME = Get-PnVaultMount
     $v  = Get-PnVaultState
     $bl = Get-PnBitLockerState
@@ -334,8 +334,8 @@ function Get-PnDashboard {
     } elseif ($v -eq 'none') {
         $lines += "  $(T 'vault')      $(T 'vault_none')"
     } elseif ($v -eq 'unknown') {
-        # Зелёное «закрыт» над открытым сейфом — худшее из возможных враньё, поэтому
-        # неизвестное состояние называется своим именем (зеркало bash-дашборда).
+        # A green "closed" over an open vault is the worst possible lie, so the
+        # unknown state is called by its name (mirror of the bash dashboard).
         $lines += "  $(T 'vault')      $(T 'vault_unknown')"
     } else {
         $lines += "  $(T 'vault')      $(T 'vault_closed')"
@@ -352,9 +352,9 @@ function Get-PnDashboard {
             $lines += "  $(T 'vw') $(T 'vw_active')$suffix"
         }
         'idle' { $lines += "  $(T 'vw') $(T 'vw_idle')" }
-        default { }  # absent → строку не показываем
+        default { }  # absent → do not show the line
     }
-    # Опциональная строка обновлений (только если PARANOID_UPDATE_CHECK=1 и есть свежее).
+    # Optional updates line (only if PARANOID_UPDATE_CHECK=1 and something newer exists).
     $upd = Get-PnUpdateSummary
     if ($upd) {
         $lines += "  $([char]0x2B06) $(T 'update_avail') $upd"
@@ -367,9 +367,9 @@ function Get-PnDashboard {
     } else {
         $lines += "  2) $(T 'm_panic') ($(T 'not_installed'))"
     }
-    # Группы-подменю (3–5). Top-level короткий: чтение (1) и тревога (2) — мгновенно наверху;
-    # остальное сгруппировано. Пункты внутри подменю гасятся при отсутствии тула, поэтому
-    # группы тут всегда активны. $v/$vw используются в рендере подменю, не здесь.
+    # Submenu groups (3–5). The top level is short: reading (1) and alarm (2) sit right at the
+    # top; the rest is grouped. Items inside a submenu are greyed out when a tool is missing,
+    # so the groups here are always active. $v/$vw are used in the submenu render, not here.
     $lines += "  3) $(T 'm_t_vault')"
     $lines += "  4) $(T 'm_t_notepad')"
     $lines += "  5) $(T 'm_t_secrets')"
@@ -378,7 +378,7 @@ function Get-PnDashboard {
     return ($lines -join "`n")
 }
 
-# Текст подменю «Сейф» (Pester проверяет динамический пункт 1, гейтинг empty/destroy, toggle).
+# Text of the "Vault" submenu (Pester checks the dynamic item 1, empty/destroy gating, toggle).
 function Get-PnVaultMenu {
     $script:VAULT_VOLUME = Get-PnVaultMount
     $v  = Get-PnVaultState
@@ -387,16 +387,16 @@ function Get-PnVaultMenu {
     $lines += ''
     $lines += "  $(T 'h_vault')"
     $lines += ''
-    # 1 — динамический по состоянию (нет → создать; закрыт → открыть; открыт → закрыть)
+    # 1 — dynamic by state (none → create; closed → open; open → close)
     switch ($v) {
         'none'   { $lines += (Format-PnMenuItem 1 (T 'm_v_create') 'securetrash') }
         'closed' { $lines += (Format-PnMenuItem 1 (T 'm_v_open')   'securetrash') }
         'open'   { $lines += (Format-PnMenuItem 1 (T 'm_v_close')  'securetrash') }
-        # Состояние неизвестно — пункт остаётся видимым (иначе меню молча теряет строку),
-        # но обещает не действие, а честный отказ гадать.
+        # State unknown — the item stays visible (otherwise the menu silently loses a line),
+        # but it promises not an action, only an honest refusal to guess.
         'unknown' { $lines += (Format-PnMenuItem 1 (T 'm_v_unknown') 'securetrash') }
     }
-    # 2 Empty (reset) — серый при отсутствии securetrash / сейфа / неизвестном состоянии
+    # 2 Empty (reset) — greyed out when securetrash / the vault is missing / state is unknown
     if (-not (Test-PnTool 'securetrash')) {
         $lines += "  2) $(T 'm_empty') ($(T 'not_installed'))"
     } elseif ($v -eq 'none') {
@@ -406,7 +406,7 @@ function Get-PnVaultMenu {
     } else {
         $lines += "  2) $(T 'm_empty')"
     }
-    # 3 Destroy — серый при отсутствии securetrash / сейфа / неизвестном состоянии
+    # 3 Destroy — greyed out when securetrash / the vault is missing / state is unknown
     if (-not (Test-PnTool 'securetrash')) {
         $lines += "  3) $(T 'm_destroy') ($(T 'not_installed'))"
     } elseif ($v -eq 'none') {
@@ -427,7 +427,7 @@ function Get-PnVaultMenu {
     return ($lines -join "`n")
 }
 
-# Текст подменю «Блокнот» (ghostdraft).
+# Text of the "Notepad" submenu (ghostdraft).
 function Get-PnNotepadMenu {
     $lines = @()
     $lines += ''
@@ -440,7 +440,7 @@ function Get-PnNotepadMenu {
     return ($lines -join "`n")
 }
 
-# Текст подменю «Секреты» (seedsplit).
+# Text of the "Secrets" submenu (seedsplit).
 function Get-PnSecretsMenu {
     $lines = @()
     $lines += ''
@@ -453,7 +453,7 @@ function Get-PnSecretsMenu {
     return ($lines -join "`n")
 }
 
-# Один пункт меню: «(not installed)», если тул отсутствует.
+# A single menu item: "(not installed)" if the tool is missing.
 function Format-PnMenuItem {
     param([string]$Num, [string]$Label, [string]$Tool = '')
     if ($Tool -and -not (Test-PnTool $Tool)) {
@@ -462,11 +462,11 @@ function Format-PnMenuItem {
     return "  $Num) $Label"
 }
 
-# --- ввод (мокается в Pester) ---
+# --- input (mocked in Pester) ---
 function Read-PnLine { param([string]$Prompt) return (Read-Host -Prompt $Prompt) }
 function Invoke-PnPause { Read-PnLine "  $(T 'press_enter')" | Out-Null }
 
-# --- действия ---
+# --- actions ---
 function Invoke-PnActStatus {
     Invoke-PnTool 'securetrash' @('check')
     if (Test-PnTool 'vaultwatch') { Write-Output ''; Invoke-PnTool 'vaultwatch' @('status') }
@@ -477,29 +477,29 @@ function Invoke-PnActPanic {
         [Console]::Error.WriteLine((T 'install_hint' 'panic' (Get-PnToolRepo 'panic')))
         Invoke-PnPause; return
     }
-    # Режим паники: МГНОВЕННО, без подтверждений — скорость и есть весь смысл кнопки. Всегда
-    # --hard (спрятать/запереть + прибить cloud-демоны + очистить recent). Защита от случайного
-    # нажатия — то, что пункт явно помечен «instant», а сам `panic now` требует явный verb.
-    # Паника обратима: это hide & lock, НЕ уничтожение данных (для уничтожения — securetrash).
+    # Panic mode: INSTANT, no confirmations — speed is the whole point of the button. Always
+    # --hard (hide/lock + kill cloud daemons + clear recents). The guard against an accidental
+    # press is that the item is explicitly marked "instant", and `panic now` itself requires an explicit verb.
+    # Panic is reversible: it is hide & lock, NOT data destruction (for destruction — securetrash).
     Invoke-PnTool 'panic' @('now', '--hard')
     Invoke-PnPause
 }
-# Спросить потолок размера нового сейфа (Windows: целое МБ для diskpart). Возвращает строку
-# размера; '' = дефолт тула; $null = неверный ввод (caller отменяет create/reset). VHDX тонкий
-# → это лимит, не резерв. Мокается в Pester.
+# Ask for the size cap of the new vault (Windows: whole MB for diskpart). Returns the size
+# string; '' = the tool's default; $null = invalid input (the caller cancels create/reset). The
+# VHDX is thin → it is a limit, not a reserve. Mocked in Pester.
 function Read-PnVaultSize {
     $size = Read-PnLine "  $(T 'size_prompt')"
     if (-not $size) { return '' }
     if ($size -notmatch '^\d+$') {
-        # ВАЖНО: сообщение в stderr, НЕ Write-Output — иначе строка попала бы в пайплайн
-        # возврата и $sz стал бы массивом @(msg,$null), а не $null (caller не отменил бы create).
+        # IMPORTANT: the message goes to stderr, NOT Write-Output — otherwise the line would land in
+        # the return pipeline and $sz would become the array @(msg,$null), not $null (the caller would not cancel create).
         [Console]::Error.WriteLine("  $(T 'size_bad')")
         return $null
     }
     return $size
 }
 function Invoke-PnActVault {
-    # Трёхсостоянийно: нет контейнера → создать (спросив размер-cap); закрыт → открыть; открыт → закрыть.
+    # Three-state: no container → create (asking for the size cap); closed → open; open → close.
     switch (Get-PnVaultState) {
         'open'   { Invoke-PnTool 'securetrash' @('vault', 'close') }
         'closed' { Invoke-PnTool 'securetrash' @('vault', 'open') }
@@ -515,8 +515,8 @@ function Invoke-PnActVault {
     }
     Invoke-PnPause
 }
-# Уничтожение сейфа — необратимо. Лаунчер предупреждает, но реальное подтверждение (yes)
-# и отказ при смонтированном томе с открытыми файлами — на стороне securetrash.
+# Destroying the vault is irreversible. The launcher warns, but the actual confirmation (yes)
+# and the refusal on a mounted volume with open files are on the securetrash side.
 function Invoke-PnActDestroy {
     if (-not (Test-PnTool 'securetrash')) {
         [Console]::Error.WriteLine((T 'install_hint' 'securetrash' (Get-PnToolRepo 'securetrash')))
@@ -526,7 +526,7 @@ function Invoke-PnActDestroy {
     if ($v -eq 'none') {
         Write-Output "  $(T 'destroy_none')"; Invoke-PnPause; return
     }
-    # Необратимая операция поверх состояния, которого мы не знаем, — не наш выбор.
+    # An irreversible operation on top of a state we do not know is not our choice.
     if ($v -eq 'unknown') {
         Write-Output "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
@@ -534,9 +534,9 @@ function Invoke-PnActDestroy {
     Invoke-PnTool 'securetrash' @('vault', 'destroy')
     Invoke-PnPause
 }
-# Очистить сейф = securetrash vault reset (crypto-shred + создать пустой заново). Честная
-# гарантия безвозвратности (in-place перезапись на SSD — best-effort: тот же ключ). Запрос
-# размера нового сейфа; реальный yes-confirm и пароль — на стороне securetrash.
+# Emptying the vault = securetrash vault reset (crypto-shred + recreate empty). An honest
+# irreversibility guarantee (in-place overwrite on an SSD is best-effort: same key). Asks for
+# the new vault's size; the actual yes-confirm and password are on the securetrash side.
 function Invoke-PnActEmpty {
     if (-not (Test-PnTool 'securetrash')) {
         [Console]::Error.WriteLine((T 'install_hint' 'securetrash' (Get-PnToolRepo 'securetrash')))
@@ -557,28 +557,28 @@ function Invoke-PnActEmpty {
     }
     Invoke-PnPause
 }
-# seedsplit split/combine молча читают stdin — без подсказки новичок видит пустой курсор
-# и не знает, что вставлять и чем завершить ввод (паритет с bash).
+# seedsplit split/combine silently read stdin — without a hint a newcomer sees a blank cursor
+# and does not know what to paste and how to end the input (parity with bash).
 function Invoke-PnActSplit   { Invoke-PnTool 'seedsplit' @('split');   Invoke-PnPause }
 function Invoke-PnActCombine { Write-Output "  $(T 'combine_prompt')"; Invoke-PnTool 'seedsplit' @('combine'); Invoke-PnPause }
-# Ghost-действия (из notepad-подменю). new --clipboard: ghostdraft сам показывает DANGER +
-# confirm; на Windows авто-очистки буфера НЕТ — лаунчер дублирует caveat честной подписью.
-# pipe читает stdin — подсказываем, что вставить и чем завершить (паритет с bash).
+# Ghost actions (from the notepad submenu). new --clipboard: ghostdraft itself shows DANGER +
+# confirm; on Windows there is NO clipboard auto-clear — the launcher mirrors the caveat with an honest label.
+# pipe reads stdin — we hint what to paste and how to finish (parity with bash).
 function Invoke-PnActGhostPipe { Write-Output "  $(T 'ghost_pipe_hint')"; Invoke-PnTool 'ghostdraft' @('pipe') }
 function Invoke-PnActGhostClip { Write-Output "  $(T 'ghost_clip_hint')"; Invoke-PnTool 'ghostdraft' @('new', '--clipboard') }
 function Invoke-PnActWatch {
-    # Перечитываем активную букву прямо здесь (как делает Get-PnDashboard): на Windows том
-    # монтируется на ПЕРВУЮ свободную букву динамически, и она могла появиться/смениться с
-    # прошлого рендера. Без рефреша start/stop рискуют получить устаревший/$null mount.
+    # Re-read the active letter right here (as Get-PnDashboard does): on Windows the volume
+    # is mounted onto the FIRST free letter dynamically, and it could have appeared/changed
+    # since the last render. Without the refresh start/stop risk getting a stale/$null mount.
     $script:VAULT_VOLUME = Get-PnVaultMount
-    # Охрана уже активна → действие работает как «снять» (toggle). Иначе из меню её было
-    # не выключить (тупик: только старт, без стопа).
+    # The guard is already active → the action works as "stop watching" (toggle). Otherwise it
+    # could not be turned off from the menu (a dead end: start only, no stop).
     if ((Get-PnVaultwatchState) -eq 'active') {
         Invoke-PnTool 'vaultwatch' @('stop', $script:VAULT_VOLUME)
         Invoke-PnPause; return
     }
-    # Сторожить том, про который неизвестно, смонтирован ли он, — это сессия охраны вокруг
-    # пустого места: состояние на диске появится, а охранять будет нечего.
+    # Watching a volume we do not even know is mounted is a guard session around an empty
+    # spot: the on-disk state would appear, yet there would be nothing to guard.
     if ((Get-PnVaultState) -eq 'unknown') {
         Write-Output "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
@@ -588,7 +588,7 @@ function Invoke-PnActWatch {
     Invoke-PnPause
 }
 
-# --- диспетчеры подменю (Pester зовёт напрямую). Возвращают $true = «назад». ---
+# --- submenu dispatchers (Pester calls them directly). They return $true = "back". ---
 function Invoke-PnVaultDispatch {
     param([string]$Choice)
     switch ($Choice) {
@@ -604,8 +604,8 @@ function Invoke-PnVaultDispatch {
 function Invoke-PnNotepadDispatch {
     param([string]$Choice)
     switch ($Choice) {
-        # Единая «заметка» = new --clipboard: пишешь/правишь, на выходе предлагает копию.
-        # На Windows авто-очистки буфера нет → GhostClip печатает честный DANGER-caveat.
+        # The single "note" = new --clipboard: you write/edit, on exit it offers a copy.
+        # On Windows there is no clipboard auto-clear → GhostClip prints an honest DANGER caveat.
         '1' { Invoke-PnActGhostClip; Invoke-PnPause }
         '2' { Invoke-PnActGhostPipe; Invoke-PnPause }
         { $_ -in '0', 'q', 'Q' } { return $true }
@@ -624,7 +624,7 @@ function Invoke-PnSecretsDispatch {
     return $false
 }
 
-# --- циклы подменю (рендер + read + dispatch до «назад»/EOF) ---
+# --- submenu loops (render + read + dispatch until "back"/EOF) ---
 function Invoke-PnMenuVault {
     while ($true) {
         Clear-Host
@@ -653,7 +653,7 @@ function Invoke-PnMenuSecrets {
     }
 }
 
-# Топ-диспетчер (Pester зовёт напрямую). Возвращает $true, если пора выходить.
+# Top dispatcher (Pester calls it directly). Returns $true when it is time to quit.
 function Invoke-PnDispatch {
     param([string]$Choice)
     switch ($Choice) {
@@ -663,7 +663,7 @@ function Invoke-PnDispatch {
         '4' { Invoke-PnMenuNotepad }
         '5' { Invoke-PnMenuSecrets }
         { $_ -in '0', 'q', 'Q' } { return $true }
-        default { }   # неверный ввод → перерисовать меню
+        default { }   # invalid input → redraw the menu
     }
     return $false
 }
@@ -695,12 +695,12 @@ function Invoke-PnMain {
         Clear-Host
         Write-Output (Get-PnDashboard)
         $choice = Read-PnLine "  $(T 'choose')"
-        if ($null -eq $choice) { break }   # EOF/закрытый stdin → чистый выход, не крутимся
+        if ($null -eq $choice) { break }   # EOF/closed stdin → clean exit, do not spin
         if (Invoke-PnDispatch $choice) { break }
     }
 }
 
-# Dot-source guard: при `. paranoid.ps1` (Pester) main НЕ запускается; ST_NO_MAIN=1 тоже глушит.
+# Dot-source guard: under `. paranoid.ps1` (Pester) main does NOT run; ST_NO_MAIN=1 also mutes it.
 if ($MyInvocation.InvocationName -ne '.' -and -not $env:ST_NO_MAIN) {
     Invoke-PnMain -Argv $args
 }

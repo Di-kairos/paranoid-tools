@@ -1,25 +1,25 @@
-﻿# seedsplit.ps1 — распределить секрет на доли (Shamir Secret Sharing), Windows-порт (BETA).
-# Зеркало macOS-версии (bash). Baseline: Windows PowerShell 5.1 (без PS7-only синтаксиса).
+﻿# seedsplit.ps1 — distribute a secret into shares (Shamir Secret Sharing), Windows port (BETA).
+# Mirror of the macOS version (bash). Baseline: Windows PowerShell 5.1 (no PS7-only syntax).
 #
-# Совместимость с bash-версией — БАЙТ-В-БАЙТ: тот же формат доли SSS3, те же таблицы GF(256)
-# (генератор 0x03, редуцирующий многочлен 0x11b), та же обёртка целостности
-# (0x55 | len(2B BE) | secret | tag(16B = первые 16 байт sha256)). Доля, созданная на macOS,
-# собирается на Windows и наоборот — KAT-набор из bash-тестов проверяет это в Pester.
+# Compatibility with the bash version is BYTE-FOR-BYTE: same SSS3 share format, same GF(256)
+# tables (generator 0x03, reducing polynomial 0x11b), same integrity wrapper
+# (0x55 | len(2B BE) | secret | tag(16B = first 16 bytes of sha256)). A share created on macOS
+# reassembles on Windows and vice versa — the KAT set from the bash tests verifies this in Pester.
 #
-# ЧЕСТНО (как и в bash-версии): качество долей = качество ГСЧ (берём crypto-RNG ОС, не самопал);
-# секрет читается из stdin/--file, НИКОГДА из argv (argv виден в списке процессов); доли
-# безопасны ровно настолько, насколько безопасно ты их ХРАНИШЬ и РАЗНОСИШЬ; совместимости со
-# SLIP-39 / аппаратными кошельками ПОКА НЕТ. См. README «Scope & limitations».
+# HONESTLY (as in the bash version): share quality = RNG quality (we use the OS crypto-RNG,
+# not something home-grown); the secret is read from stdin/--file, NEVER from argv (argv is
+# visible in the process list); shares are exactly as safe as how you STORE and DISTRIBUTE
+# them; NO compatibility with SLIP-39 / hardware wallets YET. See README "Scope & limitations".
 #
-# BETA: логика покрыта Pester (включая KAT-кросс-совместимость с macOS-долями); поведение на
-# реальном железе с экзотическими локалями/консолями широко не обкатано.
+# BETA: the logic is covered by Pester (including KAT cross-compatibility with macOS shares);
+# behavior on real hardware with exotic locales/consoles is not widely road-tested.
 #
-# Вывод данных (доли, секрет, версия) идёт в stdout через Write-Output / raw-stream — чтобы
-# `seedsplit split > shares.txt` и пайпы работали (Write-Host в PS 5.1 не попадает в stdout).
+# Data output (shares, secret, version) goes to stdout via Write-Output / raw stream — so that
+# `seedsplit split > shares.txt` and pipes work (Write-Host in PS 5.1 does not reach stdout).
 
 $VERSION = '0.5.5'
 
-# --- locale: en по умолчанию; ru — если ST_LANG или системная UI-локаль начинаются с 'ru' ---
+# --- locale: en by default; ru — if ST_LANG or the system UI locale starts with 'ru' ---
 function Get-SsLocale {
     $want = $env:ST_LANG
     if ($want) {
@@ -30,20 +30,20 @@ function Get-SsLocale {
 }
 $script:SS_LOCALE = if ($env:ST_LOCALE) { $env:ST_LOCALE } else { Get-SsLocale }
 
-# --- output helpers: ошибки/предупреждения в stderr, данные — через Write-Output у вызывающего ---
+# --- output helpers: errors/warnings to stderr, data — via Write-Output at the caller ---
 function Write-SsWarn { param([string]$Msg) [Console]::Error.WriteLine("[!] $Msg") }
-# SS_QUIET_ERR: глушилка для внутреннего self-check'а split (зеркало bash `2>/dev/null`) —
-# диагностика combine-путей не должна утекать в stderr при проверке СГЕНЕРИРОВАННЫХ долей.
+# SS_QUIET_ERR: silencer for split's internal self-check (mirror of bash `2>/dev/null`) —
+# combine-path diagnostics must not leak to stderr while checking the GENERATED shares.
 function Write-SsErr  { param([string]$Msg) if ($script:SS_QUIET_ERR) { return }; [Console]::Error.WriteLine("[x] $Msg") }
 
-# --- exit через исключение (Pester-safe: не убивает host-сессию) ---
+# --- exit via an exception (Pester-safe: does not kill the host session) ---
 class SsExit : System.Exception {
     [int]$Code
     SsExit([int]$code) : base("SsExit:$code") { $this.Code = $code }
 }
 function Stop-SsCommand { param([int]$Code = 1) throw [SsExit]::new($Code) }
 
-# --- i18n (таксономия сообщений seedsplit; зеркало bash t()) ---
+# --- i18n (seedsplit message taxonomy; mirror of bash t()) ---
 function T {
     param([string]$Key, [string]$A, [string]$B)
     $loc = $script:SS_LOCALE
@@ -141,9 +141,9 @@ Shares are only as safe as where you store them.
 '@
 }
 
-# === примитивы байтов/хеша ===
+# === byte/hash primitives ===
 
-# Все байты stdin (raw, без трансляции переводов строк). Секрет может быть бинарным.
+# All bytes of stdin (raw, no newline translation). The secret may be binary.
 function Read-SsStdinBytes {
     $stdin = [Console]::OpenStandardInput()
     $ms = New-Object System.IO.MemoryStream
@@ -158,7 +158,7 @@ function Read-SsStdinBytes {
     } finally { $ms.Dispose() }
 }
 
-# Raw-байты в stdout без перевода строки/перекодировки (важно для бинарного секрета).
+# Raw bytes to stdout without a newline/re-encoding (matters for a binary secret).
 function Write-SsStdoutBytes {
     param([byte[]]$Bytes)
     $stdout = [Console]::OpenStandardOutput()
@@ -166,7 +166,7 @@ function Write-SsStdoutBytes {
     $stdout.Flush()
 }
 
-# sha256(bytes) → строчный hex (как shasum/sha256sum).
+# sha256(bytes) → lowercase hex (like shasum/sha256sum).
 function Get-SsSha256Hex {
     param([byte[]]$Bytes)
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -195,7 +195,7 @@ function ConvertFrom-SsHex {
     return ,$bytes
 }
 
-# === GF(256): GF_EXP[i]=g^i (g=3), GF_LOG[v]=i. Редуцирующий многочлен 0x11b (AES). ===
+# === GF(256): GF_EXP[i]=g^i (g=3), GF_LOG[v]=i. Reducing polynomial 0x11b (AES). ===
 $script:GF_EXP = $null
 $script:GF_LOG = $null
 function Initialize-SsGF {
@@ -205,7 +205,7 @@ function Initialize-SsGF {
     for ($i = 0; $i -lt 255; $i++) {
         $script:GF_EXP[$i] = $x
         $script:GF_LOG[$x] = $i
-        $tt = ($x -shl 1) -band 0xff           # xtime(x) = x*2 в GF
+        $tt = ($x -shl 1) -band 0xff           # xtime(x) = x*2 in GF
         if ($x -band 0x80) { $tt = $tt -bxor 0x1b }
         $x = $tt -bxor $x                        # x*3 = xtime(x) XOR x
     }
@@ -216,26 +216,26 @@ function Get-SsGFMul {
     return $script:GF_EXP[($script:GF_LOG[$A] + $script:GF_LOG[$B]) % 255]
 }
 function Get-SsGFInv {
-    param([int]$A)   # A != 0 гарантирует вызывающий (проверка совпадающих точек)
+    param([int]$A)   # A != 0 is guaranteed by the caller (coincident-points check)
     return $script:GF_EXP[(255 - $script:GF_LOG[$A]) % 255]
 }
 
-# === Reed-Solomon: коррекция опечаток в переписанной с бумаги доле (формат SSS3) ===
-# Зеркало bash-реализации БАЙТ-В-БАЙТ: тот же GF(256), тот же генераторный многочлен,
-# те же 4 байта parity на чанк <=251 байт. Исправляет до двух неверных байт в чанке;
-# опечатка в структурной части доли (setid/T/x) не корректируется — её ловит chk4.
-# Декодер — Питерсон для t<=2 + перебор корней (на четырёх синдромах эквивалентен BM).
+# === Reed-Solomon: correcting typos in a share copied back from paper (SSS3 format) ===
+# BYTE-FOR-BYTE mirror of the bash implementation: same GF(256), same generator polynomial,
+# same 4 parity bytes per chunk of <=251 bytes. Corrects up to two wrong bytes per chunk;
+# a typo in the structural part of the share (setid/T/x) is not corrected — chk4 catches it.
+# The decoder is Peterson for t<=2 + root search (equivalent to BM on four syndromes).
 $script:RS_PARITY = 4
 $script:RS_CHUNK  = 251
 
-# Генераторный многочлен g(x) = (x+a^0)(x+a^1)(x+a^2)(x+a^3), убывающий порядок, G[0]=1.
+# Generator polynomial g(x) = (x+a^0)(x+a^1)(x+a^2)(x+a^3), descending order, G[0]=1.
 function Get-SsRsGen {
     $g = @(1)
     for ($i = 0; $i -lt $script:RS_PARITY; $i++) {
         $ai = $script:GF_EXP[$i]
         $ng = New-Object int[] ($g.Count + 1)
         for ($j = 0; $j -lt $g.Count; $j++) {
-            $ng[$j]     = $ng[$j] -bxor $g[$j]                       # умножение на x
+            $ng[$j]     = $ng[$j] -bxor $g[$j]                       # multiplication by x
             $ng[$j + 1] = $ng[$j + 1] -bxor (Get-SsGFMul $g[$j] $ai)
         }
         $g = $ng
@@ -243,7 +243,7 @@ function Get-SsRsGen {
     return $g
 }
 
-# Parity для сообщения (байты, старший первым) — остаток от msg*x^4 по модулю g.
+# Parity for a message (bytes, most significant first) — the remainder of msg*x^4 modulo g.
 function Get-SsRsParity {
     param([int[]]$Msg)
     $g = Get-SsRsGen
@@ -262,20 +262,20 @@ function Get-SsRsParity {
     return ,$par
 }
 
-# Синдромы кодового слова: S_i = CW(a^i). Все нули → ошибок нет.
+# Syndromes of the codeword: S_i = CW(a^i). All zeros → no errors.
 function Get-SsRsSyndromes {
     param([int[]]$Cw)
     $syn = New-Object int[] $script:RS_PARITY
     for ($i = 0; $i -lt $script:RS_PARITY; $i++) {
         $xi = $script:GF_EXP[$i]; $acc = 0
-        foreach ($c in $Cw) { $acc = (Get-SsGFMul $acc $xi) -bxor $c }   # схема Горнера
+        foreach ($c in $Cw) { $acc = (Get-SsGFMul $acc $xi) -bxor $c }   # Horner's scheme
         $syn[$i] = $acc
     }
     return ,$syn
 }
 
-# Исправить до двух байтовых ошибок. Возвращает @{ Ok = $true/$false; Cw = ...; Fixed = N }.
-# Ok=$false — не поддаётся (честный отказ; молча неверное слово не отдаём).
+# Correct up to two byte errors. Returns @{ Ok = $true/$false; Cw = ...; Fixed = N }.
+# Ok=$false — uncorrectable (honest refusal; we never silently return a wrong word).
 function Repair-SsRsCodeword {
     param([int[]]$Cw)
     $cw = @($Cw)
@@ -286,7 +286,7 @@ function Repair-SsRsCodeword {
         return @{ Ok = $true; Cw = $cw; Fixed = 0 }
     }
 
-    # --- одна ошибка: e = S0, X = S1/S0; сверяем по S2 и S3 ---
+    # --- one error: e = S0, X = S1/S0; verified against S2 and S3 ---
     if ($s0 -ne 0) {
         $X = Get-SsGFMul $s1 (Get-SsGFInv $s0)
         $e = $s0; $ok = $true
@@ -308,7 +308,7 @@ function Repair-SsRsCodeword {
         }
     }
 
-    # --- две ошибки (Питерсон) ---
+    # --- two errors (Peterson) ---
     $d = (Get-SsGFMul $s1 $s1) -bxor (Get-SsGFMul $s0 $s2)
     if ($d -eq 0) { return @{ Ok = $false; Cw = $cw; Fixed = 0 } }
     $invd = Get-SsGFInv $d
@@ -341,7 +341,7 @@ function Repair-SsRsCodeword {
     return @{ Ok = $false; Cw = $cw; Fixed = 0 }
 }
 
-# hex полезной нагрузки → hex parity (чанками по RS_CHUNK байт).
+# payload hex → parity hex (in chunks of RS_CHUNK bytes).
 function Get-SsRsParityHex {
     param([string]$Hex)
     Initialize-SsGF
@@ -356,9 +356,10 @@ function Get-SsRsParityHex {
     return $out
 }
 
-# hex нагрузки + hex parity → @{ Ok; Hex; Par; Fixed }. Ok=$false — декодер не сошёлся.
-# Par возвращаем обязательно: опечатка могла попасть в само поле parity, и тогда чинить надо
-# его (иначе chk4 сверялся бы со всё ещё испорченным par и починка не засчитывалась).
+# payload hex + parity hex → @{ Ok; Hex; Par; Fixed }. Ok=$false — the decoder did not converge.
+# Par is always returned: a typo could have landed in the parity field itself, in which case
+# it is the parity that must be repaired (otherwise chk4 would compare against the still
+# corrupted par and the repair would never count).
 function Repair-SsRsHex {
     param([string]$Hex, [string]$Par)
     Initialize-SsGF
@@ -396,7 +397,7 @@ function Invoke-SsSplit {
         }
     }
 
-    # Секрет — из stdin или --file. Никогда из argv.
+    # The secret comes from stdin or --file. Never from argv.
     [byte[]]$secret = $null
     if ($file) {
         if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
@@ -405,9 +406,9 @@ function Invoke-SsSplit {
         try { $secret = [System.IO.File]::ReadAllBytes($file) }
         catch { Write-SsErr (T 'split_file_unreadable' $file); Stop-SsCommand 1 }
     } elseif (-not [Console]::IsInputRedirected) {
-        # Интерактивный запуск: без промпта команда просто молчала, ожидая stdin, — это читалось
-        # как зависание, а набранный секрет оставался в scrollback консоли. -AsSecureString даёт
-        # ввод без эха; строку разворачиваем и сразу освобождаем BSTR (зеркало bash-порта).
+        # Interactive run: without a prompt the command just sat silent waiting for stdin — that
+        # read as a hang, and the typed secret stayed in the console scrollback. -AsSecureString
+        # gives echo-free input; we unwrap the string and free the BSTR immediately (mirror of the bash port).
         $sec = Read-Host -Prompt (T 'split_prompt') -AsSecureString
         $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
         try { $line = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
@@ -432,14 +433,14 @@ function Invoke-SsSplit {
     $L = $secret.Length
     if ($L -gt 65535) { Write-SsErr (T 'split_secret_big'); Stop-SsCommand 1 }
 
-    # Случайный set-id (4-байтный nonce) — НЕ производный от секрета (иначе confirmation-оракул).
+    # Random set-id (4-byte nonce) — NOT derived from the secret (otherwise a confirmation oracle).
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     try {
         $setidBytes = New-Object byte[] 4
         $rng.GetBytes($setidBytes)
         $setidHex = ConvertTo-SsHex $setidBytes
 
-        # Обёртка целостности: 0x55 | len(2B BE) | secret | tag(16B = первые 16 байт sha256(core)).
+        # Integrity wrapper: 0x55 | len(2B BE) | secret | tag(16B = first 16 bytes of sha256(core)).
         $hi = [int]($L -shr 8); $lo = [int]($L -band 0xff)
         $core = New-Object 'System.Collections.Generic.List[byte]'
         $core.Add([byte]0x55); $core.Add([byte]$hi); $core.Add([byte]$lo)
@@ -452,25 +453,25 @@ function Invoke-SsSplit {
 
         if ($null -eq $script:GF_EXP) { Initialize-SsGF }
 
-        # (t-1) случайных байт на каждый байт payload — старшие коэффициенты многочленов.
+        # (t-1) random bytes per payload byte — the higher coefficients of the polynomials.
         $need = ($t - 1) * $PL
         $rand = New-Object byte[] ([Math]::Max($need, 1))
         if ($need -gt 0) { $rng.GetBytes($rand) }
 
-        # Y[x] копит hex-строку каждой доли x=1..n.
+        # Y[x] accumulates the hex string of each share x=1..n.
         $Y = New-Object string[] ($n + 1)
         for ($x = 1; $x -le $n; $x++) { $Y[$x] = '' }
 
         $ri = 0
         for ($k = 0; $k -lt $PL; $k++) {
-            # Коэффициенты многочлена байта k: C[0]=секрет, C[1..t-1]=случайные.
+            # Polynomial coefficients for byte k: C[0]=the secret, C[1..t-1]=random.
             $C = New-Object int[] $t
             $C[0] = [int]$P[$k]
             for ($j = 1; $j -lt $t; $j++) { $C[$j] = [int]$rand[$ri]; $ri++ }
             for ($x = 1; $x -le $n; $x++) {
-                # Горнер: ev = C[t-1]; ev = ev*x XOR C[j], j=t-2..0.
-                # ВАЖНО: PowerShell регистронезависим к именам — скаляр НЕ называть $y,
-                # иначе он схлопнется с массивом долей $Y и затрёт его (в bash регистр значим).
+                # Horner: ev = C[t-1]; ev = ev*x XOR C[j], j=t-2..0.
+                # IMPORTANT: PowerShell is case-insensitive about names — do NOT call the scalar $y,
+                # or it collapses into the share array $Y and clobbers it (in bash case matters).
                 $ev = $C[$t - 1]
                 for ($j = $t - 2; $j -ge 0; $j--) {
                     $ev = Get-SsGFMul $ev $x
@@ -480,8 +481,8 @@ function Invoke-SsSplit {
             }
         }
 
-        # Доля: SSS3-<setid>-<T>-<x>-<hexY>-<par>-<chk4>. par — RS-parity над байтами hexY
-        # (чинит до 2 опечаток), chk4 — быстрая проверка целостности всей строки. Зеркало bash.
+        # Share: SSS3-<setid>-<T>-<x>-<hexY>-<par>-<chk4>. par — RS parity over the bytes of hexY
+        # (repairs up to 2 typos), chk4 — a quick integrity check of the whole line. Mirror of bash.
         $shares = New-Object 'System.Collections.Generic.List[string]'
         for ($x = 1; $x -le $n; $x++) {
             $par = Get-SsRsParityHex $Y[$x]
@@ -490,10 +491,10 @@ function Invoke-SsSplit {
             $shares.Add("$body-$chk")
         }
 
-        # Round-trip self-check ДО печати (зеркало bash seedsplit): собрать секрет ровно тем же
-        # путём, что combine, из первых T долей и сверить с исходным. Ловит любую поломку
-        # генерации/GF-математики РАНЬШЕ, чем юзер раздаст доли и сотрёт оригинал сида
-        # (AUDIT_2026-08-03 P0-2).
+        # Round-trip self-check BEFORE printing (mirror of bash seedsplit): reconstruct the secret
+        # by exactly the same path as combine from the first T shares and compare against the
+        # original. Catches any breakage of generation/GF math EARLIER than the user hands out
+        # shares and wipes the original seed (AUDIT_2026-08-03 P0-2).
         $scOk = $false
         $script:SS_QUIET_ERR = $true
         try {
@@ -506,8 +507,8 @@ function Invoke-SsSplit {
     } finally { $rng.Dispose() }
 }
 
-# === восстановление: парсинг + ВСЕ проверки + интерполяция Лагранжа в нуле ===
-# Возвращает [byte[]] секрет; при любой ошибке печатает err и Stop-SsCommand 1.
+# === reconstruction: parsing + ALL checks + Lagrange interpolation at zero ===
+# Returns the secret as [byte[]]; on any error prints err and Stop-SsCommand 1.
 function Get-SsRecoveredSecret {
     param([string]$Raw)
     if ($null -eq $script:GF_EXP) { Initialize-SsGF }
@@ -532,8 +533,8 @@ function Get-SsRecoveredSecret {
             Write-SsErr (T 'combine_not_sss2' $line); Stop-SsCommand 1
         }
         if ($fmt -eq 'SSS3') {
-            # Длина parity обязана соответствовать числу чанков: доля может выглядеть целой,
-            # но быть непочинимой — говорим об этом сразу (зеркало bash).
+            # The parity length must match the number of chunks: a share can look intact
+            # yet be unrepairable — we say so immediately (mirror of bash).
             $chunks = [int][Math]::Ceiling(($yh.Length / 2) / [double]$script:RS_CHUNK)
             if ($par.Length -ne $chunks * $script:RS_PARITY * 2) {
                 Write-SsErr (T 'combine_bad_parity' $xstr); Stop-SsCommand 1
@@ -542,9 +543,9 @@ function Get-SsRecoveredSecret {
         } else { $body = "SSS2-$sid-$Tstr-$xstr-$yh" }
         $want = (Get-SsSha256Hex ([System.Text.Encoding]::ASCII.GetBytes($body))).Substring(0, 4)
         if ($chk -ne $want) {
-            # Сумма не сошлась. У SSS3 есть parity — чиним самую длинную часть доли, но только
-            # если после правки сходится chk4: RS не покрывает setid/T/x, а неверный x дал бы
-            # неверную реконструкцию (зеркало bash).
+            # The checksum did not match. SSS3 has parity — repair the longest part of the share,
+            # but only if chk4 matches after the fix: RS does not cover setid/T/x, and a wrong x
+            # would yield a wrong reconstruction (mirror of bash).
             $repaired = $false
             if ($fmt -eq 'SSS3') {
                 $r = Repair-SsRsHex $yh $par
@@ -553,8 +554,8 @@ function Get-SsRecoveredSecret {
                     $tryWant = (Get-SsSha256Hex ([System.Text.Encoding]::ASCII.GetBytes($tryBody))).Substring(0, 4)
                     if ($chk -eq $tryWant) {
                         $yh = $r.Hex; $par = $r.Par; $repaired = $true
-                        # Копим, а не печатаем: «починил» уместно только после того, как сошёлся
-                        # 128-битный tag нагрузки (зеркало bash).
+                        # Accumulate rather than print: "repaired" is appropriate only after the
+                        # 128-bit payload tag has matched (mirror of bash).
                         [void]$notices.Add((T 'combine_repaired' $xstr $r.Fixed))
                     }
                 }
@@ -582,7 +583,7 @@ function Get-SsRecoveredSecret {
         Write-SsErr (T 'combine_below' "$tDecl" "$cnt"); Stop-SsCommand 1
     }
 
-    # Веса Лагранжа в нуле: w_i = prod_{j!=i} x_j * inv(x_i XOR x_j).
+    # Lagrange weights at zero: w_i = prod_{j!=i} x_j * inv(x_i XOR x_j).
     $m = $cnt
     $W = New-Object int[] $m
     for ($i = 0; $i -lt $m; $i++) {
@@ -597,7 +598,7 @@ function Get-SsRecoveredSecret {
         $W[$i] = $num
     }
 
-    # Восстановление каждого байта payload: acc = XOR_i ( y_i[p] * w_i ).
+    # Reconstruction of each payload byte: acc = XOR_i ( y_i[p] * w_i ).
     $PL = [int]($ylen / 2)
     $payload = New-Object byte[] $PL
     for ($p = 0; $p -lt $PL; $p++) {
@@ -609,7 +610,7 @@ function Get-SsRecoveredSecret {
         $payload[$p] = [byte]$acc
     }
 
-    # Обёртка: magic(0x55) | len(2) | secret | tag(16).
+    # Wrapper: magic(0x55) | len(2) | secret | tag(16).
     $failMsg = T 'combine_integrity'
     if ($PL -lt 20) { Write-SsErr $failMsg; Stop-SsCommand 1 }
     if ($payload[0] -ne 0x55) { Write-SsErr $failMsg; Stop-SsCommand 1 }
@@ -621,7 +622,7 @@ function Get-SsRecoveredSecret {
     $tagWant = (Get-SsSha256Hex $core).Substring(0, 32)
     if ($tagHave -ne $tagWant) { Write-SsErr $failMsg; Stop-SsCommand 1 }
 
-    # Целостность подтверждена — только теперь сообщаем о починенных долях.
+    # Integrity confirmed — only now do we report the repaired shares.
     foreach ($n in $notices) { Write-SsWarn $n }
 
     $secret = New-Object byte[] $len
@@ -629,7 +630,7 @@ function Get-SsRecoveredSecret {
     return ,$secret
 }
 
-# Доли — из FILE-аргументов (склейка) или из stdin (текст по строке на долю).
+# Shares come from FILE arguments (concatenated) or from stdin (text, one share per line).
 function Read-SsCombineInput {
     param([string[]]$ArgList)
     if ($ArgList -and $ArgList.Count -ge 1) {
@@ -650,9 +651,9 @@ function Invoke-SsCombine {
     param([string[]]$ArgList)
     $raw = Read-SsCombineInput $ArgList
     $secret = Get-SsRecoveredSecret $raw
-    # Контейнер passphrase-режима (-p, macOS/Linux): первые 8 байт = "Salted__" (openssl). На
-    # Windows авто-расшифровку не делаем (без жёсткой зависимости от openssl) — честно
-    # предупреждаем и отдаём контейнер как есть, чтобы расшифровать его openssl-конвейером.
+    # The passphrase-mode container (-p, macOS/Linux): first 8 bytes = "Salted__" (openssl). On
+    # Windows we do no auto-decryption (no hard dependency on openssl) — we honestly warn and
+    # hand over the container as is, to be decrypted with an openssl pipeline.
     if ($secret.Length -ge 8 -and
         $secret[0] -eq 0x53 -and $secret[1] -eq 0x61 -and $secret[2] -eq 0x6C -and $secret[3] -eq 0x74 -and
         $secret[4] -eq 0x65 -and $secret[5] -eq 0x64 -and $secret[6] -eq 0x5F -and $secret[7] -eq 0x5F) {
@@ -680,10 +681,10 @@ function Invoke-SsMain {
             { $_ -in 'version','-v','--version' } { Invoke-SsVersion }
             { $_ -in 'help','--help','-h' }       { Write-Output (Get-SsUsage) }
             'split'   {
-                # Доли пишем в stdout с переводом строки LF (\n), не CRLF: share-файл,
-                # созданный на Windows, должен собираться bash-версией на macOS без правок
-                # (bash `read -r` оставил бы \r и сломал regex доли). Функция возвращает
-                # строки (Write-Output) — это удобно тестам; в CLI склеиваем их через \n.
+                # Shares are written to stdout with LF (\n) newlines, not CRLF: a share file
+                # created on Windows must reassemble with the bash version on macOS unmodified
+                # (bash `read -r` would keep the \r and break the share regex). The function
+                # returns lines (Write-Output) — convenient for tests; the CLI joins them with \n.
                 $lines = @(Invoke-SsSplit -ArgList $rest)
                 if ($lines.Count -gt 0) {
                     $text = ($lines -join "`n") + "`n"
@@ -699,7 +700,7 @@ function Invoke-SsMain {
     }
 }
 
-# Dot-source guard: при `. seedsplit.ps1` (Pester) main НЕ запускается; ST_NO_MAIN=1 тоже глушит.
+# Dot-source guard: under `. seedsplit.ps1` (Pester) main does NOT run; ST_NO_MAIN=1 silences it too.
 if ($MyInvocation.InvocationName -ne '.' -and -not $env:ST_NO_MAIN) {
     Invoke-SsMain -Argv $args
 }
