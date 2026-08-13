@@ -323,6 +323,14 @@ _update_summary() {
     local now mt; now="$(date +%s 2>/dev/null)"; mt="$(_file_mtime "$cache")"
     if [[ -n "$now" && -n "$mt" ]] && (( now - mt < 86400 )); then cat "$cache"; return 0; fi
   fi
+  # The feed is warmed HERE, in this shell. Inside the loop _fetch_latest_tag runs in a command
+  # substitution, and a subshell's _FEED_CACHE assignment dies with the subshell — so the "one
+  # fetch covers all five tools" promise silently became one request per installed tool. The
+  # warmed value is inherited by those subshells, which then skip curl entirely. Failure is
+  # cached too (empty string), so a dead network still costs exactly one attempt.
+  if [[ -z "${PARANOID_UPDATE_FEED:-}" ]] && command -v curl >/dev/null 2>&1; then
+    _release_feed >/dev/null
+  fi
   local out="" tool inst latest
   for tool in securetrash vaultwatch panic seedsplit ghostdraft; do
     _tool_installed "$tool" || continue

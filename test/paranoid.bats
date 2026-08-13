@@ -485,6 +485,29 @@ EOF
   [[ "$output" != *"unbound variable"* ]]
 }
 
+# The docs promise ONE request to GitHub per check, not one per tool. The count is asserted
+# through a curl stub, because the defect is invisible from the output: five fetches produce
+# exactly the same banner as one. XDG_CACHE_HOME is redirected — without a feed file the
+# summary is cached for 24h, and the developer's real cache would decide the verdict.
+@test "one feed fetch serves all five tools (no per-tool network request)" {
+  local hits="$TMP/curl-hits"
+  : >"$hits"
+  cat >"$STUBS/curl" <<EOF
+#!/usr/bin/env bash
+echo hit >>"$hits"
+for t in securetrash vaultwatch panic seedsplit ghostdraft; do
+  echo "<title>\$t-v9.9.9</title>"
+done
+EOF
+  chmod +x "$STUBS/curl"
+
+  run_paranoid $'0\n' PARANOID_UPDATE_CHECK=1 XDG_CACHE_HOME="$TMP/cache" STUB_VER=0.1.7
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$hits" | tr -d ' ')" -eq 1 ]
+  [[ "$output" == *"securetrash 0.1.7→9.9.9"* ]]
+  [[ "$output" == *"ghostdraft 0.1.7→9.9.9"* ]]
+}
+
 @test "update check is silent when the installed version is already latest" {
   printf 'ghostdraft=v0.1.9\n' >"$TMP/feed"
   run_paranoid $'0\n' PARANOID_UPDATE_CHECK=1 PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.9
