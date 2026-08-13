@@ -4,13 +4,13 @@
 
 Split a secret across shares with Shamir Secret Sharing — no "unbreakable" snake oil.
 
-[![CI](https://github.com/Di-kairos/seedsplit/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/seedsplit/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-seedsplit.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-seedsplit.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
 ![shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)
 
-Part of the [Paranoid Tools](https://github.com/Di-kairos/paranoid-tools) ecosystem.
+Part of the [Paranoid Tools](../README.md) ecosystem.
 
 ## Why
 
@@ -61,7 +61,7 @@ curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/insta
 > snippet above and `install.sh` both verify it against a key pinned in this repo, and
 > the installer fails closed when it can't (see `SECURITY.md`). Residual risk: one
 > project key signs all five tools — see the ecosystem
-> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a specific version with `SEEDSPLIT_VERSION=0.5.5` instead of `latest` for
+> [threat model](../THREAT-MODEL.md). Pin a specific version with `SEEDSPLIT_VERSION=0.5.5` instead of `latest` for
 > reproducibility. Override the source with `SEEDSPLIT_BASE_URL` and the install path
 > with `SEEDSPLIT_DEST`.
 
@@ -215,7 +215,7 @@ oversell. So here are the honest limits:
   integrity tag, plus known-answer tests: FIPS-197 GF vectors and a frozen share-set).
 - The shared core (`lib/common.sh`) is **vendored** inline from securetrash, pinned to a
   git ref; `tools/vendor-common.sh --check` catches drift in CI. See
-  [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
+  [`paranoid-tools/README.md`](../README.md).
 
 ## Windows (beta)
 

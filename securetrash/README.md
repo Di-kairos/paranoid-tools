@@ -4,11 +4,13 @@
 
 Honest secure file deletion for macOS — no SSD snake oil.
 
-[![CI](https://github.com/Di-kairos/securetrash/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/securetrash/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-securetrash.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-securetrash.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS%2010.15%2B-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
 ![shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)
+
+Part of the [Paranoid Tools](../README.md) ecosystem.
 
 ![SecureTrash demo](demo/demo.gif)
 
@@ -94,7 +96,7 @@ bash install.sh
 > this repo, and the installer fails closed when it can't (see `SECURITY.md`). Another
 > channel is **Homebrew**, whose expected hash lives in the tap's git history rather than
 > alongside the download. Residual risk: one project key signs all five tools — see the
-> ecosystem [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a specific version with `ST_VERSION=0.5.6` instead of
+> ecosystem [threat model](../THREAT-MODEL.md). Pin a specific version with `ST_VERSION=0.5.6` instead of
 > `latest` for reproducibility.
 
 ### Windows (beta)

@@ -4,13 +4,13 @@
 
 One-step kill-switch — everything off the screen, vaults locked, one command.
 
-[![CI](https://github.com/Di-kairos/panic/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/panic/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-panic.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-panic.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
 ![shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)
 
-Part of the [Paranoid Tools](https://github.com/Di-kairos/paranoid-tools) ecosystem.
+Part of the [Paranoid Tools](../README.md) ecosystem.
 
 The scenario: a border crossing, coercion, "someone's coming." A single
 `panic now` (or a global hotkey via `panic hotkey`, default `cmd + alt - p`) **hides and locks** everything:
@@ -50,7 +50,7 @@ moving `main` branch) and verifies the hash **before** installing. Environment v
 > Ed25519 signature over `SHA256SUMS`: the snippet above and `install.sh` both verify it
 > against a key pinned in this repo, and the installer fails closed when it can't (see
 > `SECURITY.md`). Residual risk: one project key signs all five tools — see the ecosystem
-> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a
+> [threat model](../THREAT-MODEL.md). Pin a
 > specific version with `PANIC_VERSION=0.1.15` instead of `latest` for reproducibility.
 
 ## Usage
@@ -113,7 +113,7 @@ hotkey won't fire.
   `pbcopy`, `CGSession` for the screen lock).
 - The shared core (`lib/common.sh`) is **vendored** inline from securetrash, pinned to a
   git ref; `tools/vendor-common.sh --check` catches drift in CI. See
-  [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools).
+  [`paranoid-tools/README.md`](../README.md).
 - Force-detaches mounted disk images under `/Volumes` directly (`hdiutil detach -force`) — it
   does **not** call vaultwatch or run securetrash's vault-close hooks/state restore. Fast and
   blunt by design; the trade-off (a forced detach can lose unsaved writes) is stated below.

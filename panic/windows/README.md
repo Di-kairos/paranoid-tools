@@ -11,7 +11,7 @@ volumes, clears the clipboard, and locks the screen.
 > Run `panic status` first and try it on a throwaway volume before trusting it.
 
 > **Honest scope.** `panic` HIDES and LOCKS — it does **not** destroy data or wipe
-> the pagefile (use [`securetrash`](https://github.com/Di-kairos/securetrash) to
+> the pagefile (use [`securetrash`](../../securetrash/) to
 > destroy). Forced locking/dismount of a volume with open files may corrupt them —
 > a deliberate panic trade-off (hiding matters more in the moment).
 

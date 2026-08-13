@@ -4,11 +4,13 @@
 
 Честное безопасное удаление файлов на macOS — без иллюзий про SSD.
 
-[![CI](https://github.com/Di-kairos/securetrash/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/securetrash/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-securetrash.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-securetrash.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS%2010.15%2B-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
 ![shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)
+
+Часть экосистемы [Paranoid Tools](../README.md).
 
 ![SecureTrash demo](demo/demo.gif)
 
@@ -90,7 +92,7 @@ bash install.sh
 > `install.sh` — по ключу, пришитому в этом репо; без проверки установщик отказывает
 > (см. `SECURITY.md`). Другой канал — **Homebrew**, чей ожидаемый хеш лежит в git-истории
 > tap'а, а не рядом со скачиваемым файлом. Остаточный риск — один проектный ключ на все
-> пять тулов, см. [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `ST_VERSION=0.5.6` вместо `latest`.
+> пять тулов, см. [модель угроз](../THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `ST_VERSION=0.5.6` вместо `latest`.
 
 ### Windows (beta)
 

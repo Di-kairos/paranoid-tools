@@ -4,13 +4,13 @@
 
 Распределить секрет на доли (Shamir Secret Sharing) — без снейкойла про «надёжность».
 
-[![CI](https://github.com/Di-kairos/seedsplit/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/seedsplit/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-seedsplit.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-seedsplit.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
 ![shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)
 
-Часть экосистемы [Paranoid Tools](https://github.com/Di-kairos/paranoid-tools).
+Часть экосистемы [Paranoid Tools](../README.md).
 
 ## Зачем это
 
@@ -54,7 +54,7 @@ curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/insta
 > Подлинность даёт подпись Ed25519 над `SHA256SUMS`: её проверяют и сниппет выше, и
 > `install.sh` — по ключу, пришитому в этом репо; без проверки установщик отказывает
 > (см. `SECURITY.md`). Остаточный риск — один проектный ключ на все пять тулов, см.
-> [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для
+> [модель угроз](../THREAT-MODEL.ru.md). Для
 > воспроизводимости фиксируй версию: `SEEDSPLIT_VERSION=0.5.5` вместо `latest`. Источник
 > можно переопределить через `SEEDSPLIT_BASE_URL`, путь установки — через `SEEDSPLIT_DEST`.
 
@@ -193,7 +193,7 @@ tag** из sha256), поэтому `combine` возвращает **либо т�
   tag целостности, плюс known-answer тесты: GF-векторы FIPS-197 и замороженный набор
   долей).
 - Общее ядро (`lib/common.sh`) **вендорится** из securetrash inline, пиннуто к git-ref;
-  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
+  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](../README.md).
 
 ## Windows (beta)
 

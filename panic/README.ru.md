@@ -4,13 +4,13 @@
 
 Kill-switch в один шаг — всё с экрана, vault'ы заперты, одной командой.
 
-[![CI](https://github.com/Di-kairos/panic/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/panic/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-panic.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-panic.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
 ![shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)
 
-Часть экосистемы [Paranoid Tools](https://github.com/Di-kairos/paranoid-tools).
+Часть экосистемы [Paranoid Tools](../README.md).
 
 Сценарий: граница / принуждение / «кто-то идёт». Одной командой `panic now` (или
 глобальным хоткеем через `panic hotkey`, по умолчанию `cmd + alt - p`) **спрятать и запереть** всё:
@@ -48,7 +48,7 @@ curl -fsSL https://github.com/Di-kairos/panic/releases/latest/download/install.s
 > над `SHA256SUMS`: её проверяют и сниппет выше, и `install.sh` — по ключу, пришитому в
 > этом репо; без проверки установщик отказывает (см. `SECURITY.md`). Остаточный риск —
 > один проектный ключ на все пять тулов, см.
-> [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Зафиксируй конкретную
+> [модель угроз](../THREAT-MODEL.ru.md). Зафиксируй конкретную
 > версию через `PANIC_VERSION=0.1.15` вместо `latest` для воспроизводимости.
 
 ## Использование
@@ -105,7 +105,7 @@ panic hotkey uninstall               # снять
 - Single-file Bash, ноль зависимостей. Нативные примитивы macOS (`hdiutil`,
   `pbcopy`, `CGSession` c fallback `osascript` Ctrl+Cmd+Q для lock).
 - Общее ядро (`lib/common.sh`) **вендорится** из securetrash inline, пиннуто к git-ref;
-  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
+  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](../README.md).
 - Форс-отмонтирует смонтированные disk-образы под `/Volumes` напрямую (`hdiutil detach -force`) —
   НЕ зовёт vaultwatch и не запускает vault-close хуки securetrash. Быстро и грубо намеренно;
   риск (форс-detach может потерять несохранённые записи) описан ниже.

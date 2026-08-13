@@ -10,7 +10,7 @@ password / key) so that as few traces as possible survive afterward.
 
 > **Honest scope — read this.** Windows has **no built-in RAM disk** (unlike macOS
 > `hdiutil ram://`). So the only place a draft is *truly* ephemeral is **inside an
-> open [`securetrash`](https://github.com/Di-kairos/securetrash) vault** (a BitLocker
+> open [`securetrash`](../../securetrash/) vault** (a BitLocker
 > VHDX — closing it crypto-shreds the contents). With **no vault open**, ghostdraft
 > falls back to an **on-disk temp file** (ACL-locked to you) and best-effort
 > overwrite-shred — which is **not a guarantee on an SSD** (wear-leveling). For a real

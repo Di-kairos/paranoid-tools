@@ -2,9 +2,9 @@
 
 # vaultwatch
 
-An honest watchdog for an open vault — part of the [Paranoid Tools](https://github.com/Di-kairos/paranoid-tools) ecosystem.
+An honest watchdog for an open vault — part of the [Paranoid Tools](../README.md) ecosystem.
 
-[![CI](https://github.com/Di-kairos/vaultwatch/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/vaultwatch/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-vaultwatch.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-vaultwatch.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
@@ -52,7 +52,7 @@ the hash **before** installing. Environment variables: `VW_VERSION` (pin a speci
 > over `SHA256SUMS`: the snippet above and `install.sh` both verify it against a key
 > pinned in this repo, and the installer fails closed when it can't (see `SECURITY.md`).
 > Residual risk: one project key signs all five tools — see the ecosystem
-> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md). Pin a version with `VW_VERSION=0.1.14` instead of `latest`
+> [threat model](../THREAT-MODEL.md). Pin a version with `VW_VERSION=0.1.14` instead of `latest`
 > for reproducibility.
 
 > The current public release is **v0.1.14** (signed, with `install.sh` + `SHA256SUMS`).
@@ -113,7 +113,7 @@ vaultwatch — session report
 
 - Single-file Bash, zero dependencies. Native macOS primitives.
 - The shared core (`lib/common.sh`) is **vendored** inline from securetrash, pinned to a
-  git-ref; `tools/vendor-common.sh --check` catches drift in CI. See [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
+  git-ref; `tools/vendor-common.sh --check` catches drift in CI. See [`paranoid-tools/README.md`](../README.md).
 
 ## Scope & limitations
 

@@ -3,12 +3,12 @@
 # ghostdraft
 
 Эфемерный черновик для чувствительного текста — часть экосистемы
-[Paranoid Tools](https://github.com/Di-kairos/paranoid-tools).
+[Paranoid Tools](../README.md).
 
 Написать/просмотреть seed, пароль или ключ так, чтобы после закрытия следов не
 осталось в обычных местах (`~/.*_history`, tmp, recent docs, editor backups/viminfo).
 
-[![CI](https://github.com/Di-kairos/ghostdraft/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/ghostdraft/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-ghostdraft.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-ghostdraft.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
@@ -52,7 +52,7 @@ curl -fsSL https://github.com/Di-kairos/ghostdraft/releases/latest/download/inst
 > её проверяют и сниппет выше, и `install.sh` — по ключу, пришитому в этом репо; без
 > проверки установщик отказывает (см. `SECURITY.md`). Остаточный риск — один проектный
 > ключ на все пять тулов, см.
-> [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md).
+> [модель угроз](../THREAT-MODEL.ru.md).
 
 > Текущий публичный релиз — **v0.1.18** (подписан, с `install.sh` + `SHA256SUMS`).
 > Для воспроизводимости фиксируй его: `GHOSTDRAFT_VERSION=0.1.18` вместо `latest`.
@@ -82,7 +82,7 @@ vim. Запись макросов намеренно отключена: про
 - Single-file Bash, ноль зависимостей. Нативные примитивы macOS (`hdiutil` для RAM-диска,
   `$EDITOR`/nano). `new` предпочитает писать **внутрь открытого vault** securetrash.
 - Общее ядро (`lib/common.sh`) **вендорится** из securetrash inline, пиннуто к git-ref;
-  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
+  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](../README.md).
 
 ## Куда `new` пишет черновик (по приоритету)
 

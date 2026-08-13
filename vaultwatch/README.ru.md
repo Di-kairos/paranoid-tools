@@ -2,9 +2,9 @@
 
 # vaultwatch
 
-Честный сторож открытого vault — часть экосистемы [Paranoid Tools](https://github.com/Di-kairos/paranoid-tools).
+Честный сторож открытого vault — часть экосистемы [Paranoid Tools](../README.md).
 
-[![CI](https://github.com/Di-kairos/vaultwatch/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/vaultwatch/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-vaultwatch.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-vaultwatch.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
 ![shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen)
@@ -49,7 +49,7 @@ curl -fsSL https://github.com/Di-kairos/vaultwatch/releases/latest/download/inst
 > Ed25519 над `SHA256SUMS`: её проверяют и сниппет выше, и `install.sh` — по ключу,
 > пришитому в этом репо; без проверки установщик отказывает (см. `SECURITY.md`).
 > Остаточный риск — один проектный ключ на все пять тулов, см.
-> [модель угроз](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.14` вместо `latest`.
+> [модель угроз](../THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.14` вместо `latest`.
 
 > Текущий публичный релиз — **v0.1.14** (подписан, с `install.sh` + `SHA256SUMS`).
 > Для воспроизводимости фиксируй его: `VW_VERSION=0.1.14` вместо `latest`.
@@ -105,7 +105,7 @@ vaultwatch — session report
 
 - Single-file Bash, ноль зависимостей. Нативные примитивы macOS.
 - Общее ядро (`lib/common.sh`) **вендорится** из securetrash inline, пиннуто к git-ref;
-  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
+  `tools/vendor-common.sh --check` ловит дрейф в CI. См. [`paranoid-tools/README.md`](../README.md).
 
 ## Scope & limitations
 

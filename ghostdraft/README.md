@@ -3,12 +3,12 @@
 # ghostdraft
 
 Ephemeral scratchpad for sensitive text — part of the
-[Paranoid Tools](https://github.com/Di-kairos/paranoid-tools) ecosystem.
+[Paranoid Tools](../README.md) ecosystem.
 
 Write or view a seed phrase, password or key so that once you close it, no copy is
 left in the usual places (`~/.*_history`, tmp, recent docs, editor backups/viminfo).
 
-[![CI](https://github.com/Di-kairos/ghostdraft/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/ghostdraft/actions/workflows/ci.yml)
+[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-ghostdraft.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci-ghostdraft.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS-blue)
 ![windows](https://img.shields.io/badge/Windows-beta-orange)
@@ -53,7 +53,7 @@ the source for forks/tests).
 > signature over `SHA256SUMS`: the snippet above and `install.sh` both verify it against
 > a key pinned in this repo, and the installer fails closed when it can't (see
 > `SECURITY.md`). Residual risk: one project key signs all five tools — see the ecosystem
-> [threat model](https://github.com/Di-kairos/paranoid-tools/blob/main/THREAT-MODEL.md).
+> [threat model](../THREAT-MODEL.md).
 
 > The current public release is **v0.1.18** (signed, with `install.sh` + `SHA256SUMS`).
 > Pin it for reproducibility with `GHOSTDRAFT_VERSION=0.1.18` instead of `latest`.
@@ -85,7 +85,7 @@ variable, also honored by securetrash) — or a `ru*` system locale — to switc
 - Single-file Bash, zero dependencies. Native macOS primitives (`hdiutil` for the RAM disk,
   `$EDITOR`/nano). `new` prefers to write **inside an open securetrash vault**.
 - The shared core (`lib/common.sh`) is **vendored** inline from securetrash, pinned to a
-  git ref; `tools/vendor-common.sh --check` catches drift in CI. See [`paranoid-tools/README.md`](https://github.com/Di-kairos/paranoid-tools#readme).
+  git ref; `tools/vendor-common.sh --check` catches drift in CI. See [`paranoid-tools/README.md`](../README.md).
 
 ## Where `new` writes the draft (by priority)
 
