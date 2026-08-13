@@ -1,0 +1,862 @@
+#!/usr/bin/env bash
+# seedsplit — распределить секрет на доли (Shamir Secret Sharing), экосистема Paranoid Tools.
+#
+# Разбить seed/пароль/ключ на N долей так, что любые T из них восстанавливают секрет,
+# а T-1 долей не дают о нём НИЧЕГО (порог Шамира). Чтобы один носитель/бэкап не был
+# единой точкой отказа и компрометации.
+#
+# ЧЕСТНО (тут особенно легко скатиться в снейкойл — НЕ обещаем больше, чем делаем):
+#   - качество долей = качество ГСЧ: берём /dev/urandom, не самопал;
+#   - секрет в argv виден в `ps` — ввод только через stdin/файл, не аргументом;
+#   - доли безопасны ровно настолько, насколько безопасно ты их ХРАНИШЬ и РАЗНОСИШЬ;
+#     порог защищает от утечки <T долей, но не от потери ≥(N-T+1) долей;
+#   - совместимости со SLIP-39 / аппаратными кошельками ПОКА НЕТ (1024-словарь + RS1024 +
+#     шифрование — это отдельное решение по объёму, не «ноль зависимостей»); решаем в паке.
+# Ядро split/combine над GF(256) реализовано (pack 2). См. README «Scope & limitations».
+set -euo pipefail
+
+VERSION="0.5.5"
+
+# === BEGIN vendored common (pin: 221f2c7fbed10a220b832aab9264e6665581b514) ===
+# shellcheck shell=bash
+# common.sh — переиспользуемые примитивы экосистемы Paranoid Tools.
+#
+# Канонический источник: securetrash/lib/common.sh. Инструменты экосистемы
+# (vaultwatch/panic/ghostdraft) вендорят его inline между маркерами
+# (см. CLAUDE.md «Vendoring»). Файл sourceable и идемпотентен (двойной source/inline
+# безопасны — guard через if-обёртку, без top-level return, поэтому корректен и когда
+# блок вставлен в исполняемый скрипт).
+#
+# Даёт tool-агностичные примитивы: локаль (ST_LOCALE), цветной вывод (info/warn/err),
+# подтверждение (confirm), детект платформы macOS (require_macos/is_ssd/_disk_kind/
+# _fv_state/filevault_on), детект примонтированного тома (_volume_mounted), канонизацию
+# пути (_abspath). Своя i18n-таблица — у каждого инструмента.
+#
+# ВЕНДОРИНГ — зарезервированные имена (не переопределять в host-скрипте): функции
+# info warn err confirm require_macos is_ssd _disk_kind _fv_state filevault_on
+# _volume_mounted _abspath _st_detect_locale; переменные ST_LOCALE C_RED C_GRN C_YEL
+# C_RST _ST_COMMON_LOADED.
+
+# Идемпотентность через if-обёртку (а не top-level return): безопасно при source,
+# исполнении и inline-вставке. Определения функций внутри if регистрируются глобально.
+if [[ -z "${_ST_COMMON_LOADED:-}" ]]; then
+  _ST_COMMON_LOADED=1
+
+  # --- locale ---
+  # en по умолчанию; ru — если ST_LANG или системная локаль начинаются с 'ru'.
+  _st_detect_locale() {
+    local want="${ST_LANG:-}"
+    if [[ -n "$want" ]]; then
+      case "$want" in ru*) echo ru ;; *) echo en ;; esac
+      return
+    fi
+    local sys="${LC_ALL:-${LANG:-}}"
+    case "$sys" in ru*) echo ru ;; *) echo en ;; esac
+  }
+  # Уважаем заранее выставленный ST_LOCALE (host может переопределить).
+  ST_LOCALE="${ST_LOCALE:-$(_st_detect_locale)}"
+
+  # --- output ---
+  # Цвет только в TTY (в пайпах/файлах — без ANSI).
+  if [[ -t 1 ]]; then
+    C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'; C_RST=$'\033[0m'
+  else
+    C_RED=""; C_GRN=""; C_YEL=""; C_RST=""
+  fi
+  info() { echo "${C_GRN}✓${C_RST} $*"; }
+  warn() { echo "${C_YEL}!${C_RST} $*" >&2; }
+  err()  { echo "${C_RED}✗${C_RST} $*" >&2; }
+
+  # --- confirm ---
+  # Подтверждение необратимой операции. ST_ASSUME_YES=1 обходит вопрос (скрипты/тесты).
+  # Возвращает 0 только при точном вводе 'yes' (EOF/пусто → отказ, fail-closed).
+  # Суффикс намеренно продублирован из i18n securetrash (lib без таблицы строк).
+  confirm() {
+    local prompt="$1" ans suffix
+    [[ "${ST_ASSUME_YES:-0}" == "1" ]] && return 0
+    case "$ST_LOCALE" in ru) suffix="[введите yes]" ;; *) suffix="[type yes]" ;; esac
+    read -r -p "$prompt $suffix: " ans
+    [[ "$ans" == "yes" ]]
+  }
+
+  # --- platform (macOS) ---
+  require_macos() {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+      case "$ST_LOCALE" in
+        ru) err "работает только на macOS." ;;
+        *)  err "runs on macOS only." ;;
+      esac
+      exit 1
+    fi
+  }
+
+  # Диск под путём — SSD? (diskutil info: "Solid State: Yes")
+  is_ssd() {
+    local path="${1:-/}"
+    diskutil info "$path" 2>/dev/null | grep -qi "Solid State:.*Yes"
+  }
+
+  # Тип диска: ssd | hdd | unknown. Честность важнее догадок: неизвестный тип
+  # НЕ приравниваем к hdd-эффективному (нет поля "Solid State" → unknown).
+  _disk_kind() {
+    local path="${1:-/}" out
+    out="$(diskutil info "$path" 2>/dev/null)"
+    if grep -qi "Solid State:.*Yes" <<<"$out"; then echo ssd
+    elif grep -qi "Solid State:.*No" <<<"$out"; then echo hdd
+    else echo unknown; fi
+  }
+
+  # Состояние FileVault — tri-state: on / off / unknown. Отличать «выключен» от
+  # «не смогли определить» обязательно: инструмент, который печатает «ВЫКЛЮЧЕН» на
+  # отсутствующий fdesetup, врёт пользователю о его защите.
+  #
+  # Вывод захватываем в переменную и матчим here-string, а НЕ через прямой пайп
+  # `fdesetup ... | grep -q`: под `set -o pipefail` такой пайп ложно «падает» — grep -q
+  # закрывает канал на первом совпадении, источник получает SIGPIPE (141), и pipefail
+  # делает весь конвейер ненулевым (ложный unknown).
+  _fv_state() {
+    command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
+    local s; s="$(fdesetup status 2>/dev/null)"
+    if   grep -qi "FileVault is On"  <<<"$s"; then echo on
+    elif grep -qi "FileVault is Off" <<<"$s"; then echo off
+    else echo unknown; fi
+  }
+
+  # FileVault включён? Двоичная обёртка над _fv_state для мест, где «не определили»
+  # безопасно трактовать как «не включён» (fail-closed).
+  filevault_on() {
+    [[ "$(_fv_state)" == on ]]
+  }
+
+  # Том РЕАЛЬНО примонтирован по этому пути? Единственный ответ на этот вопрос в
+  # экосистеме — раньше их было три: `[[ -d ]]` (лаунчер), `mount | grep` (ghostdraft),
+  # mountedVolumeURLs (GUI), и на остаточном каталоге /Volumes/… они расходились:
+  # каталог, оставшийся от прошлого монтирования (или созданный руками), читался как
+  # «ОТКРЫТ». Проверяем таблицу монтирования, а не наличие каталога.
+  #
+  # Разбираем строку `mount` целиком и сравниваем точку монтирования ЦЕЛИКОМ, а не
+  # ищем подстроку: `grep -F " on /Volumes/Foo "` считает смонтированным `/Volumes/Foo`,
+  # когда на деле смонтирован `/Volumes/Foo Bar` — пробел внутри имени тома выглядит
+  # как разделитель перед опциями (нашёл Codex). Формат строки на macOS:
+  #   /dev/diskNsM on /Volumes/Имя тома (apfs, local, nobrowse)
+  # Имя тома может содержать и пробелы, и `(`, поэтому опции срезаем КОРОТЧАЙШИМ
+  # суффиксом ` (*` — у тома `/Volumes/Foo (1)` останется именно `/Volumes/Foo (1)`.
+  #
+  # Код возврата — три состояния, а не два: 0 — примонтирован, 1 — точно НЕ примонтирован,
+  # 2 — таблицу монтирования прочитать не удалось. Предикатным вызовам (`if
+  # _volume_mounted …`) двойка честно читается как «не смонтирован» (fail-closed: не пишем
+  # черновик в путь, про который не знаем), а тот, кто показывает состояние пользователю,
+  # обязан отличить «закрыт» от «не смогли посмотреть» — иначе дашборд зелёным напишет
+  # «закрыт» над открытым сейфом.
+  _volume_mounted() {
+    local vol="${1:-}" line mp out
+    [[ -n "$vol" ]] || return 1
+    command -v mount >/dev/null 2>&1 || return 2
+    out="$(mount 2>/dev/null)" || return 2
+    [[ -n "$out" ]] || return 2   # пустая таблица невозможна (корень всегда смонтирован)
+    while [[ "$vol" == */ && "$vol" != "/" ]]; do vol="${vol%/}"; done
+    while IFS= read -r line; do
+      [[ "$line" == *" on "* ]] || continue
+      mp="${line#* on }"
+      mp="${mp% (*}"
+      [[ "$mp" == "$vol" ]] && return 0
+    done <<<"$out"
+    return 1
+  }
+
+  # --- path ---
+  # Физический канонический путь: режет trailing-slash, резолвит .. и симлинки,
+  # ВКЛЮЧАЯ финальный компонент. Непустая строка или код !=0, если путь недоступен.
+  _abspath() {
+    local p="$1"
+    while [[ "$p" == */ && "$p" != "/" ]]; do p="${p%/}"; done
+    if [[ -d "$p" ]]; then
+      ( cd -P -- "$p" 2>/dev/null && pwd -P ); return
+    fi
+    local d b
+    d="$(cd -P -- "$(dirname -- "$p")" 2>/dev/null && pwd -P)" || return 1
+    b="$(basename -- "$p")"
+    printf '%s/%s' "${d%/}" "$b"
+  }
+fi
+# === END vendored common ===
+
+# --- i18n (таблица строк seedsplit; общие примитивы — в vendored common) ---
+t() {
+  local key="$1"; shift
+  case "$ST_LOCALE:$key" in
+    en:usage)
+      cat <<'EOF'
+Usage: seedsplit <command> [args]
+
+Commands:
+  split [-n N] [-t T] [-p] [--file F]
+                                   Split a secret (from stdin or --file) into N
+                                   shares; any T reconstruct it. Default: -n 3 -t 2.
+                                   -p/--passphrase: encrypt the secret first, so a
+                                   reconstructed threshold still needs the passphrase.
+  combine [FILE...]                Reconstruct the secret from >=T shares (stdin, one
+                                   per line, or FILEs). Prompts for the passphrase if
+                                   the shares were split with -p.
+  verify  [FILE...]                Check that >=T shares reconstruct WITHOUT printing the secret.
+  version                          Show the version
+
+Secret is read from stdin/--file, NEVER argv (argv is visible in `ps`).
+-p uses openssl (AES-256-CBC + PBKDF2), present by default on macOS/Linux — the core
+split/combine stay zero-dependency; only -p needs openssl.
+seedsplit does NOT yet interoperate with SLIP-39 / hardware wallets — that is a
+scope decision for a later pack. Shares are only as safe as where you store them.
+EOF
+      ;;
+    ru:usage)
+      cat <<'EOF'
+Usage: seedsplit <command> [args]
+
+Commands:
+  split [-n N] [-t T] [-p] [--file F]
+                                   Разбить секрет (из stdin или --file) на N долей;
+                                   любые T восстанавливают его. По умолчанию: -n 3 -t 2.
+                                   -p/--passphrase: сначала зашифровать секрет, чтобы
+                                   собранный порог всё равно требовал passphrase.
+  combine [FILE...]                Восстановить секрет из >=T долей (stdin по строке,
+                                   либо FILE). Спросит passphrase, если доли сделаны с -p.
+  verify  [FILE...]                Проверить восстановимость из >=T долей БЕЗ печати секрета.
+  version                          Показать версию
+
+Секрет читается из stdin/--file, НИКОГДА из argv (argv виден в `ps`).
+-p использует openssl (AES-256-CBC + PBKDF2), есть по умолчанию на macOS/Linux — ядро
+split/combine остаётся zero-dependency; openssl нужен только для -p.
+seedsplit ПОКА не совместим со SLIP-39 / аппаратными кошельками — это решение по
+объёму на будущий пак. Доли безопасны ровно настолько, насколько безопасно ты их хранишь.
+EOF
+      ;;
+    en:unknown_cmd) printf 'Unknown command: %s' "$1" ;;
+    ru:unknown_cmd) printf 'Неизвестная команда: %s' "$1" ;;
+
+    # --- split errors ---
+    en:split_bad_arg)       printf 'split: unknown argument: %s' "$1" ;;
+    ru:split_bad_arg)       printf 'split: неизвестный аргумент: %s' "$1" ;;
+    en:split_file_unreadable) printf 'split: file not readable: %s' "$1" ;;
+    ru:split_file_unreadable) printf 'split: файл недоступен: %s' "$1" ;;
+    en:split_empty_secret)  printf 'split: empty secret (feed it via stdin or --file)' ;;
+    ru:split_empty_secret)  printf 'split: пустой секрет (подай через stdin или --file)' ;;
+    en:split_prompt)        printf 'Secret to split (not echoed; Enter when done): ' ;;
+    ru:split_prompt)        printf 'Секрет для разбиения (ввод не отображается; Enter — готово): ' ;;
+    en:split_nt_not_num)    printf 'split: -n/-t must be numbers' ;;
+    ru:split_nt_not_num)    printf 'split: -n/-t должны быть числами' ;;
+    en:split_t_min)         printf 'split: threshold -t must be >=2 (else a share equals the whole secret)' ;;
+    ru:split_t_min)         printf 'split: порог -t должен быть >=2 (иначе доля = весь секрет)' ;;
+    en:split_n_lt_t)        printf 'split: number of shares -n (%s) must be >= threshold -t (%s)' "$1" "$2" ;;
+    ru:split_n_lt_t)        printf 'split: число долей -n (%s) должно быть >= порога -t (%s)' "$1" "$2" ;;
+    en:split_n_max)         printf 'split: -n cannot exceed 255 (GF(256) evaluation points)' ;;
+    ru:split_n_max)         printf 'split: -n не может превышать 255 (точки оценки GF(256))' ;;
+    en:split_secret_big)    printf 'split: secret too large (>65535 bytes)' ;;
+    ru:split_secret_big)    printf 'split: секрет слишком большой (>65535 байт)' ;;
+    en:split_low_entropy)   printf 'split: not enough entropy from /dev/urandom' ;;
+    ru:split_low_entropy)   printf 'split: мало энтропии из /dev/urandom' ;;
+    en:split_selfcheck_fail) printf 'split: internal self-check FAILED — the generated shares do not reconstruct the secret. Nothing was printed; do NOT rely on any partial output. Please re-run and report this.' ;;
+    ru:split_selfcheck_fail) printf 'split: внутренняя self-проверка НЕ ПРОШЛА — сгенерированные доли не собирают секрет. Ничего не напечатано; НЕ полагайся на частичный вывод. Перезапусти и сообщи об этом.' ;;
+
+    # --- combine errors (taxonomy) ---
+    en:combine_not_sss2)    printf 'combine: line does not look like an SSS2/SSS3 share: %s' "$1" ;;
+    ru:combine_not_sss2)    printf 'combine: строка не похожа на долю формата SSS2/SSS3: %s' "$1" ;;
+    en:combine_bad_parity)  printf 'combine: share x=%s has a parity field of the wrong length — the share is readable but cannot be repaired. Re-copy it from the paper.' "$1" ;;
+    ru:combine_bad_parity)  printf 'combine: у доли x=%s поле parity неверной длины — доля читается, но чинить её нечем. Перепиши её с бумаги заново.' "$1" ;;
+    en:combine_repaired)    printf 'share x=%s: %s mistyped byte(s) corrected from the parity field.' "$1" "$2" ;;
+    ru:combine_repaired)    printf 'доля x=%s: по parity исправлено байт с опечаткой: %s.' "$1" "$2" ;;
+    en:combine_unrepairable) printf 'combine: share x=%s is damaged beyond what the parity field can fix (SSS3 corrects up to 2 mistyped bytes per share). Re-copy it from the paper.' "$1" ;;
+    ru:combine_unrepairable) printf 'combine: доля x=%s повреждена сильнее, чем чинит parity (SSS3 исправляет до 2 байт с опечаткой на долю). Перепиши её с бумаги заново.' "$1" ;;
+    en:combine_corrupt)     printf 'combine: share corrupted (checksum mismatch): x=%s' "$1" ;;
+    ru:combine_corrupt)     printf 'combine: доля повреждена (контрольная сумма не сошлась): x=%s' "$1" ;;
+    en:combine_bad_x)       printf 'combine: invalid share index x=%s' "$1" ;;
+    ru:combine_bad_x)       printf 'combine: недопустимый номер доли x=%s' "$1" ;;
+    en:combine_diff_splits) printf 'combine: shares from DIFFERENT splits (set-id mismatch: %s != %s)' "$1" "$2" ;;
+    ru:combine_diff_splits) printf 'combine: доли от РАЗНЫХ сплитов (set-id не совпал: %s != %s)' "$1" "$2" ;;
+    en:combine_diff_t)      printf 'combine: shares declare a different threshold T (%s != %s) — incompatible set' "$1" "$2" ;;
+    ru:combine_diff_t)      printf 'combine: доли заявляют разный порог T (%s != %s) — несовместимый набор' "$1" "$2" ;;
+    en:combine_dup)         printf 'combine: duplicate share x=%s' "$1" ;;
+    ru:combine_dup)         printf 'combine: повторяющаяся доля x=%s' "$1" ;;
+    en:combine_diff_len)    printf 'combine: shares of different length — incompatible set' ;;
+    ru:combine_diff_len)    printf 'combine: доли разной длины — несовместимый набор' ;;
+    en:combine_no_shares)   printf 'combine: no shares provided' ;;
+    ru:combine_no_shares)   printf 'combine: не подано ни одной доли' ;;
+    en:combine_below)       printf 'combine: below threshold — need at least %s shares, got %s' "$1" "$2" ;;
+    ru:combine_below)       printf 'combine: ниже порога — нужно минимум %s долей, подано %s' "$1" "$2" ;;
+    en:combine_coincident)  printf 'combine: coincident share points' ;;
+    ru:combine_coincident)  printf 'combine: совпадающие точки долей' ;;
+    en:combine_integrity)   printf 'combine: reconstruction failed the integrity check (corrupted shares or incompatible set)' ;;
+    ru:combine_integrity)   printf 'combine: восстановление не прошло проверку целостности (повреждение долей или несовместимый набор)' ;;
+
+    # --- verify ---
+    en:verify_ok)           printf 'verify: shares are consistent, the secret is recoverable (%s bytes). The secret is NOT shown.' "$1" ;;
+    ru:verify_ok)           printf 'verify: доли согласованы, секрет восстановим (%s байт). Секрет НЕ показан.' "$1" ;;
+
+    # --- passphrase layer (opt-in: encrypts the secret with openssl AES-256/PBKDF2 BEFORE
+    #     splitting, so a reconstructed threshold still needs the passphrase) ---
+    en:pp_no_openssl)       printf 'passphrase mode needs openssl (not found on PATH). Core split/combine stay zero-dep; only --passphrase uses it.' ;;
+    ru:pp_no_openssl)       printf 'режим passphrase требует openssl (нет в PATH). Ядро split/combine остаётся zero-dep; openssl нужен только для --passphrase.' ;;
+    en:pp_set)              printf 'Passphrase (encrypts the secret before splitting): ' ;;
+    ru:pp_set)              printf 'Passphrase (шифрует секрет перед разбиением): ' ;;
+    en:pp_confirm)          printf 'Confirm passphrase: ' ;;
+    ru:pp_confirm)          printf 'Повтори passphrase: ' ;;
+    en:pp_mismatch)         printf 'split: passphrases do not match.' ;;
+    ru:pp_mismatch)         printf 'split: passphrase не совпадают.' ;;
+    en:pp_empty)            printf 'split: empty passphrase (omit --passphrase if you do not want one).' ;;
+    ru:pp_empty)            printf 'split: пустой passphrase (убери --passphrase, если он не нужен).' ;;
+    en:pp_enc_fail)         printf 'split: openssl encryption failed.' ;;
+    ru:pp_enc_fail)         printf 'split: ошибка шифрования openssl.' ;;
+    en:pp_locked)           printf 'These shares are passphrase-protected — enter the passphrase to reveal the secret: ' ;;
+    ru:pp_locked)           printf 'Доли защищены passphrase — введи его, чтобы раскрыть секрет: ' ;;
+    en:pp_dec_fail)         printf 'combine: wrong passphrase, or the encrypted secret is corrupt.' ;;
+    ru:pp_dec_fail)         printf 'combine: неверный passphrase или зашифрованный секрет повреждён.' ;;
+    en:pp_locked_noss)      printf 'combine: these shares are passphrase-encrypted but openssl is not on PATH. Decrypt elsewhere: the reconstructed bytes are a standard openssl enc -aes-256-cbc -pbkdf2 container.' ;;
+    ru:pp_locked_noss)      printf 'combine: доли зашифрованы passphrase, но openssl нет в PATH. Расшифруй в другом месте: восстановленные байты — стандартный контейнер openssl enc -aes-256-cbc -pbkdf2.' ;;
+
+    *) echo "$key" ;;
+  esac
+}
+
+usage() { t usage; }
+
+cmd_version() { echo "seedsplit $VERSION"; }
+
+# === Shamir Secret Sharing над GF(256) ===
+# Поле GF(2^8), редуцирующий многочлен 0x11b (как в AES). Сложение = XOR.
+# Умножение — через таблицы log/antilog от генератора 0x03 (примитивный элемент поля).
+# Деление/инверсия — через те же таблицы. Все операции — над байтами секрета.
+# ПРЕДЕЛ (честно, см. README «Scope & limitations»): умножение через log/antilog-таблицы
+# НЕ constant-time — есть тайминговый side-channel. Вне модели угроз локального CLI
+# (нет удалённого/онлайн-оракула на split/combine), но мы его не скрываем.
+
+# sha256 → hex (портативно: macOS shasum / Linux sha256sum). Для контрольных сумм.
+_sha256_hex() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -d' ' -f1
+  else sha256sum | cut -d' ' -f1; fi
+}
+# bytes(stdin) → hex без пробелов; hex(arg) → raw bytes(stdout). Без xxd (нет на части систем).
+_to_hex() { od -An -v -tx1 | tr -d ' \n'; }
+_from_hex() { local h="$1" i; for ((i=0; i<${#h}; i+=2)); do printf '%b' "\\x${h:i:2}"; done; }
+
+# Таблицы GF(256): GF_EXP[i]=g^i (g=3), GF_LOG[v]=i. Генерируются один раз.
+_gf_init() {
+  local x=1 i tt
+  GF_EXP=(); GF_LOG=()
+  for ((i=0; i<255; i++)); do
+    GF_EXP[i]=$x
+    GF_LOG[x]=$i
+    tt=$(( (x<<1) & 0xff ))                 # xtime(x) = x*2 в GF
+    if (( x & 0x80 )); then tt=$(( tt ^ 0x1b )); fi
+    x=$(( tt ^ x ))                          # x*3 = xtime(x) XOR x
+  done
+}
+
+# === Reed-Solomon: коррекция опечаток в переписанной с бумаги доле (формат SSS3) ===
+# Зачем: доли живут на бумаге, а бумагу переписывают руками. До SSS3 один неверный символ
+# убивал долю целиком — chk4 честно говорил «испорчена», но починить её было нечем.
+# RS(k+4, k) над ТЕМ ЖЕ GF(256): 4 байта parity на чанк ≤251 байт полезной нагрузки,
+# исправляется до ДВУХ неверных байт в чанке (две опечатки в разных байтах; две опечатки
+# в одном байте — тоже одна ошибка). Опечатка в структурной части доли (setid/T/x) НЕ
+# корректируется — её ловит chk4; так и написано в README, без вида, что RS чинит всё.
+# Декодер — Питерсон для t<=2 + перебор корней: на четырёх синдромах он делает ровно то же,
+# что Берлекамп-Мэсси, втрое меньшим кодом. Любая неудача коррекции = честный отказ:
+# 128-битный tag полезной нагрузки остаётся последним рубежом против «молча не тот секрет».
+RS_PARITY=4          # байт parity на чанк
+RS_CHUNK=251         # максимум байт сообщения в чанке (251 + 4 <= 255)
+
+# Умножение в GF(256) без subshell: результат в RES (форк на каждый умножение съел бы всё).
+_gf_mul() {
+  if (( $1 == 0 || $2 == 0 )); then RES=0
+  else RES=${GF_EXP[$(( (GF_LOG[$1]+GF_LOG[$2]) % 255 ))]}; fi
+}
+# Обратный элемент: inv(a) = g^(255 - log a).
+_gf_inv() {
+  if (( $1 == 0 )); then RES=0
+  else RES=${GF_EXP[$(( (255 - GF_LOG[$1]) % 255 ))]}; fi
+}
+
+# Генераторный многочлен g(x) = (x+a^0)(x+a^1)(x+a^2)(x+a^3) в убывающем порядке, RS_G[0]=1.
+_rs_gen_init() {
+  local i j d
+  RS_G=(1)
+  for ((i=0; i<RS_PARITY; i++)); do
+    local ai=${GF_EXP[i]}
+    d=${#RS_G[@]}
+    local -a NG=()
+    for ((j=0; j<=d; j++)); do NG[j]=0; done
+    for ((j=0; j<d; j++)); do
+      NG[j]=$(( NG[j] ^ RS_G[j] ))                       # старший сдвиг: умножение на x
+      _gf_mul "${RS_G[j]}" "$ai"; NG[j+1]=$(( NG[j+1] ^ RES ))
+    done
+    RS_G=("${NG[@]}")
+  done
+}
+
+# Parity для сообщения в RS_MSG[] (байты, старший первым) → RS_PAR[] из RS_PARITY байт.
+# Обычное деление многочленов: остаток от msg*x^4 по модулю g. Массивы передаём глобалями,
+# а не nameref'ами: `local -n` требует bash 4.3, а на macOS системный bash — 3.2.
+_rs_encode() {
+  local k=${#RS_MSG[@]} i j
+  local -a W=()
+  for ((i=0; i<k; i++)); do W[i]=${RS_MSG[i]}; done
+  for ((i=0; i<RS_PARITY; i++)); do W[k+i]=0; done
+  for ((i=0; i<k; i++)); do
+    local coef=${W[i]}
+    (( coef == 0 )) && continue
+    for ((j=1; j<=RS_PARITY; j++)); do
+      _gf_mul "${RS_G[j]}" "$coef"; W[i+j]=$(( W[i+j] ^ RES ))
+    done
+  done
+  RS_PAR=()
+  for ((i=0; i<RS_PARITY; i++)); do RS_PAR[i]=${W[k+i]}; done
+}
+
+# Синдромы кодового слова RS_CW[] (сообщение + parity): S_i = CW(a^i), i=0..RS_PARITY-1.
+# Все нули → ошибок нет.
+_rs_syndromes() {
+  local n=${#RS_CW[@]} i p
+  RS_SYN=()
+  for ((i=0; i<RS_PARITY; i++)); do
+    local xi=${GF_EXP[i]} acc=0
+    for ((p=0; p<n; p++)); do
+      _gf_mul "$acc" "$xi"; acc=$(( RES ^ RS_CW[p] ))    # схема Горнера
+    done
+    RS_SYN[i]=$acc
+  done
+}
+
+# Исправить до двух байтовых ошибок в кодовом слове (правится на месте).
+# RS_FIXED = число исправленных байт. Код возврата: 0 — слово чистое или починено
+# и синдромы обнулились; 1 — не поддаётся (fail-closed, молча неверного слова не отдаём).
+_rs_correct() {
+  local n=${#RS_CW[@]} i p
+  _rs_syndromes
+  RS_FIXED=0
+  local s0=${RS_SYN[0]} s1=${RS_SYN[1]} s2=${RS_SYN[2]} s3=${RS_SYN[3]}
+  (( s0 == 0 && s1 == 0 && s2 == 0 && s3 == 0 )) && return 0
+
+  # --- одна ошибка: e = S0, X = S1/S0; проверяем по S2 и S3 ---
+  if (( s0 != 0 )); then
+    _gf_inv "$s0"; local inv0=$RES
+    _gf_mul "$s1" "$inv0"; local X=$RES
+    local e=$s0 ok=1 chk
+    _gf_mul "$e" "$X"; (( RES == s1 )) || ok=0
+    _gf_mul "$X" "$X"; chk=$RES; _gf_mul "$e" "$chk"; (( RES == s2 )) || ok=0
+    _gf_mul "$chk" "$X"; chk=$RES; _gf_mul "$e" "$chk"; (( RES == s3 )) || ok=0
+    if (( ok )); then
+      # X = a^(n-1-p) → позиция p = n-1-log(X)
+      (( X != 0 )) || return 1
+      p=$(( n - 1 - GF_LOG[X] ))
+      (( p >= 0 && p < n )) || return 1
+      RS_CW[p]=$(( RS_CW[p] ^ e ))
+      RS_FIXED=1
+      _rs_syndromes
+      (( RS_SYN[0] == 0 && RS_SYN[1] == 0 && RS_SYN[2] == 0 && RS_SYN[3] == 0 )) || return 1
+      return 0
+    fi
+  fi
+
+  # --- две ошибки (Питерсон): l1*S1 + l2*S0 = S2 ; l1*S2 + l2*S1 = S3 ---
+  local d a b
+  _gf_mul "$s1" "$s1"; d=$RES; _gf_mul "$s0" "$s2"; d=$(( d ^ RES ))
+  (( d != 0 )) || return 1
+  _gf_inv "$d"; local invd=$RES
+  _gf_mul "$s2" "$s1"; a=$RES; _gf_mul "$s0" "$s3"; a=$(( a ^ RES ))
+  _gf_mul "$a" "$invd"; local l1=$RES
+  _gf_mul "$s1" "$s3"; b=$RES; _gf_mul "$s2" "$s2"; b=$(( b ^ RES ))
+  _gf_mul "$b" "$invd"; local l2=$RES
+
+  # Корни L(z) = 1 + l1*z + l2*z^2, где z = X^-1. Перебираем позиции — n <= 255.
+  local -a POS=() XV=()
+  for ((p=0; p<n; p++)); do
+    local Xp=${GF_EXP[$(( (n - 1 - p) % 255 ))]} z v t2
+    _gf_inv "$Xp"; z=$RES
+    _gf_mul "$l1" "$z"; v=$(( 1 ^ RES ))
+    _gf_mul "$z" "$z"; t2=$RES; _gf_mul "$l2" "$t2"; v=$(( v ^ RES ))
+    if (( v == 0 )); then POS+=("$p"); XV+=("$Xp"); fi
+  done
+  (( ${#POS[@]} == 2 )) || return 1
+
+  # Величины: e1 + e2 = S0 ; e1*X1 + e2*X2 = S1.
+  local X1=${XV[0]} X2=${XV[1]} den e1 e2
+  den=$(( X1 ^ X2 )); (( den != 0 )) || return 1
+  _gf_inv "$den"; local invden=$RES
+  _gf_mul "$s0" "$X2"; e1=$(( s1 ^ RES )); _gf_mul "$e1" "$invden"; e1=$RES
+  e2=$(( s0 ^ e1 ))
+  (( e1 != 0 && e2 != 0 )) || return 1
+  local p0=${POS[0]} p1=${POS[1]}
+  RS_CW[p0]=$(( RS_CW[p0] ^ e1 ))
+  RS_CW[p1]=$(( RS_CW[p1] ^ e2 ))
+  RS_FIXED=2
+  _rs_syndromes
+  (( RS_SYN[0] == 0 && RS_SYN[1] == 0 && RS_SYN[2] == 0 && RS_SYN[3] == 0 )) || return 1
+  return 0
+}
+
+# hex полезной нагрузки → hex parity (чанками по RS_CHUNK байт; для реальных сидов чанк один).
+_rs_parity_hex() {
+  local hex="$1" total=$(( ${#1} / 2 )) off=0 out="" i hb
+  _gf_init; _rs_gen_init
+  while (( off < total )); do
+    local take=$(( total - off )); (( take > RS_CHUNK )) && take=$RS_CHUNK
+    RS_MSG=()
+    for ((i=0; i<take; i++)); do RS_MSG[i]=$(( 16#${hex:(off+i)*2:2} )); done
+    _rs_encode
+    for ((i=0; i<RS_PARITY; i++)); do printf -v hb '%02x' "${RS_PAR[i]}"; out+="$hb"; done
+    off=$(( off + take ))
+  done
+  printf '%s' "$out"
+}
+
+# hex нагрузки + hex parity → исправленные RS_OUT_HEX и RS_OUT_PAR_HEX, число правок в
+# RS_FIXED_TOTAL. Код возврата 1 — декодер не сошёлся.
+# ВАЖНО: parity возвращаем тоже — опечатка могла попасть в него, и тогда исправлять надо его,
+# а не тело (иначе chk4 сверялся бы со всё ещё испорченным par и починка не засчитывалась).
+_rs_repair_hex() {
+  local hex="$1" par="$2" total=$(( ${#1} / 2 )) off=0 ci=0 i hb
+  _gf_init; _rs_gen_init
+  RS_OUT_HEX=""; RS_OUT_PAR_HEX=""; RS_FIXED_TOTAL=0
+  local want_par=$(( ( (total + RS_CHUNK - 1) / RS_CHUNK ) * RS_PARITY ))
+  (( ${#par} == want_par * 2 )) || return 1
+  while (( off < total )); do
+    local take=$(( total - off )); (( take > RS_CHUNK )) && take=$RS_CHUNK
+    RS_CW=()
+    for ((i=0; i<take; i++)); do RS_CW[i]=$(( 16#${hex:(off+i)*2:2} )); done
+    for ((i=0; i<RS_PARITY; i++)); do RS_CW[take+i]=$(( 16#${par:(ci*RS_PARITY+i)*2:2} )); done
+    _rs_correct || return 1
+    RS_FIXED_TOTAL=$(( RS_FIXED_TOTAL + RS_FIXED ))
+    for ((i=0; i<take; i++)); do printf -v hb '%02x' "${RS_CW[i]}"; RS_OUT_HEX+="$hb"; done
+    for ((i=0; i<RS_PARITY; i++)); do printf -v hb '%02x' "${RS_CW[take+i]}"; RS_OUT_PAR_HEX+="$hb"; done
+    off=$(( off + take )); ci=$(( ci + 1 ))
+  done
+  return 0
+}
+
+# === passphrase-слой (opt-in) ===
+# Шифрует секрет ДО разбиения через native openssl (AES-256-CBC + PBKDF2). Так восстановленный
+# порог долей даёт лишь стандартный `Salted__`-контейнер — секрет всё ещё под passphrase.
+# Ядро split/combine не трогаем (режет/собирает любые байты). openssl нужен ТОЛЬКО для этого
+# режима — zero-dep ядра сохранён. Параметры фиксированы → расшифровка совместима везде, где есть openssl.
+PP_ITER=200000
+
+# Прочитать passphrase для шифрования (с подтверждением). Env SEEDSPLIT_PASSPHRASE — для тестов/
+# автоматизации; иначе скрытый ввод с /dev/tty (stdin занят секретом в pipe). Печатает passphrase в stdout.
+_pp_read_set() {
+  if [[ -n "${SEEDSPLIT_PASSPHRASE:-}" ]]; then printf '%s' "$SEEDSPLIT_PASSPHRASE"; return 0; fi
+  local p1 p2
+  printf '%s' "$(t pp_set)" >/dev/tty; read -rs p1 </dev/tty; echo >/dev/tty
+  printf '%s' "$(t pp_confirm)" >/dev/tty; read -rs p2 </dev/tty; echo >/dev/tty
+  [[ -n "$p1" ]] || { p1=""; p2=""; err "$(t pp_empty)"; return 1; }
+  [[ "$p1" == "$p2" ]] || { p1=""; p2=""; err "$(t pp_mismatch)"; return 1; }
+  p2=""
+  printf '%s' "$p1"
+}
+
+# Прочитать passphrase для расшифровки (один ввод). Env-override как у _pp_read_set.
+_pp_read_unlock() {
+  if [[ -n "${SEEDSPLIT_PASSPHRASE:-}" ]]; then printf '%s' "$SEEDSPLIT_PASSPHRASE"; return 0; fi
+  local p
+  printf '%s' "$(t pp_locked)" >/dev/tty; read -rs p </dev/tty; echo >/dev/tty
+  printf '%s' "$p"
+}
+
+# Зашифровать secret_hex passphrase'ом → ct_hex. Passphrase через fd:3 (НЕ argv → не виден в `ps`).
+_pp_encrypt_hex() {
+  local sec_hex="$1" pp="$2" ct_hex
+  # Passphrase через fd:3 из process substitution (pipe, НЕ дисковый here-string `<<<`, который
+  # материализовал бы passphrase во временный файл $TMPDIR → карвинг/утечка). См. P1-5.
+  ct_hex="$(_from_hex "$sec_hex" | openssl enc -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -salt -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null | _to_hex)" || return 1
+  [[ -n "$ct_hex" ]] || return 1
+  printf '%s' "$ct_hex"
+}
+
+cmd_split() {
+  local n=3 t=2 file="" use_pp=0
+  while (( $# )); do
+    case "$1" in
+      -n|--shares)        n="${2:?}"; shift 2 ;;
+      -t|--threshold)     t="${2:?}"; shift 2 ;;
+      --file)             file="${2:?}"; shift 2 ;;
+      -p|--passphrase)    use_pp=1; shift ;;
+      *) err "$(t split_bad_arg "$1")"; exit 1 ;;
+    esac
+  done
+
+  # Секрет — из stdin или --file, в hex. Никогда из argv (виден в `ps`).
+  local secret_hex
+  if [[ -n "$file" ]]; then
+    [[ -r "$file" ]] || { err "$(t split_file_unreadable "$file")"; exit 1; }
+    secret_hex="$(_to_hex < "$file")"
+  elif [[ -t 0 ]]; then
+    # Интерактивный запуск: без промпта команда просто молчала, ожидая stdin, — это читалось
+    # как зависание, а набранный секрет оставался в scrollback. Читаем с /dev/tty без эха,
+    # одной строкой (seed-фраза однострочна). Перевод строки в секрет НЕ попадает.
+    # IFS= обязателен: с дефолтным IFS bash срезал бы ведущие/хвостовые пробелы, и тот же
+    # секрет через TTY и через пайп дал бы РАЗНЫЕ доли. `|| true` — EOF (Ctrl-D) возвращает
+    # ненулевой код даже после частичного ввода: под set -e это убило бы и введённые байты,
+    # и честную ошибку про пустой секрет ниже.
+    local line=""
+    printf '%s' "$(t split_prompt)" >/dev/tty
+    IFS= read -rs line </dev/tty || true
+    echo >/dev/tty
+    secret_hex="$(printf '%s' "$line" | _to_hex)"
+    line=""
+  else
+    secret_hex="$(_to_hex)"
+  fi
+  [[ -n "$secret_hex" ]] || { err "$(t split_empty_secret)"; exit 1; }
+
+  # Passphrase-слой (opt-in): шифруем секрет ДО разбиения. Доли = Shamir поверх шифртекста.
+  if (( use_pp )); then
+    command -v openssl >/dev/null 2>&1 || { err "$(t pp_no_openssl)"; exit 1; }
+    local pp; pp="$(_pp_read_set)" || exit 1
+    secret_hex="$(_pp_encrypt_hex "$secret_hex" "$pp")" || { pp=""; err "$(t pp_enc_fail)"; exit 1; }
+    pp=""   # вычистить из памяти
+  fi
+
+  [[ "$n" =~ ^[0-9]+$ && "$t" =~ ^[0-9]+$ ]] || { err "$(t split_nt_not_num)"; exit 1; }
+  (( t >= 2 )) || { err "$(t split_t_min)"; exit 1; }
+  (( n >= t )) || { err "$(t split_n_lt_t "$n" "$t")"; exit 1; }
+  (( n <= 255 )) || { err "$(t split_n_max)"; exit 1; }
+
+  local L=$(( ${#secret_hex} / 2 ))
+  (( L <= 65535 )) || { err "$(t split_secret_big)"; exit 1; }
+
+  # Случайный set-id (4-байтный nonce) — НЕ производный от секрета (иначе confirmation-оракул:
+  # имея одну долю + кандидат-секрет, можно было бы проверить догадку, не собирая порог).
+  # Одинаков во всех долях набора → combine ДЕТЕРМИНИРОВАННО отвергает смешивание долей
+  # из разных сплитов (а не вероятностно).
+  local setid_hex
+  setid_hex="$(head -c 4 /dev/urandom | _to_hex)"
+  [[ ${#setid_hex} -eq 8 ]] || { err "$(t split_low_entropy)"; exit 1; }
+
+  # Обёртка целостности: 0x55 | len(2B BE) | secret | tag(16B = первые 16 байт sha256 предыдущего).
+  # 128-битный tag: combine вернёт ЛИБО точный секрет, ЛИБО честный отказ; шанс молча отдать
+  # НЕ тот секрет ≈ 2^-128 (против 2^-16 у старого 2-байтного CRC).
+  local hi=$(( L >> 8 )) lo=$(( L & 0xff )) core_hex tag_hex
+  printf -v core_hex '55%02x%02x%s' "$hi" "$lo" "$secret_hex"
+  tag_hex="$(_from_hex "$core_hex" | _sha256_hex)"; tag_hex="${tag_hex:0:32}"
+  local payload_hex="${core_hex}${tag_hex}" PL
+  PL=$(( ${#payload_hex} / 2 ))
+
+  local -a P=(); local k
+  for ((k=0; k<PL; k++)); do P[k]=$(( 16#${payload_hex:k*2:2} )); done
+
+  _gf_init
+
+  # (t-1) случайных байт на каждый байт payload — старшие коэффициенты многочленов.
+  local need=$(( (t-1) * PL )) rand_hex
+  rand_hex="$(head -c "$need" /dev/urandom | _to_hex)"
+  [[ ${#rand_hex} -eq $((need*2)) ]] || { err "$(t split_low_entropy)"; exit 1; }
+
+  local -a Y=(); local x j ri=0 y hb
+  for ((x=1; x<=n; x++)); do Y[x]=""; done
+  for ((k=0; k<PL; k++)); do
+    # Многочлен байта k: c0=P[k] (секрет), c1..c_{t-1} = случайные. Оцениваем в x=1..n (Горнер).
+    local -a C=(); C[0]=${P[k]}
+    for ((j=1; j<t; j++)); do C[j]=$(( 16#${rand_hex:ri*2:2} )); ri=$((ri+1)); done
+    for ((x=1; x<=n; x++)); do
+      y=${C[t-1]}
+      for ((j=t-2; j>=0; j--)); do
+        if (( y != 0 )); then y=${GF_EXP[$(( (GF_LOG[y]+GF_LOG[x]) % 255 ))]}; fi
+        y=$(( y ^ C[j] ))
+      done
+      printf -v hb '%02x' "$y"; Y[x]+="$hb"
+    done
+  done
+
+  # Доля: SSS3-<setid>-<T>-<x>-<hexY>-<par>-<chk4>.
+  #   par  — RS-parity над байтами hexY: чинит до 2 опечаток в самой длинной части доли;
+  #   chk4 — быстрая проверка «эта строка вообще целая» (включая setid/T/x, которые RS не кроет);
+  #   setid — детерминированный отказ при смешивании долей из разных сплитов.
+  # SSS2 (без parity) остаётся читаемым для combine — старые распечатки не превращаются в мусор.
+  local -a SHARES=(); local chk body par
+  for ((x=1; x<=n; x++)); do
+    par="$(_rs_parity_hex "${Y[x]}")"
+    body="SSS3-${setid_hex}-${t}-${x}-${Y[x]}-${par}"
+    chk="$(printf '%s' "$body" | _sha256_hex)"; chk="${chk:0:4}"
+    SHARES+=("${body}-${chk}")
+  done
+
+  # Round-trip self-check ДО печати: собрать секрет ровно тем же путём, что `combine`, из первых T
+  # долей и сверить с исходным. Ловит любую поломку генерации/GF-математики РАНЬШЕ, чем юзер раздаст
+  # доли и сотрёт оригинал сида (иначе потеря без гарантии сборки). Транзиентно материализует T
+  # долей (как и обычный combine) — сами доли всё равно идут в stdout, это не утечка секрета.
+  local sc_in sc_out
+  sc_in="$(printf '%s\n' "${SHARES[@]:0:t}")"
+  sc_out="$(_recover_secret_hex "$sc_in" 2>/dev/null)"
+  if [[ "$sc_out" != "$secret_hex" ]]; then
+    err "$(t split_selfcheck_fail)"; exit 1
+  fi
+
+  printf '%s\n' "${SHARES[@]}"
+}
+
+# Восстановление секрета из долей: парсинг + ВСЕ проверки + интерполяция Лагранжа в нуле.
+# Печатает secret_hex в stdout при успехе; при ЛЮБОЙ ошибке — сообщение в stderr и `return !=0`
+# (НЕ exit: функция зовётся в $(...), exit убил бы только subshell и оставил вызывающего без
+# проверки статуса). Таксономия ошибок различает: не-SSS2 / порча доли (CRC) / разные сплиты
+# (set-id) / расходящийся порог T / ниже порога / провал целостности payload.
+_recover_secret_hex() {
+  local raw="$1"
+  RS_NOTICES=()
+  _gf_init
+  local -a XS=() YS=()
+  local line ylen="" t_decl="" setid_seen="" cnt=0
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local sid T x yh chk par="" fmt
+    if [[ "$line" =~ ^SSS3-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]+)-([0-9a-f]{4})$ ]]; then
+      fmt=SSS3
+      sid="${BASH_REMATCH[1]}"; T="${BASH_REMATCH[2]}"; x="${BASH_REMATCH[3]}"
+      yh="${BASH_REMATCH[4]}"; par="${BASH_REMATCH[5]}"; chk="${BASH_REMATCH[6]}"
+    elif [[ "$line" =~ ^SSS2-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]{4})$ ]]; then
+      fmt=SSS2
+      sid="${BASH_REMATCH[1]}"; T="${BASH_REMATCH[2]}"; x="${BASH_REMATCH[3]}"
+      yh="${BASH_REMATCH[4]}"; chk="${BASH_REMATCH[5]}"
+    else
+      err "$(t combine_not_sss2 "$line")"; return 1
+    fi
+    local body want
+    if [[ "$fmt" == SSS3 ]]; then
+      # Длина parity обязана соответствовать числу чанков: иначе доля выглядит целой,
+      # но чинить её нечем — а узнать об этом хочется сразу, а не в момент опечатки.
+      local chunks=$(( ( (${#yh} / 2) + RS_CHUNK - 1 ) / RS_CHUNK ))
+      (( ${#par} == chunks * RS_PARITY * 2 )) || { err "$(t combine_bad_parity "$x")"; return 1; }
+      body="SSS3-${sid}-${T}-${x}-${yh}-${par}"
+    else body="SSS2-${sid}-${T}-${x}-${yh}"; fi
+    want="$(printf '%s' "$body" | _sha256_hex)"; want="${want:0:4}"
+    if [[ "$chk" != "$want" ]]; then
+      # Сумма не сошлась. У SSS3 есть parity — пробуем починить самую длинную (и самую
+      # вероятную для опечатки) часть доли. Чиним ТОЛЬКО если после правки сходится chk4:
+      # RS не покрывает setid/T/x, а неверный x дал бы неверную реконструкцию.
+      local repaired=0
+      if [[ "$fmt" == SSS3 ]] && _rs_repair_hex "$yh" "$par" && (( RS_FIXED_TOTAL > 0 )); then
+        local try_body="SSS3-${sid}-${T}-${x}-${RS_OUT_HEX}-${RS_OUT_PAR_HEX}" try_want
+        try_want="$(printf '%s' "$try_body" | _sha256_hex)"; try_want="${try_want:0:4}"
+        if [[ "$chk" == "$try_want" ]]; then
+          yh="$RS_OUT_HEX"; par="$RS_OUT_PAR_HEX"; repaired=1
+          # Сообщение копим, а не печатаем сразу: «починил» имеет смысл говорить только после
+          # того, как сошёлся 128-битный tag нагрузки. Иначе пользователь читал бы «починено»
+          # у набора, который следом честно отвергнут.
+          RS_NOTICES+=("$(t combine_repaired "$x" "$RS_FIXED_TOTAL")")
+        fi
+      fi
+      if (( ! repaired )); then
+        if [[ "$fmt" == SSS3 ]]; then err "$(t combine_unrepairable "$x")"; else err "$(t combine_corrupt "$x")"; fi
+        return 1
+      fi
+    fi
+    (( x >= 1 && x <= 255 )) || { err "$(t combine_bad_x "$x")"; return 1; }
+    # set-id: все доли набора обязаны совпадать (детерминированный отказ при смешивании сплитов).
+    if [[ -z "$setid_seen" ]]; then setid_seen="$sid"
+    elif [[ "$sid" != "$setid_seen" ]]; then
+      err "$(t combine_diff_splits "$sid" "$setid_seen")"; return 1
+    fi
+    # declared-T: все доли обязаны заявлять одинаковый порог.
+    if [[ -z "$t_decl" ]]; then t_decl="$T"
+    elif [[ "$T" != "$t_decl" ]]; then
+      err "$(t combine_diff_t "$T" "$t_decl")"; return 1
+    fi
+    local d; for d in "${XS[@]:-}"; do [[ "$d" == "$x" ]] && { err "$(t combine_dup "$x")"; return 1; }; done
+    [[ -z "$ylen" ]] && ylen="${#yh}"
+    [[ "${#yh}" -eq "$ylen" ]] || { err "$(t combine_diff_len)"; return 1; }
+    XS+=("$x"); YS+=("$yh"); cnt=$((cnt+1))
+  done <<< "$raw"
+
+  (( cnt >= 1 )) || { err "$(t combine_no_shares)"; return 1; }
+  if [[ -n "$t_decl" ]] && (( cnt < t_decl )); then
+    err "$(t combine_below "$t_decl" "$cnt")"; return 1
+  fi
+
+  # Веса Лагранжа в нуле (одинаковы для всех байтов): w_i = prod_{j!=i} x_j * inv(x_i XOR x_j).
+  local m=$cnt i j
+  local -a W=()
+  for ((i=0; i<m; i++)); do
+    local num=1 xi="${XS[i]}"
+    for ((j=0; j<m; j++)); do
+      (( j == i )) && continue
+      local xj="${XS[j]}"; local den=$(( xi ^ xj ))
+      (( den != 0 )) || { err "$(t combine_coincident)"; return 1; }
+      num=${GF_EXP[$(( (GF_LOG[num]+GF_LOG[xj]) % 255 ))]}                 # num *= x_j
+      num=${GF_EXP[$(( (GF_LOG[num]+(255-GF_LOG[den])%255) % 255 ))]}      # num *= inv(den)
+    done
+    W[i]=$num
+  done
+
+  # Восстановление каждого байта payload: acc = XOR_i ( y_i[p] * w_i ).
+  local PL=$(( ylen / 2 )) p payload_hex="" acc yb term hb
+  for ((p=0; p<PL; p++)); do
+    acc=0
+    for ((i=0; i<m; i++)); do
+      yb=$(( 16#${YS[i]:p*2:2} ))
+      if (( yb != 0 )); then
+        term=${GF_EXP[$(( (GF_LOG[yb]+GF_LOG[W[i]]) % 255 ))]}
+        acc=$(( acc ^ term ))
+      fi
+    done
+    printf -v hb '%02x' "$acc"; payload_hex+="$hb"
+  done
+
+  # Проверка обёртки (16-байтный tag): magic(0x55) | len(2) | secret | tag(16).
+  local fail; fail="$(t combine_integrity)"
+  (( PL >= 20 )) || { err "$fail"; return 1; }          # 1 magic + 2 len + >=1 secret + 16 tag
+  (( 16#${payload_hex:0:2} == 0x55 )) || { err "$fail"; return 1; }
+  local len=$(( 16#${payload_hex:2:4} ))
+  (( PL == len + 19 )) || { err "$fail"; return 1; }     # 1 + 2 + len + 16
+  local core_hex="${payload_hex:0:$(( (len+3)*2 ))}" tag_have="${payload_hex: -32}" tag_want
+  tag_want="$(_from_hex "$core_hex" | _sha256_hex)"; tag_want="${tag_want:0:32}"
+  [[ "$tag_have" == "$tag_want" ]] || { err "$fail"; return 1; }
+
+  # Целостность подтверждена — только теперь честно сообщаем о починенных долях.
+  local note
+  for note in "${RS_NOTICES[@]:-}"; do [[ -n "$note" ]] && warn "$note"; done
+
+  printf '%s' "${payload_hex:6:$(( len*2 ))}"
+}
+
+cmd_combine() {
+  local raw; if (( $# )); then raw="$(cat "$@")"; else raw="$(cat)"; fi
+  local sh; sh="$(_recover_secret_hex "$raw")" || exit 1
+  # Восстановленный секрет — openssl-контейнер (magic "Salted__" = hex 53616c7465645f5f)?
+  # Значит он зашифрован passphrase'ом: спрашиваем и расшифровываем (неверный → честный отказ).
+  # Edge (документирован в README): если НЕ-зашифрованный секрет (split без -p) сам начинается
+  # ровно с байтов "Salted__" (для произвольных данных ~2^-64, для текстовых секретов — нет),
+  # combine ошибочно попросит passphrase. Это не утечка — просто отдаст «wrong passphrase»
+  # вместо секрета; обойти — пере-split с -p или расшифровать вручную через openssl.
+  if [[ "${sh:0:16}" == "53616c7465645f5f" ]]; then
+    command -v openssl >/dev/null 2>&1 || { err "$(t pp_locked_noss)"; exit 1; }
+    local pp; pp="$(_pp_read_unlock)"
+    # fd:3 из process substitution (pipe, НЕ дисковый `<<<`) — passphrase не спиллит на диск (P1-5).
+    _from_hex "$sh" | openssl enc -d -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null || { pp=""; err "$(t pp_dec_fail)"; exit 1; }
+    pp=""
+  else
+    _from_hex "$sh"
+  fi
+}
+
+# verify: проверить, что доли образуют валидный набор и секрет восстановим — БЕЗ его печати
+# (полезно при раскладке долей по носителям: подтвердить корректность, не раскрывая секрет).
+cmd_verify() {
+  local raw; if (( $# )); then raw="$(cat "$@")"; else raw="$(cat)"; fi
+  local sh; sh="$(_recover_secret_hex "$raw")" || exit 1
+  local n=$(( ${#sh} / 2 ))
+  info "$(t verify_ok "$n")"
+}
+
+main() {
+  local cmd="${1:-}"
+  if [[ -z "$cmd" ]]; then usage; exit 1; fi
+  shift || true
+  case "$cmd" in
+    version|-v|--version) cmd_version "$@" ;;
+    help|--help|-h) usage ;;
+    split)          cmd_split "$@" ;;
+    combine)        cmd_combine "$@" ;;
+    verify)         cmd_verify "$@" ;;
+    *) t unknown_cmd "$cmd" >&2; echo >&2; usage >&2; exit 1 ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
