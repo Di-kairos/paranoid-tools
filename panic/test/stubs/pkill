@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Стаб pkill: логирует вызов в $VW_STUB_LOG. «Успешно убитые» процессы задаются
+# $STUB_KILLED (список имён через пробел) → exit 0 если имя в списке, иначе 1.
+printf 'pkill %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+name=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in -x|-i|-f) shift ;; *) name="$1"; shift ;; esac
+done
+for p in ${STUB_KILLED:-}; do
+  [[ "$p" == "$name" ]] && exit 0
+done
+exit 1

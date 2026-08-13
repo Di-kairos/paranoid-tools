@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Стаб hdiutil для panic. Логирует вызовы в $VW_STUB_LOG.
+#   info            → framework-заголовок + dev-строки по $STUB_MOUNTS (| -разделитель),
+#                     формат как у настоящего: /dev/diskNsM<TAB>GUID<TAB><mountpoint>.
+#   detach [-force] <mp> → просто фиксируется в логе.
+printf 'hdiutil %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+case "${1:-}" in
+  info)
+    printf 'framework\t: 683\ndriver\t: 683\n'
+    local_i=4
+    if [[ -n "${STUB_MOUNTS:-}" ]]; then
+      IFS='|' read -ra _m <<<"$STUB_MOUNTS"
+      for mp in "${_m[@]}"; do
+        [[ -n "$mp" ]] || continue
+        printf '================================================\n'
+        printf 'image-path\t: /tmp/img%s.sparsebundle\n' "$local_i"
+        printf 'image-type\t: sparse bundle disk image\n'
+        printf '/dev/disk%s\tGUID_partition_scheme\t\n' "$local_i"
+        printf '/dev/disk%ss1\t41504653-0000-11AA-AA11-00306543ECAC\t%s\n' "$local_i" "$mp"
+        local_i=$((local_i + 1))
+      done
+    fi
+    ;;
+esac
+exit 0

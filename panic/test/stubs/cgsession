@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Стаб экрана-локера (подставляется через $PANIC_CGSESSION). Фиксирует вызов; код выхода
+# управляется CGSESSION_EXIT (по умолчанию 0 = «лок удался»). CGSESSION_EXIT=1 моделирует
+# случай, когда бинарь ЕСТЬ, но -suspend упал → panic обязан уйти в osascript-fallback.
+printf 'cgsession %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+exit "${CGSESSION_EXIT:-0}"

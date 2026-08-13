@@ -1,0 +1,7 @@
+.claude/
+.env*
+*.log
+.DS_Store
+dist/
+graphify-out/
+tri-mozga-out/

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Стаб fdesetup: FileVault on/off контролируется $STUB_FV (on|off, дефолт on).
+if [[ "${STUB_FV:-on}" == "on" ]]; then
+  echo "FileVault is On."
+else
+  echo "FileVault is Off."
+fi
+exit 0

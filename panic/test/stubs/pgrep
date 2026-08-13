@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Стаб pgrep: exit 0 если имя в $STUB_RUNNING (space-separated), иначе 1.
+name=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in -x|-f|-i) shift ;; *) name="$1"; shift ;; esac
+done
+for p in ${STUB_RUNNING:-}; do
+  [[ "$p" == "$name" ]] && exit 0
+done
+exit 1

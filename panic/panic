@@ -1,0 +1,515 @@
+#!/usr/bin/env bash
+# panic — kill-switch на один шаг (экосистема Paranoid Tools).
+#
+# Сценарий: граница / принуждение / «кто-то идёт». Одной командой `panic now`
+# прячет и запирает: закрывает открытые vault'ы securetrash, размонтирует тома,
+# чистит буфер обмена и блокирует экран. Удобно повесить на хоткей через launchd.
+#
+# ЧЕСТНО: panic ПРЯЧЕТ и ЗАПИРАЕТ, но НЕ уничтожает и НЕ чистит swap (для
+# уничтожения — securetrash). `detach -force` при открытых файлах может повредить
+# данные — осознанный trade-off режима паники (спрятать важнее). Полное ядро —
+# в следующих паках; см. README «Scope & limitations».
+set -euo pipefail
+
+VERSION="0.1.15"
+
+# Локер экрана. Метод 1 — CGSession -suspend (login-window switch, не зависит от настройки
+# «требовать пароль»); бандл Menu Extras удалён в свежих macOS (≥12), поэтому это лишь legacy-путь.
+# Метод 2 (fallback) — Ctrl+Cmd+Q через osascript (современный macOS; нужен Accessibility-доступ
+# хост-приложению). Оба переопределяемы для тестов. _lock_screen честно возвращает статус.
+PANIC_CGSESSION="${PANIC_CGSESSION:-/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession}"
+PANIC_OSASCRIPT="${PANIC_OSASCRIPT:-/usr/bin/osascript}"
+
+# Каталог shared file lists (Recent items). Переопределяемо для тестов.
+PANIC_SFL_DIR="${PANIC_SFL_DIR:-${HOME}/Library/Application Support/com.apple.sharedfilelist}"
+
+# Cloud-демоны, которых --hard прибивает (точные имена процессов для pkill -x).
+PANIC_CLOUD_DAEMONS=(Dropbox OneDrive bird "Google Drive")
+
+# Глобальный хоткей (`panic hotkey`): чистый Bash глобальный хоткей на macOS невозможен —
+# нужен резидентный слушатель с правом Accessibility. Используем skhd (крошечный hotkey-демон).
+# Конфиг и комбинация по умолчанию переопределяемы (тесты/иной combo).
+SKHD_CONFIG="${SKHD_CONFIG:-${HOME}/.config/skhd/skhdrc}"
+PANIC_HOTKEY_COMBO="${PANIC_HOTKEY_COMBO:-cmd + alt - p}"
+PANIC_HK_BEGIN="# === BEGIN panic hotkey (managed by panic) ==="
+PANIC_HK_END="# === END panic hotkey ==="
+
+# === BEGIN vendored common (pin: 221f2c7fbed10a220b832aab9264e6665581b514) ===
+# shellcheck shell=bash
+# common.sh — переиспользуемые примитивы экосистемы Paranoid Tools.
+#
+# Канонический источник: securetrash/lib/common.sh. Инструменты экосистемы
+# (vaultwatch/panic/ghostdraft) вендорят его inline между маркерами
+# (см. CLAUDE.md «Vendoring»). Файл sourceable и идемпотентен (двойной source/inline
+# безопасны — guard через if-обёртку, без top-level return, поэтому корректен и когда
+# блок вставлен в исполняемый скрипт).
+#
+# Даёт tool-агностичные примитивы: локаль (ST_LOCALE), цветной вывод (info/warn/err),
+# подтверждение (confirm), детект платформы macOS (require_macos/is_ssd/_disk_kind/
+# _fv_state/filevault_on), детект примонтированного тома (_volume_mounted), канонизацию
+# пути (_abspath). Своя i18n-таблица — у каждого инструмента.
+#
+# ВЕНДОРИНГ — зарезервированные имена (не переопределять в host-скрипте): функции
+# info warn err confirm require_macos is_ssd _disk_kind _fv_state filevault_on
+# _volume_mounted _abspath _st_detect_locale; переменные ST_LOCALE C_RED C_GRN C_YEL
+# C_RST _ST_COMMON_LOADED.
+
+# Идемпотентность через if-обёртку (а не top-level return): безопасно при source,
+# исполнении и inline-вставке. Определения функций внутри if регистрируются глобально.
+if [[ -z "${_ST_COMMON_LOADED:-}" ]]; then
+  _ST_COMMON_LOADED=1
+
+  # --- locale ---
+  # en по умолчанию; ru — если ST_LANG или системная локаль начинаются с 'ru'.
+  _st_detect_locale() {
+    local want="${ST_LANG:-}"
+    if [[ -n "$want" ]]; then
+      case "$want" in ru*) echo ru ;; *) echo en ;; esac
+      return
+    fi
+    local sys="${LC_ALL:-${LANG:-}}"
+    case "$sys" in ru*) echo ru ;; *) echo en ;; esac
+  }
+  # Уважаем заранее выставленный ST_LOCALE (host может переопределить).
+  ST_LOCALE="${ST_LOCALE:-$(_st_detect_locale)}"
+
+  # --- output ---
+  # Цвет только в TTY (в пайпах/файлах — без ANSI).
+  if [[ -t 1 ]]; then
+    C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'; C_RST=$'\033[0m'
+  else
+    C_RED=""; C_GRN=""; C_YEL=""; C_RST=""
+  fi
+  info() { echo "${C_GRN}✓${C_RST} $*"; }
+  warn() { echo "${C_YEL}!${C_RST} $*" >&2; }
+  err()  { echo "${C_RED}✗${C_RST} $*" >&2; }
+
+  # --- confirm ---
+  # Подтверждение необратимой операции. ST_ASSUME_YES=1 обходит вопрос (скрипты/тесты).
+  # Возвращает 0 только при точном вводе 'yes' (EOF/пусто → отказ, fail-closed).
+  # Суффикс намеренно продублирован из i18n securetrash (lib без таблицы строк).
+  confirm() {
+    local prompt="$1" ans suffix
+    [[ "${ST_ASSUME_YES:-0}" == "1" ]] && return 0
+    case "$ST_LOCALE" in ru) suffix="[введите yes]" ;; *) suffix="[type yes]" ;; esac
+    read -r -p "$prompt $suffix: " ans
+    [[ "$ans" == "yes" ]]
+  }
+
+  # --- platform (macOS) ---
+  require_macos() {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+      case "$ST_LOCALE" in
+        ru) err "работает только на macOS." ;;
+        *)  err "runs on macOS only." ;;
+      esac
+      exit 1
+    fi
+  }
+
+  # Диск под путём — SSD? (diskutil info: "Solid State: Yes")
+  is_ssd() {
+    local path="${1:-/}"
+    diskutil info "$path" 2>/dev/null | grep -qi "Solid State:.*Yes"
+  }
+
+  # Тип диска: ssd | hdd | unknown. Честность важнее догадок: неизвестный тип
+  # НЕ приравниваем к hdd-эффективному (нет поля "Solid State" → unknown).
+  _disk_kind() {
+    local path="${1:-/}" out
+    out="$(diskutil info "$path" 2>/dev/null)"
+    if grep -qi "Solid State:.*Yes" <<<"$out"; then echo ssd
+    elif grep -qi "Solid State:.*No" <<<"$out"; then echo hdd
+    else echo unknown; fi
+  }
+
+  # Состояние FileVault — tri-state: on / off / unknown. Отличать «выключен» от
+  # «не смогли определить» обязательно: инструмент, который печатает «ВЫКЛЮЧЕН» на
+  # отсутствующий fdesetup, врёт пользователю о его защите.
+  #
+  # Вывод захватываем в переменную и матчим here-string, а НЕ через прямой пайп
+  # `fdesetup ... | grep -q`: под `set -o pipefail` такой пайп ложно «падает» — grep -q
+  # закрывает канал на первом совпадении, источник получает SIGPIPE (141), и pipefail
+  # делает весь конвейер ненулевым (ложный unknown).
+  _fv_state() {
+    command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
+    local s; s="$(fdesetup status 2>/dev/null)"
+    if   grep -qi "FileVault is On"  <<<"$s"; then echo on
+    elif grep -qi "FileVault is Off" <<<"$s"; then echo off
+    else echo unknown; fi
+  }
+
+  # FileVault включён? Двоичная обёртка над _fv_state для мест, где «не определили»
+  # безопасно трактовать как «не включён» (fail-closed).
+  filevault_on() {
+    [[ "$(_fv_state)" == on ]]
+  }
+
+  # Том РЕАЛЬНО примонтирован по этому пути? Единственный ответ на этот вопрос в
+  # экосистеме — раньше их было три: `[[ -d ]]` (лаунчер), `mount | grep` (ghostdraft),
+  # mountedVolumeURLs (GUI), и на остаточном каталоге /Volumes/… они расходились:
+  # каталог, оставшийся от прошлого монтирования (или созданный руками), читался как
+  # «ОТКРЫТ». Проверяем таблицу монтирования, а не наличие каталога.
+  #
+  # Разбираем строку `mount` целиком и сравниваем точку монтирования ЦЕЛИКОМ, а не
+  # ищем подстроку: `grep -F " on /Volumes/Foo "` считает смонтированным `/Volumes/Foo`,
+  # когда на деле смонтирован `/Volumes/Foo Bar` — пробел внутри имени тома выглядит
+  # как разделитель перед опциями (нашёл Codex). Формат строки на macOS:
+  #   /dev/diskNsM on /Volumes/Имя тома (apfs, local, nobrowse)
+  # Имя тома может содержать и пробелы, и `(`, поэтому опции срезаем КОРОТЧАЙШИМ
+  # суффиксом ` (*` — у тома `/Volumes/Foo (1)` останется именно `/Volumes/Foo (1)`.
+  #
+  # Код возврата — три состояния, а не два: 0 — примонтирован, 1 — точно НЕ примонтирован,
+  # 2 — таблицу монтирования прочитать не удалось. Предикатным вызовам (`if
+  # _volume_mounted …`) двойка честно читается как «не смонтирован» (fail-closed: не пишем
+  # черновик в путь, про который не знаем), а тот, кто показывает состояние пользователю,
+  # обязан отличить «закрыт» от «не смогли посмотреть» — иначе дашборд зелёным напишет
+  # «закрыт» над открытым сейфом.
+  _volume_mounted() {
+    local vol="${1:-}" line mp out
+    [[ -n "$vol" ]] || return 1
+    command -v mount >/dev/null 2>&1 || return 2
+    out="$(mount 2>/dev/null)" || return 2
+    [[ -n "$out" ]] || return 2   # пустая таблица невозможна (корень всегда смонтирован)
+    while [[ "$vol" == */ && "$vol" != "/" ]]; do vol="${vol%/}"; done
+    while IFS= read -r line; do
+      [[ "$line" == *" on "* ]] || continue
+      mp="${line#* on }"
+      mp="${mp% (*}"
+      [[ "$mp" == "$vol" ]] && return 0
+    done <<<"$out"
+    return 1
+  }
+
+  # --- path ---
+  # Физический канонический путь: режет trailing-slash, резолвит .. и симлинки,
+  # ВКЛЮЧАЯ финальный компонент. Непустая строка или код !=0, если путь недоступен.
+  _abspath() {
+    local p="$1"
+    while [[ "$p" == */ && "$p" != "/" ]]; do p="${p%/}"; done
+    if [[ -d "$p" ]]; then
+      ( cd -P -- "$p" 2>/dev/null && pwd -P ); return
+    fi
+    local d b
+    d="$(cd -P -- "$(dirname -- "$p")" 2>/dev/null && pwd -P)" || return 1
+    b="$(basename -- "$p")"
+    printf '%s/%s' "${d%/}" "$b"
+  }
+fi
+# === END vendored common ===
+
+# --- i18n (таблица строк panic; общие примитивы — в vendored common) ---
+t() {
+  local key="$1"; shift
+  # Все строки ниже — литеральный display-текст; бэктики в них не подстановка команды.
+  # shellcheck disable=SC2016
+  case "$ST_LOCALE:$key" in
+    en:usage)
+      cat <<'EOF'
+Usage: panic <command> [args]
+
+Commands:
+  status              Read-only preflight: show what `panic now` would affect.
+  now [--hard]        Hide & lock now: force-detach mounted volumes (incl. open
+                      vaults), clear clipboard, lock screen. --hard also kills
+                      cloud daemons.
+  hotkey <sub>        Global panic hotkey via skhd: install [combo] | uninstall | status.
+                      Default combo: cmd + alt - p. Needs skhd + Accessibility.
+  version             Show the version
+
+panic HIDES and LOCKS — it does NOT destroy or wipe swap (use securetrash to
+destroy). detach -force may corrupt open files — a deliberate panic trade-off.
+EOF
+      ;;
+    ru:usage)
+      cat <<'EOF'
+Usage: panic <command> [args]
+
+Commands:
+  status              Только чтение: что затронет `panic now` (безопасно, предпросмотр).
+  now [--hard]        Спрятать и запереть сейчас: форс-отмонтировать тома
+                      (включая открытые vault'ы), очистить буфер, заблокировать
+                      экран. --hard также прибивает cloud-демоны.
+  hotkey <sub>        Глобальный хоткей паники через skhd: install [combo] | uninstall | status.
+                      Комбинация по умолчанию: cmd + alt - p. Нужны skhd + Accessibility.
+  version             Показать версию
+
+panic ПРЯЧЕТ и ЗАПИРАЕТ — НЕ уничтожает и НЕ чистит swap (для уничтожения —
+securetrash). detach -force может повредить открытые файлы — осознанный trade-off.
+EOF
+      ;;
+    en:unknown_cmd) printf 'Unknown command: %s' "$1" ;;
+    ru:unknown_cmd) printf 'Неизвестная команда: %s' "$1" ;;
+    en:status_header)    echo 'panic status — read-only preflight (no changes made)' ;;
+    ru:status_header)    echo 'panic status — только чтение, предпросмотр (изменений нет)' ;;
+    en:status_images)    printf '  disk images mounted: %s — would be detached by `panic now`' "$1" ;;
+    ru:status_images)    printf '  смонтированных образов: %s — будут размонтированы `panic now`' "$1" ;;
+    en:status_no_images) echo  '  disk images: none mounted' ;;
+    ru:status_no_images) echo  '  образов: не смонтировано' ;;
+    en:status_clip_has)  echo  '  clipboard: non-empty — would be cleared' ;;
+    ru:status_clip_has)  echo  '  буфер обмена: не пуст — будет очищен' ;;
+    en:status_clip_empty) echo '  clipboard: empty' ;;
+    ru:status_clip_empty) echo '  буфер обмена: пуст' ;;
+    en:status_clip_unknown) echo '  clipboard: unknown (could not read the pasteboard)' ;;
+    ru:status_clip_unknown) echo '  буфер обмена: неизвестно (не удалось прочитать pasteboard)' ;;
+    en:status_fv_on)     echo  '  FileVault: ON — crypto-shred effective on vault close' ;;
+    ru:status_fv_on)     echo  '  FileVault: ВКЛ — crypto-shred эффективен при закрытии vault' ;;
+    en:status_fv_off)    echo  '  FileVault: OFF — disk not encrypted (vault at risk if drive seized)' ;;
+    ru:status_fv_off)    echo  '  FileVault: ВЫКЛ — диск не зашифрован (vault под угрозой при изъятии)' ;;
+    en:status_cloud)     printf '  cloud daemon running: %s — would be killed by `panic now --hard`' "$1" ;;
+    ru:status_cloud)     printf '  cloud-демон запущен: %s — будет убит `panic now --hard`' "$1" ;;
+    en:detach_fail) printf 'could not detach %s (may have open files).' "$1" ;;
+    ru:detach_fail) printf 'не удалось размонтировать %s (возможно, открыты файлы).' "$1" ;;
+    en:now_hard) echo 'panic --hard: cloud daemons killed, recent items cleared.' ;;
+    ru:now_hard) echo 'panic --hard: cloud-демоны убиты, recent items очищены.' ;;
+    en:now_report) printf 'panic: detached %s disk image(s), cleared clipboard.' "$1" ;;
+    ru:now_report) printf 'panic: размонтировано образов: %s, буфер очищен.' "$1" ;;
+    en:lock_ok)    echo 'screen locked.' ;;
+    ru:lock_ok)    echo 'экран заблокирован.' ;;
+    en:lock_fail)  echo 'could NOT lock the screen — lock it now (Ctrl+Cmd+Q). Grant Accessibility to your terminal so panic can lock it next time.' ;;
+    ru:lock_fail)  echo 'НЕ удалось заблокировать экран — запри сам (Ctrl+Cmd+Q). Дай терминалу доступ Accessibility, чтобы panic запирал в следующий раз.' ;;
+    en:hk_no_skhd) echo 'skhd not found. Install it: brew install skhd (a tiny global-hotkey daemon).' ;;
+    ru:hk_no_skhd) echo 'skhd не найден. Установи: brew install skhd (крошечный демон глобальных хоткеев).' ;;
+    en:hk_installed) printf 'Global hotkey set: %s → panic now.' "$1" ;;
+    ru:hk_installed) printf 'Глобальный хоткей: %s → panic now.' "$1" ;;
+    en:hk_accessibility) echo 'On first trigger macOS asks to allow skhd in System Settings → Privacy & Security → Accessibility — grant it, or the hotkey will not fire.' ;;
+    ru:hk_accessibility) echo 'При первом срабатывании macOS попросит разрешить skhd в System Settings → Privacy & Security → Accessibility — разреши, иначе хоткей не сработает.' ;;
+    en:hk_uninstalled) echo 'Global panic hotkey removed.' ;;
+    ru:hk_uninstalled) echo 'Глобальный хоткей паники удалён.' ;;
+    en:hk_status_on)  printf 'panic hotkey: installed — %s' "$1" ;;
+    ru:hk_status_on)  printf 'хоткей panic: установлен — %s' "$1" ;;
+    en:hk_status_off) echo 'panic hotkey: not installed' ;;
+    ru:hk_status_off) echo 'хоткей panic: не установлен' ;;
+    en:hk_usage) echo 'Usage: panic hotkey <install [combo] | uninstall | status>' ;;
+    ru:hk_usage) echo 'Usage: panic hotkey <install [combo] | uninstall | status>' ;;
+    en:hk_bad_combo) echo "Invalid combo: must not contain ':' or a newline (e.g. 'cmd + alt - p')." ;;
+    ru:hk_bad_combo) echo "Недопустимая комбинация: без ':' и переводов строк (напр. 'cmd + alt - p')." ;;
+    *) echo "$key" ;;
+  esac
+}
+
+usage() { t usage; }
+
+# Точки монтирования смонтированных disk image'ов под /Volumes (vault'ы, dmg).
+# Парсим `hdiutil info`: dev-строки TAB-разделены → mountpoint (3-е поле) корректен
+# даже с пробелами. Фильтр /Volumes/ исключает system-образы (монтируются вне /Volumes).
+_mounted_images() {
+  hdiutil info 2>/dev/null | awk -F'\t' '/^\/dev\/disk/ && $3 ~ /^\/Volumes\// {print $3}'
+}
+
+# Блокировка экрана через настраиваемый локер.
+# Заблокировать экран. Возвращает 0 ТОЛЬКО если блокировка реально инициирована — иначе
+# cmd_now честно сообщит, что экран НЕ заперт (а не соврёт «locked screen», как раньше при
+# молча падавшем CGSession на современных macOS). Методы по убыванию надёжности.
+_lock_screen() {
+  if [[ -x "$PANIC_CGSESSION" ]] && "$PANIC_CGSESSION" -suspend >/dev/null 2>&1; then
+    return 0
+  fi
+  # Ctrl+Cmd+Q — системный лок на современном macOS. Без Accessibility-доступа osascript
+  # вернёт ошибку → честно НЕ считаем за успех.
+  if [[ -x "$PANIC_OSASCRIPT" ]] && \
+     "$PANIC_OSASCRIPT" -e 'tell application "System Events" to keystroke "q" using {control down, command down}' >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+# --hard: прибить известные cloud-демоны (best-effort, отсутствие процесса — не ошибка).
+_kill_cloud_daemons() {
+  local d
+  for d in "${PANIC_CLOUD_DAEMONS[@]}"; do
+    pkill -x "$d" >/dev/null 2>&1 || true
+  done
+}
+
+# --hard: почистить Recent items (shared file lists). ЧЕСТНО: покрывает глобальные
+# списки в PANIC_SFL_DIR; per-app «недавние» внутри приложений этим не стираются.
+_clear_recent_items() {
+  rm -f "$PANIC_SFL_DIR"/*.sfl* 2>/dev/null || true
+}
+
+# Kill-switch: спрятать и запереть. БЕЗ confirm — это режим паники (скорость важнее);
+# защита от случайного запуска — явный verb `now`. detach -force при открытых файлах
+# может повредить данные: осознанный trade-off (см. README «Scope & limitations»).
+cmd_now() {
+  require_macos
+  local hard=0 a
+  for a in "$@"; do
+    case "$a" in --hard) hard=1 ;; esac
+  done
+
+  # 1. Размонтировать все смонтированные disk image'ы (force — паника важнее открытых файлов).
+  local n=0 mp
+  while IFS= read -r mp; do
+    [[ -n "$mp" ]] || continue
+    if hdiutil detach -force "$mp" >/dev/null 2>&1; then
+      n=$((n + 1))
+    else
+      warn "$(t detach_fail "$mp")"
+    fi
+  done < <(_mounted_images)
+
+  # 2. Очистить буфер обмена. 3. Заблокировать экран (статус — для честного отчёта).
+  pbcopy </dev/null >/dev/null 2>&1 || true
+  local locked=0
+  if _lock_screen; then locked=1; fi
+
+  # 4. --hard: прибить cloud-демоны + почистить Recent items.
+  if [[ "$hard" == "1" ]]; then
+    _kill_cloud_daemons
+    _clear_recent_items
+  fi
+
+  # Пост-отчёт — best-effort: под `set -euo pipefail` многострочный вывод в закрытый pipe
+  # (`panic now | head -n1`) даёт SIGPIPE→141, хотя паника уже отработала. Отчёт не должен
+  # ронять exit-код успешной паники: `trap '' PIPE` гасит сигнал (echo вернёт EPIPE, а не
+  # умрёт), а `|| true` страхует от set -e на этом возврате. Это последнее действие cmd_now.
+  trap '' PIPE
+  info "$(t now_report "$n")" || true
+  if [[ "$locked" == "1" ]]; then info "$(t lock_ok)" || true; else warn "$(t lock_fail)" || true; fi
+  if [[ "$hard" == "1" ]]; then info "$(t now_hard)" || true; fi
+}
+
+cmd_status() {
+  require_macos
+  info "$(t status_header)"
+
+  # Смонтированные disk image'ы (vault'ы, dmg) — `panic now` размонтирует их.
+  local images=() mp
+  while IFS= read -r mp; do
+    [[ -n "$mp" ]] && images+=("$mp")
+  done < <(_mounted_images)
+  if [[ ${#images[@]} -gt 0 ]]; then
+    info "$(t status_images "${#images[@]}")"
+    for mp in "${images[@]}"; do printf '    %s\n' "$mp"; done
+  else
+    info "$(t status_no_images)"
+  fi
+
+  # Буфер обмена — best-effort. Под `set -euo pipefail` упавший `pbpaste` (headless / нет
+  # pasteboard-сессии) вернул бы non-zero и оборвал бы read-only статус с кодом 1. Изолируем
+  # именно отказ pbpaste через `|| pb_ok=0` (а НЕ всю pipeline — иначе сломанный wc/tr тоже
+  # молча дал бы «неизвестно»); непустоту проверяем прямо `[[ -n ]]`, без подсчёта байт.
+  local clip="" pb_ok=1
+  clip="$(pbpaste 2>/dev/null)" || pb_ok=0
+  if [[ "$pb_ok" == "0" ]]; then
+    info "$(t status_clip_unknown)"
+  elif [[ -n "$clip" ]]; then
+    info "$(t status_clip_has)"
+  else
+    info "$(t status_clip_empty)"
+  fi
+
+  # FileVault — честный контекст.
+  if filevault_on; then
+    info "$(t status_fv_on)"
+  else
+    warn "$(t status_fv_off)"
+  fi
+
+  # Cloud-демоны (--hard убьёт).
+  local d
+  for d in "${PANIC_CLOUD_DAEMONS[@]}"; do
+    if pgrep -x "$d" >/dev/null 2>&1; then
+      info "$(t status_cloud "$d")"
+    fi
+  done
+}
+
+# Убрать managed-блок panic из skhd-конфига (чужие строки не трогаем). awk сравнивает
+# строки литерально — без возни с экранированием спецсимволов в маркерах.
+_hotkey_strip() {
+  [[ -f "$SKHD_CONFIG" ]] || return 0
+  local tmp; tmp="$(mktemp)" || return 1
+  # Удаляем ТОЛЬКО полные managed-блоки (begin..end). Незакрытый блок (повреждённый
+  # конфиг) НЕ режем до конца файла — буферизуем и возвращаем, чтобы не снести чужие строки.
+  awk -v b="$PANIC_HK_BEGIN" -v e="$PANIC_HK_END" '
+    $0==b && !inblock { inblock=1; buf=$0 ORS; next }
+    inblock { buf=buf $0 ORS; if ($0==e) { inblock=0; buf="" } next }
+    { print }
+    END { if (inblock) printf "%s", buf }
+  ' "$SKHD_CONFIG" > "$tmp" || { rm -f "$tmp"; return 1; }
+  # Содержимое переливаем в существующий файл, а не подменяем его через mv: mv принёс бы
+  # права mktemp (600) и владельца текущего пользователя на чужой skhdrc. Копию чужого
+  # конфига убираем сразу — оставлять её в TMPDIR незачем (trap RETURN тут не годится:
+  # в bash он глобальный и сработал бы на возврате любой другой функции).
+  cat "$tmp" > "$SKHD_CONFIG"
+  rm -f "$tmp"
+}
+
+# (Пере)запустить skhd-сервис best-effort: для уже установленного сервиса хватает restart;
+# на чистой системе — install + start. Ошибки не валят команду (skhd может требовать прав).
+_hotkey_reload() {
+  command -v skhd >/dev/null 2>&1 || return 0
+  skhd --restart-service >/dev/null 2>&1 && return 0
+  skhd --install-service >/dev/null 2>&1 || true
+  skhd --start-service   >/dev/null 2>&1 || true
+}
+
+# Глобальный хоткей паники через skhd. Лаунчер хоткея только дёргает `panic now` —
+# секретов не трогает. Конфиг-блок managed, не затирает чужие биндинги skhd.
+cmd_hotkey() {
+  require_macos
+  local sub="${1:-status}"; shift || true
+  case "$sub" in
+    install)
+      command -v skhd >/dev/null 2>&1 || { err "$(t hk_no_skhd)"; exit 1; }
+      local combo="${1:-$PANIC_HOTKEY_COMBO}"
+      # combo не должен содержать ':' (разделитель skhd) или перевод строки — иначе можно
+      # инжектить лишние строки/биндинги в skhdrc.
+      if [[ "$combo" == *:* || "$combo" == *$'\n'* ]]; then err "$(t hk_bad_combo)"; exit 1; fi
+      local self; self="$(_abspath "${BASH_SOURCE[0]}")"
+      mkdir -p "$(dirname "$SKHD_CONFIG")"
+      _hotkey_strip
+      # Разделитель считаем ДО открытия редиректа (иначе shellcheck SC2094: read+write).
+      local sep=""
+      [[ -s "$SKHD_CONFIG" ]] && sep=$'\n'
+      {
+        printf '%s' "$sep"
+        printf '%s\n' "$PANIC_HK_BEGIN"
+        # Путь закавычен: установка идёт из путей с пробелами (напр. /Volumes/X10 Pro/...);
+        # без кавычек skhd разорвал бы команду по пробелу.
+        printf '%s : "%s" now\n' "$combo" "$self"
+        printf '%s\n' "$PANIC_HK_END"
+      } >> "$SKHD_CONFIG"
+      _hotkey_reload
+      info "$(t hk_installed "$combo")"
+      warn "$(t hk_accessibility)"
+      ;;
+    uninstall)
+      _hotkey_strip
+      _hotkey_reload
+      info "$(t hk_uninstalled)"
+      ;;
+    status)
+      if [[ -f "$SKHD_CONFIG" ]] && grep -qF "$PANIC_HK_BEGIN" "$SKHD_CONFIG"; then
+        local line; line="$(grep -A1 -F "$PANIC_HK_BEGIN" "$SKHD_CONFIG" | tail -1)"
+        info "$(t hk_status_on "$line")"
+      else
+        info "$(t hk_status_off)"
+      fi
+      command -v skhd >/dev/null 2>&1 || warn "$(t hk_no_skhd)"
+      ;;
+    *) err "$(t hk_usage)"; exit 1 ;;
+  esac
+}
+
+cmd_version() { echo "panic $VERSION"; }
+
+main() {
+  local cmd="${1:-}"
+  if [[ -z "$cmd" ]]; then usage; exit 1; fi
+  shift || true
+  case "$cmd" in
+    status)          cmd_status "$@" ;;
+    version|-v|--version) cmd_version "$@" ;;
+    help|--help|-h) usage ;;
+    now)           cmd_now "$@" ;;
+    hotkey)        cmd_hotkey "$@" ;;
+    *) t unknown_cmd "$cmd" >&2; echo >&2; usage >&2; exit 1 ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

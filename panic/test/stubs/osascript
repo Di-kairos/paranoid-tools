@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Стаб osascript (подставляется через $PANIC_OSASCRIPT) — fallback-локер Ctrl+Cmd+Q.
+# Фиксирует вызов; код выхода управляется OSASCRIPT_EXIT (по умолчанию 0 = «лок удался»).
+printf 'osascript %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+exit "${OSASCRIPT_EXIT:-0}"

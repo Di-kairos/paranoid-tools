@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Стаб pbcopy: поглощает stdin, фиксирует вызов в $VW_STUB_LOG.
+cat >/dev/null 2>&1 || true
+printf 'pbcopy\n' >>"${VW_STUB_LOG:-/dev/null}"
+exit 0

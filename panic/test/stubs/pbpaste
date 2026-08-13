@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Стаб pbpaste: содержимое буфера ($STUB_CLIPBOARD) или пусто. STUB_PBPASTE_FAIL=1 —
+# сымитировать недоступный pasteboard (выход non-zero), как в headless/sandbox-среде.
+[[ "${STUB_PBPASTE_FAIL:-0}" == "1" ]] && exit 1
+echo -n "${STUB_CLIPBOARD:-}"
+exit 0
