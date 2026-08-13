@@ -609,6 +609,20 @@ Describe 'vault: attached is not open, and a failed create leaves nothing behind
         Should -Invoke Write-StVaultBackend -Times 0 -Exactly
     }
 
+    It 'a wrong password gives our message and leaves no attached volume behind' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Read-StVaultBackend { 'bitlocker' }
+        Mock Invoke-StDiskpart { }
+        Mock Dismount-StVault { }
+        # Unlock-BitLocker throws on a wrong key (0x80310027) instead of returning false.
+        Mock Unlock-StBitLockerVault { throw 'The drive cannot be unlocked with the key provided. (0x80310027)' }
+
+        $out = ''
+        try { $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('open') } } catch [StExit] { $out = $_.TargetObject }
+        Should -Invoke Dismount-StVault -Times 1 -Exactly
+    }
+
     It 'a size below the BitLocker minimum is refused before diskpart touches the disk' {
         Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock New-StBitLockerVault { }

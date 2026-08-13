@@ -1156,9 +1156,16 @@ function Invoke-StVault {
                 # Attach VHDX...
                 Invoke-StDiskpart -Script "select vdisk file=`"$vaultPath`"`nattach vdisk`nselect partition 1`nassign letter=$letter"
                 $vol = "$($letter):"
-                # ...then unlock BitLocker and check the status (#9).
+                # ...then unlock BitLocker and check the status (#9). A wrong password makes
+                # Unlock-BitLocker THROW (0x80310027) rather than return false, so the throw is
+                # caught here — otherwise the raw HRESULT surfaced instead of our message. Either
+                # way the vhdx is already attached: detach it, or a failed open would leave an
+                # attached locked volume behind (found on real hardware, 2026-08-13).
                 $sec = Get-StVaultPasswordSecure -Prompt (T 'vault_unlock_prompt')
-                if (-not (Unlock-StBitLockerVault -MountPoint $vol -Password $sec)) {
+                $unlocked = $false
+                try { $unlocked = Unlock-StBitLockerVault -MountPoint $vol -Password $sec } catch { $unlocked = $false }
+                if (-not $unlocked) {
+                    try { Dismount-StVault -Path $vaultPath } catch { }
                     Write-StErr (T 'vault_unlock_fail'); Stop-StCommand
                 }
                 Write-StInfo (T 'vault_mounted' $vol)
