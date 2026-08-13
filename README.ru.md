@@ -54,11 +54,11 @@ bash install.sh            # ставит все 5 + лаунчер paranoid
 
 | # | Инструмент | Шаг жизни секрета | Платформа | Версия |
 |---|------------|-------------------|-----------|--------|
-| 1 | [`securetrash`](securetrash/) | хранить в зашифрованном сейфе (`vault`), очистить или уничтожить | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/securetrash?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/securetrash/releases/latest) |
-| 2 | [`vaultwatch`](vaultwatch/)   | сторожить сейф, пока он открыт — **ранняя версия, в работе** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
-| 3 | [`panic`](panic/)             | одним движением закрыть сейфы, отмонтировать тома, стереть буфер обмена и запереть экран | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
-| 4 | [`ghostdraft`](ghostdraft/)   | написать или прочитать текст, не оставив копий там, где их потом ищут — **ранняя версия** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
-| 5 | [`seedsplit`](seedsplit/)     | разложить секрет на доли по Шамиру — бумажная доля переживает опечатку-другую (+ парольная фраза на macOS) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
+| 1 | [`securetrash`](securetrash/) | хранить в зашифрованном сейфе (`vault`), очистить или уничтожить | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=securetrash-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
+| 2 | [`vaultwatch`](vaultwatch/)   | сторожить сейф, пока он открыт — **ранняя версия, в работе** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=vaultwatch-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
+| 3 | [`panic`](panic/)             | одним движением закрыть сейфы, отмонтировать тома, стереть буфер обмена и запереть экран | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=panic-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
+| 4 | [`ghostdraft`](ghostdraft/)   | написать или прочитать текст, не оставив копий там, где их потом ищут — **ранняя версия** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=ghostdraft-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
+| 5 | [`seedsplit`](seedsplit/)     | разложить секрет на доли по Шамиру — бумажная доля переживает опечатку-другую (+ парольная фраза на macOS) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=seedsplit-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
 
 Все пятеро живут в этом репозитории — по каталогу на инструмент, с полной историей, — но
 версии и релизы у каждого свои, под тегами `<tool>-vX.Y.Z`. У каждого есть английский
@@ -94,10 +94,12 @@ bash install.sh            # ставит все 5 + лаунчер paranoid
 **Криптография говорит о себе честно.** `seedsplit` реализует Шамира над GF(256) на
 чистом Bash — реализация наша собственная, **независимого аудита не проходила**, а
 умножение через таблицы log/antilog не constant-time (так и написано в его README).
-Что стоит вместо аудита сегодня: CI на каждый push дифференциально сверяет её с
-независимой Python-реализацией — доли, разложенные здесь, обязаны собираться там и
-наоборот, — плюс property-тесты порога, смешения наборов и RS-починки опечаток.
-Граница доверия написана там, где её можно прочитать:
+Что стоит вместо аудита сегодня: CI на каждый push дифференциально сверяет её со
+второй реализацией, написанной с нуля на другом языке по той же спецификации, — доли,
+разложенные здесь, обязаны собираться там и наоборот, — плюс property-тесты порога,
+смешения наборов и RS-починки опечаток, а арифметика поля заякорена на опубликованные
+векторы FIPS-197. Это ловит ошибки реализации, но не изъян самой схемы, и сторонним
+ревью не является. Граница доверия написана там, где её можно прочитать:
 [seedsplit → Scope & limitations](seedsplit/README.ru.md#scope--limitations).
 
 Подходит ли этот набор под твою ситуацию — и от чего он **не** спасёт — разобрано в
@@ -301,8 +303,9 @@ paranoid          # открывает дашборд и меню
 **Проверка обновлений — по желанию.** По умолчанию выключена: пока не попросишь, дашборд к
 сети не обращается. Задай `PARANOID_UPDATE_CHECK=1`, и он добавит строку *«доступно
 обновление»*, когда у установленного инструмента появится более свежий подписанный релиз.
-Это единственный сетевой вызов лаунчера: один запрос на инструмент к GitHub
-`releases/latest` — по редиректу, без API-ключа, без телеметрии, с кэшем на сутки. Включить
+Это единственный сетевой вызов лаунчера: один запрос публичной ленты `releases.atom`
+репозитория, покрывающий все пять инструментов сразу — без API-ключа, без телеметрии,
+с кэшем на сутки. Включить
 на одну сессию — `PARANOID_UPDATE_CHECK=1 paranoid`; чтобы держать постоянно, пропиши
 переменную в rc-файл оболочки.
 

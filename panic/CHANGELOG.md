@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+## [0.1.16] — 2026-08-13
+
+### Changed
+- **Проект переехал в монорепозиторий [`paranoid-tools`](https://github.com/Di-kairos/paranoid-tools).**
+  Код, история и релизы всех пяти инструментов живут теперь в одном репозитории; релизные теги
+  получили префикс — этот выпуск опубликован как `panic-v0.1.16`. Прежний репозиторий архивирован,
+  его старые релизы продолжают отдаваться.
+- **Установщики качают из монорепо по закреплённому тегу.** `releases/latest` в монорепо означает
+  «последний релиз любого инструмента», поэтому и `install.sh`, и `windows/install.ps1` всегда
+  пиннят собственный тег `panic-vX.Y.Z`; версию по умолчанию сторожит гейт в `release.yml`.
+- **Комментарии в коде переведены на английский** для внешних контрибьюторов; строки интерфейса
+  остаются двуязычными, русская документация — на месте.
+- Приватные сообщения об уязвимостях принимаются теперь в одном месте —
+  [advisories монорепо](https://github.com/Di-kairos/paranoid-tools/security/advisories/new).
+
 ## [0.1.15] — 2026-08-08
 
 ### Fixed
@@ -235,6 +250,7 @@
 - Real-device smoke на macOS: `now` распарсил живой `hdiutil info` и размонтировал тест-образ.
 
 [Unreleased]: https://github.com/Di-kairos/panic/compare/v0.1.14...HEAD
+[0.1.16]: https://github.com/Di-kairos/paranoid-tools/releases/tag/panic-v0.1.16
 [0.1.14]: https://github.com/Di-kairos/panic/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/Di-kairos/panic/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/Di-kairos/panic/compare/v0.1.11...v0.1.12

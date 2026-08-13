@@ -37,7 +37,7 @@ Piping any script into a shell means running code you haven't read. Prefer this 
 download, check the checksum, read it, then run:
 
 ```bash
-base=https://github.com/Di-kairos/seedsplit/releases/latest/download
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -51,7 +51,7 @@ bash install.sh
 ### One-line install via curl
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/seedsplit/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/install.sh | bash
 ```
 
 > **Integrity vs authenticity (honest scope).** The checksum proves the downloaded
@@ -77,7 +77,7 @@ with this build — split on macOS, combine on Windows, or the reverse. A known-
 reconstructs a macOS-generated share-set on Windows CI to guarantee it.
 
 ```powershell
-irm https://github.com/Di-kairos/seedsplit/releases/latest/download/install.ps1 -OutFile install.ps1
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/install.ps1 -OutFile install.ps1
 # verify the hash against SHA256SUMS, then: pwsh -File install.ps1
 ```
 
@@ -188,12 +188,20 @@ oversell. So here are the honest limits:
 
 - **This is our own GF(256) implementation, and it has NOT been independently
   audited.** What we offer instead of silence: on every push, CI differentially
-  tests it against an [independent Python implementation](test/differential/) —
-  `split` here must combine there and vice versa, over random vectors in both
-  directions — plus property tests (T−1 shares refuse, any T of N reconstruct,
-  mixed sets refuse, Reed-Solomon repairs up to 2 typos per share). An
-  independent audit would still be better; until one happens, treat this line
-  as the trust boundary.
+  tests it against a [second, from-scratch implementation](test/differential/)
+  in a different language (Python), written to the same spec by the same
+  project — `split` here must combine there and vice versa, over random vectors
+  in both directions, with each share's Reed-Solomon parity re-derived by the
+  second encoder — plus property tests (T−1 shares refuse, any T of N
+  reconstruct, mixed sets refuse, RS repairs up to 2 typos per share). Be clear
+  about what that proves: it catches **implementation** mistakes (a wrong table,
+  a broken Horner step); it cannot catch a flaw in the **scheme itself**, and it
+  is not a third-party review. The field arithmetic is additionally anchored to
+  published external vectors — FIPS-197 multiplication and inversion, the
+  Rijndael generator-3 antilog table —
+  in [`kat_vectors.py`](test/differential/kat_vectors.py). An independent audit
+  would still be better; until one happens, treat this line as the trust
+  boundary.
 - **share quality = RNG quality** — we use `/dev/urandom`, not a homegrown PRNG;
 - **a secret in `argv` is visible in `ps`** — input is via stdin/file only, never an
   argument;

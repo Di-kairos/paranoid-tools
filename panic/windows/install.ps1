@@ -8,8 +8,8 @@
 # proves AUTHENTICITY (who published), not just a hash match over a single channel.
 #
 # Usage (verify-then-run recommended, see windows/README.md):
-#   irm https://github.com/Di-kairos/panic/releases/latest/download/install.ps1 -OutFile install.ps1
-#   irm https://github.com/Di-kairos/panic/releases/latest/download/SHA256SUMS  -OutFile SHA256SUMS
+#   irm https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16/install.ps1 -OutFile install.ps1
+#   irm https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16/SHA256SUMS  -OutFile SHA256SUMS
 #   # check install.ps1's hash manually, read the script, then:
 #   pwsh -File install.ps1
 #
@@ -27,15 +27,18 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Repo = 'Di-kairos/panic'
-
-# Source: explicit PANIC_BASE_URL → specific tag PANIC_VERSION → latest release.
+$Repo = 'Di-kairos/paranoid-tools'
+# Default release of this tool; kept in lockstep with the panic-vX.Y.Z tag by a
+# release.yml gate. In the monorepo `releases/latest` is the latest release of ANY
+# tool, so nothing here uses `latest` — the tag is always pinned.
+$PANIC_VERSION_DEFAULT = '0.1.16'
+# Source: explicit PANIC_BASE_URL → PANIC_VERSION override → the baked-in default tag.
 if ($env:PANIC_BASE_URL) {
     $BaseUrl = $env:PANIC_BASE_URL
 } elseif ($env:PANIC_VERSION) {
-    $BaseUrl = "https://github.com/$Repo/releases/download/v$($env:PANIC_VERSION)"
+    $BaseUrl = "https://github.com/$Repo/releases/download/panic-v$($env:PANIC_VERSION)"
 } else {
-    $BaseUrl = "https://github.com/$Repo/releases/latest/download"
+    $BaseUrl = "https://github.com/$Repo/releases/download/panic-v$PANIC_VERSION_DEFAULT"
 }
 
 $InstallDir = if ($env:PANIC_INSTALL_DIR) { $env:PANIC_INSTALL_DIR } else {

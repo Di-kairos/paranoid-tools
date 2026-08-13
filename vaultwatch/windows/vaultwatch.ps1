@@ -21,7 +21,7 @@
 # BETA: the logic is covered by Pester (system effects are mocked); behavior on real hardware has
 # not been widely field-tested.
 
-$VERSION = '0.1.14'
+$VERSION = '0.1.15'
 
 # --- configurable paths (mirror of bash VW_*/ST_HOOK_DIR; overridable in tests) ---
 $script:VW_STATE_DIR = if ($env:VW_STATE_DIR) { $env:VW_STATE_DIR } else {

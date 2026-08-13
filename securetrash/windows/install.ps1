@@ -11,8 +11,8 @@
 # Bypass only via an explicit $env:PT_ALLOW_HASH_ONLY='1' (only SHA256 integrity remains).
 #
 # Usage (verify-then-run recommended, see windows/README.md):
-#   irm https://github.com/Di-kairos/securetrash/releases/latest/download/install.ps1 -OutFile install.ps1
-#   irm https://github.com/Di-kairos/securetrash/releases/latest/download/SHA256SUMS  -OutFile SHA256SUMS
+#   irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/install.ps1 -OutFile install.ps1
+#   irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/SHA256SUMS  -OutFile SHA256SUMS
 #   # verify install.ps1's hash by hand, read the script, then:
 #   pwsh -File install.ps1
 #
@@ -29,15 +29,18 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Repo = 'Di-kairos/securetrash'
-
-# Source: explicit ST_BASE_URL → specific ST_VERSION tag → latest release.
+$Repo = 'Di-kairos/paranoid-tools'
+# Default release of this tool; kept in lockstep with the securetrash-vX.Y.Z tag by a
+# release.yml gate. In the monorepo `releases/latest` is the latest release of ANY
+# tool, so nothing here uses `latest` — the tag is always pinned.
+$ST_VERSION_DEFAULT = '0.5.7'
+# Source: explicit ST_BASE_URL → ST_VERSION override → the baked-in default tag.
 if ($env:ST_BASE_URL) {
     $BaseUrl = $env:ST_BASE_URL
 } elseif ($env:ST_VERSION) {
-    $BaseUrl = "https://github.com/$Repo/releases/download/v$($env:ST_VERSION)"
+    $BaseUrl = "https://github.com/$Repo/releases/download/securetrash-v$($env:ST_VERSION)"
 } else {
-    $BaseUrl = "https://github.com/$Repo/releases/latest/download"
+    $BaseUrl = "https://github.com/$Repo/releases/download/securetrash-v$ST_VERSION_DEFAULT"
 }
 
 $InstallDir = if ($env:ST_INSTALL_DIR) { $env:ST_INSTALL_DIR } else {

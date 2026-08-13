@@ -11,7 +11,7 @@
 # later packs; see README "Scope & limitations".
 set -euo pipefail
 
-VERSION="0.1.15"
+VERSION="0.1.16"
 
 # Screen locker. Method 1 — CGSession -suspend (login-window switch, independent of the
 # "require password" setting); the Menu Extras bundle is gone in recent macOS (≥12), so this is legacy-only.

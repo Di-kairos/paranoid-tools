@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# verify-releases.sh — проверка подписи + целостности опубликованных релизов всех 5 тулов.
+# verify-releases.sh — signature + integrity check of the published releases of all 5 tools.
 #
-# Репозитории публичны: ассеты тянутся обычным `curl`, без `gh` и без токена —
-# «don't trust, verify» доступно любому, не только владельцу. Для каждого тула:
-#   1) curl SHA256SUMS + SHA256SUMS.sig + сам бинарь из публичного релиза;
-#   2) ssh-keygen -Y verify — Ed25519-подпись манифеста против вшитого pubkey (аутентичность);
-#   3) sha256 -c — бинарь побайтно соответствует подписанному манифесту (целостность).
-# Печатает ✓/✗ по каждому. Запуск:  bash verify-releases.sh
+# The repository is public: assets are fetched with plain `curl`, no `gh`, no token —
+# "don't trust, verify" is available to anyone, not just the owner. For every tool:
+#   1) curl SHA256SUMS + SHA256SUMS.sig + the binary itself from the public release;
+#   2) ssh-keygen -Y verify — the Ed25519 signature of the manifest against the
+#      embedded pubkey (authenticity);
+#   3) sha256 -c — the binary matches the signed manifest byte for byte (integrity).
+# Prints ✓/✗ per tool. Run:  bash verify-releases.sh
 set -uo pipefail
 
 PUB="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
 PRINCIPAL="releases@paranoid-tools"
-BASE="https://github.com/Di-kairos"
+# All releases live in the monorepo under per-tool prefixed tags.
+BASE="https://github.com/Di-kairos/paranoid-tools/releases/download"
 
 for tool in curl ssh-keygen; do
   command -v "$tool" >/dev/null 2>&1 || { echo "нужен $tool"; exit 1; }
 done
-# Кроссплатформенный sha256: shasum (macOS) или sha256sum (Linux).
+# Cross-platform sha256: shasum (macOS) or sha256sum (Linux).
 if command -v shasum >/dev/null 2>&1; then SHA() { shasum -a 256 "$@"; }
 elif command -v sha256sum >/dev/null 2>&1; then SHA() { sha256sum "$@"; }
 else echo "нужен shasum или sha256sum"; exit 1; fi
@@ -25,16 +27,16 @@ W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 printf '%s namespaces="file" %s\n' "$PRINCIPAL" "$PUB" > "$W/allowed_signers"
 
 PASS=0; FAIL=0
-# Пины актуальных релизных тегов (синхронны docs/RELEASE-STATE.md).
-for spec in securetrash:v0.5.6 vaultwatch:v0.1.14 panic:v0.1.15 ghostdraft:v0.1.18 seedsplit:v0.5.5; do
-  t="${spec%%:*}"; tag="${spec##*:}"; d="$W/$t"; mkdir -p "$d"
-  rel="$BASE/$t/releases/download/$tag"
-  printf '%-12s %-8s ' "$t" "$tag"
+# Pins of the current release tags (kept in sync with docs/RELEASE-STATE.md).
+for spec in securetrash:0.5.7 vaultwatch:0.1.15 panic:0.1.16 ghostdraft:0.1.19 seedsplit:0.5.6; do
+  t="${spec%%:*}"; ver="${spec##*:}"; tag="${t}-v${ver}"; d="$W/$t"; mkdir -p "$d"
+  rel="$BASE/$tag"
+  printf '%-12s %-20s ' "$t" "$tag"
 
-  # Манифест сумм и подпись тянем по отдельности — чтобы при сбое честно сказать, ЧТО именно
-  # не скачалось и почему (curl exit code + последняя строка stderr), а не глухое «сеть?».
-  # `-S` показывает ошибку curl (иначе -s её глушит); `--retry` страхует от транзиентных
-  # DNS/timeout/429/5xx. Разделяем провал SHA256SUMS и SHA256SUMS.sig.
+  # The sums manifest and the signature are fetched separately, so a failure names
+  # exactly WHAT did not download and why (curl exit code + last stderr line)
+  # instead of a vague "network?". `-S` surfaces the curl error (`-s` alone would
+  # swallow it); `--retry` covers transient DNS/timeout/429/5xx.
   fetch_fail=""
   for asset in SHA256SUMS SHA256SUMS.sig; do
     cerr="$(curl -fsSLS --retry 2 --retry-delay 1 "$rel/$asset" -o "$d/$asset" 2>&1)" && continue
@@ -44,14 +46,15 @@ for spec in securetrash:v0.5.6 vaultwatch:v0.1.14 panic:v0.1.15 ghostdraft:v0.1.
     printf '\033[31m✗ не скачалось: %s\033[0m\n' "$fetch_fail"; FAIL=$((FAIL+1)); continue
   fi
 
-  # (1) аутентичность: подпись манифеста сумм.
+  # (1) authenticity: the signature of the sums manifest.
   if ! ssh-keygen -Y verify -f "$W/allowed_signers" -I "$PRINCIPAL" -n file \
          -s "$d/SHA256SUMS.sig" < "$d/SHA256SUMS" >/dev/null 2>&1; then
     printf '\033[31m✗ подпись НЕ прошла\033[0m\n'; FAIL=$((FAIL+1)); continue
   fi
 
-  # (2) целостность: бинарь соответствует подписанному манифесту. if/else без `!`, чтобы
-  # `$?` в else был реальным кодом curl (после `if ! cmd` он был бы 0 из-за негации).
+  # (2) integrity: the binary matches the signed manifest. if/else without `!` so
+  # that `$?` in the else branch is the real curl code (after `if ! cmd` it would
+  # be 0 because of the negation).
   if berr="$(curl -fsSLS --retry 2 --retry-delay 1 "$rel/$t" -o "$d/$t" 2>&1)"; then :; else
     brc=$?
     printf '\033[33m✓ подпись верна, но бинарь не скачался (curl %s: %s)\033[0m\n' "$brc" "${berr##*$'\n'}"; PASS=$((PASS+1)); continue

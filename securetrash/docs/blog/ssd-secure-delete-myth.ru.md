@@ -126,7 +126,7 @@ keybag контейнера, всё ещё лежащего в устаревш�
 
 ## Что с этим делает securetrash
 
-[securetrash](https://github.com/Di-kairos/securetrash) — маленький CLI без
+[securetrash](https://github.com/Di-kairos/paranoid-tools) — маленький CLI без
 зависимостей, построенный на этой честности:
 
 - Он **не притворяется**, что перезапись шреддит SSD. В его собственном выводе
@@ -155,4 +155,4 @@ brew install Di-kairos/tap/securetrash
   миф.
 
 *securetrash под лицензией MIT, читается от и до:
-<https://github.com/Di-kairos/securetrash>*
+<https://github.com/Di-kairos/paranoid-tools>*

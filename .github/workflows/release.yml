@@ -1,21 +1,26 @@
 name: release
-# Монорепо-релизы: push тега `<tool>-vX.Y.Z` прогоняет тесты тула, собирает
-# SHA256SUMS по его файлам, подписывает Ed25519-ключом экосистемы и публикует
-# GitHub Release. Ассеты — плоские имена (как в пер-тул релизах до миграции):
-# релиз привязан к тегу, поэтому `install.sh`/`SHA256SUMS` разных тулов не
-# коллидируют.
+# Monorepo releases: pushing a `<tool>-vX.Y.Z` tag runs the tool's tests, builds
+# SHA256SUMS over its files, signs the manifest with the ecosystem's Ed25519 key
+# and publishes a GitHub Release. Assets keep flat basenames (as the pre-migration
+# per-tool releases did): a release is tag-scoped, so `install.sh`/`SHA256SUMS`
+# of different tools never collide.
 #
-# Гейты до подписи (подписываем только то, что проверено):
-#   1. строгая грамматика тега `<tool>-vX.Y.Z` + совпадение с VERSION в скрипте;
-#   2. инсталлеры тула обязаны качать с монорепо (не с архивных репо) — иначе
-#      свежеподписанный релиз молча ставил бы старую версию;
-#   3. shellcheck + bats тула (+ vendor --check) на этом же коммите.
-#      Windows-матрица сюда не влезает по времени — она бежит в ci-<tool>.yml;
-#      перед тегом смотри, что он green.
+# Gates before anything is signed (only verified content gets a signature):
+#   1. strict tag grammar `<tool>-vX.Y.Z` + the tag version must equal VERSION
+#      inside the tool script;
+#   2. every pinned default must be in lockstep with the tag: the tool's own
+#      install.sh / windows/install.ps1 baked-in default, the umbrella
+#      installer's version map, and the verify-releases.sh pin — otherwise a
+#      freshly signed release would silently install or verify the previous
+#      version;
+#   3. installers must download from the monorepo, not the archived repos;
+#   4. the tool's shellcheck + bats (+ vendor --check) at this exact commit.
+#      The Windows matrix does not fit here time-wise — it runs in ci-<tool>.yml;
+#      check that it is green before tagging.
 #
-# Требует секрет RELEASE_SIGNING_KEY (тот же ed25519-ключ, что был в пяти
-# пер-тул репозиториях; pubkey запиннут в install.sh и SECURITY.md).
-# Без ключа выпуск ПРЕРЫВАЕТСЯ — неподписанных релизов не бывает.
+# Requires the RELEASE_SIGNING_KEY secret (the same ed25519 key the five
+# per-tool repos used; the pubkey is pinned in install.sh and SECURITY.md).
+# Without the key the release ABORTS — unsigned releases do not exist.
 on:
   push:
     tags:
@@ -38,14 +43,14 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          # Строгая грамматика: <tool>-vX.Y.Z, никаких -rc/суффиксов/пустых версий.
+          # Strict grammar: <tool>-vX.Y.Z — no -rc suffixes, no empty versions.
           if [[ ! "$TAG" =~ ^(securetrash|vaultwatch|panic|ghostdraft|seedsplit)-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             echo "Tag '$TAG' does not match <tool>-vX.Y.Z — refusing to release." >&2
             exit 1
           fi
           TOOL="${BASH_REMATCH[1]}"
           VER="${BASH_REMATCH[2]}"
-          # Версия в теге обязана совпадать с VERSION внутри скрипта тула.
+          # The tag version must equal VERSION inside the tool script.
           script_ver="$(grep -Eo '^VERSION="?[0-9]+\.[0-9]+\.[0-9]+"?' "$TOOL/$TOOL" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
           if [[ "$script_ver" != "$VER" ]]; then
             echo "Tag version $VER != script VERSION $script_ver in $TOOL/$TOOL — bump the script first." >&2
@@ -54,11 +59,27 @@ jobs:
           echo "TOOL=$TOOL" >> "$GITHUB_ENV"
           echo "VER=$VER" >> "$GITHUB_ENV"
 
+      - name: Pinned defaults must be in lockstep with the tag
+        run: |
+          # A release whose installers or verifier still pin the previous version
+          # would silently deliver stale artifacts. Every default names this tag.
+          bad=0
+          grep -Eq "^[A-Z]+_VERSION_DEFAULT=\"$VER\"$" "$TOOL/install.sh" \
+            || { echo "$TOOL/install.sh: baked-in default is not $VER" >&2; bad=1; }
+          grep -Eq "^\\\$[A-Z]+_VERSION_DEFAULT = '$VER'$" "$TOOL/windows/install.ps1" \
+            || { echo "$TOOL/windows/install.ps1: baked-in default is not $VER" >&2; bad=1; }
+          # The map is column-aligned, so the gap after `<tool>)` varies — match loosely.
+          grep -Eq "^[[:space:]]*$TOOL\)[[:space:]]+echo \"${VER//./\\.}\" ;;\$" install.sh \
+            || { echo "install.sh (umbrella): version map does not name $TOOL $VER" >&2; bad=1; }
+          grep -Fq "$TOOL:$VER" verify-releases.sh \
+            || { echo "verify-releases.sh: pin is not $TOOL:$VER" >&2; bad=1; }
+          [ "$bad" -eq 0 ] || exit 1
+
       - name: Refuse to ship installers that still point at the archived repos
         run: |
-          # Релиз из монорепо обязан отдавать install.sh/ps1, качающие ИЗ монорепо.
-          # Иначе свежий подписанный релиз молча ставит старый бинарь из архива.
-          # Чеклист переключения — docs/RELEASE-STATE.md §Монорепо.
+          # A monorepo release must serve install.sh/ps1 that download FROM the
+          # monorepo — otherwise a fresh signed release silently installs the old
+          # binary from the archive. Flip checklist: docs/RELEASE-STATE.md.
           bad=0
           for f in "$TOOL/install.sh" "$TOOL/windows/install.ps1"; do
             if grep -qE "github\.com/Di-kairos/${TOOL}/releases" "$f"; then
@@ -91,18 +112,19 @@ jobs:
         env:
           SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
-          # Подпись — поверх целостности (аутентичность). Ключ выделенный ed25519,
-          # без passphrase (защита — доступ к GH Secrets); namespace 'file' как у
-          # ssh-keygen -Y verify. Нет ключа → нет релиза.
+          # The signature adds authenticity on top of integrity. The key is a
+          # dedicated ed25519 one, passphrase-less (the protection is access to
+          # GH Secrets); namespace 'file' as expected by ssh-keygen -Y verify.
+          # No key → no release.
           if [ -z "${SIGNING_KEY:-}" ]; then
-            echo "RELEASE_SIGNING_KEY не задан — прерываю выпуск (подпись обязательна)." >&2
+            echo "RELEASE_SIGNING_KEY is not set — aborting the release (signing is mandatory)." >&2
             exit 1
           fi
           umask 077
           trap 'rm -f signing_key' EXIT
           printf '%s\n' "$SIGNING_KEY" > signing_key
           ssh-keygen -Y sign -f signing_key -n file SHA256SUMS
-          echo "Подписал SHA256SUMS → SHA256SUMS.sig"
+          echo "Signed SHA256SUMS → SHA256SUMS.sig"
 
       - name: Create GitHub Release with verified assets
         env:

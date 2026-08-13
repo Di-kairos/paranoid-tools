@@ -138,6 +138,20 @@ version_var_for() {
   esac
 }
 
+# Current released version of each tool — the default install target. Kept in
+# lockstep with the <tool>-vX.Y.Z release tags by a release.yml gate: a release
+# refuses to publish until this map names its version. `releases/latest` is
+# never used — in the monorepo it means "the latest release of ANY tool".
+tool_version_for() {
+  case "$1" in
+    securetrash) echo "0.5.7" ;;
+    vaultwatch)  echo "0.1.15" ;;
+    panic)       echo "0.1.16" ;;
+    ghostdraft)  echo "0.1.19" ;;
+    seedsplit)   echo "0.5.6" ;;
+  esac
+}
+
 # Uninstall mode.
 if [[ "${1:-}" == "--uninstall" ]]; then
   t uninstalling "$DEST"
@@ -156,20 +170,16 @@ fi
 # Invoked ONLY as an `if` condition, so set -e inside does not abort the whole install.
 install_from_release() {
   local t="$1"
-  # Pre-monorepo-migration releases live in the archived per-tool repositories —
-  # GitHub keeps serving them. Starting with the first monorepo release (tags
-  # <tool>-vX.Y.Z) base will move to paranoid-tools/releases.
-  local base="https://github.com/Di-kairos/${t}/releases/latest/download"
   local tmp; tmp="$(mktemp -d)"
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'" RETURN
 
-  # Pin the tool's version if PT_<TOOL>_VERSION is set.
+  # PT_<TOOL>_VERSION overrides the baked-in current version; either way the
+  # URL pins an exact <tool>-vX.Y.Z release tag of the monorepo.
   local pin_var; pin_var="PT_$(version_var_for "$t" | sed 's/_VERSION//')_VERSION"
   local pin="${!pin_var:-}"
-  if [[ -n "$pin" ]]; then
-    base="https://github.com/Di-kairos/${t}/releases/download/v${pin}"
-  fi
+  local ver="${pin:-$(tool_version_for "$t")}"
+  local base="https://github.com/Di-kairos/paranoid-tools/releases/download/${t}-v${ver}"
 
   if ! curl -fsSL "${base}/install.sh" -o "${tmp}/install.sh" 2>/dev/null \
     || ! curl -fsSL "${base}/SHA256SUMS" -o "${tmp}/SHA256SUMS" 2>/dev/null; then

@@ -10,7 +10,7 @@
 # limits (see README "Scope & limitations"). The full core lands in later packs.
 set -euo pipefail
 
-VERSION="0.1.14"
+VERSION="0.1.15"
 
 # === BEGIN vendored common (pin: 42fc268) ===
 # shellcheck shell=bash
@@ -348,7 +348,7 @@ _write_hook() {
   cat > "$path" <<EOF
 #!/usr/bin/env bash
 ${HOOK_SIGNATURE}
-# Вызывается securetrash vault ${name#post-}. \$1 = точка монтирования.
+# Called by securetrash vault ${name#post-}. \$1 = the mount point.
 exec ${qself} ${action} "\$@"
 EOF
   chmod +x "$path"

@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+## [0.5.7] — 2026-08-13
+
+### Changed
+- **Проект переехал в монорепозиторий [`paranoid-tools`](https://github.com/Di-kairos/paranoid-tools).**
+  Код, история и релизы всех пяти инструментов живут теперь в одном репозитории; релизные теги
+  получили префикс — этот выпуск опубликован как `securetrash-v0.5.7`. Прежний репозиторий архивирован,
+  его старые релизы продолжают отдаваться.
+- **Установщики качают из монорепо по закреплённому тегу.** `releases/latest` в монорепо означает
+  «последний релиз любого инструмента», поэтому и `install.sh`, и `windows/install.ps1` всегда
+  пиннят собственный тег `securetrash-vX.Y.Z`; версию по умолчанию сторожит гейт в `release.yml`.
+- **Комментарии в коде переведены на английский** для внешних контрибьюторов; строки интерфейса
+  остаются двуязычными, русская документация — на месте.
+- Приватные сообщения об уязвимостях принимаются теперь в одном месте —
+  [advisories монорепо](https://github.com/Di-kairos/paranoid-tools/security/advisories/new).
+
+### Added
+- В README появилась строка принадлежности к экосистеме Paranoid Tools; лендинг ссылается на
+  монорепозиторий.
+
 ## [0.5.6] — 2026-08-08
 
 ### Fixed
@@ -375,6 +394,7 @@
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
 [Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.5...HEAD
+[0.5.7]: https://github.com/Di-kairos/paranoid-tools/releases/tag/securetrash-v0.5.7
 [0.5.5]: https://github.com/Di-kairos/securetrash/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/Di-kairos/securetrash/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/Di-kairos/securetrash/compare/v0.5.2...v0.5.3

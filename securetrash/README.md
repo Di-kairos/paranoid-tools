@@ -68,7 +68,7 @@ moving branch) and verifies the checksum **before** installing — it fails clos
 mismatch. Quick form:
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/securetrash/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/install.sh | bash
 ```
 
 ### Verify-then-run (don't trust, verify)
@@ -77,7 +77,7 @@ Piping any script into a shell means running code you haven't read. Prefer this 
 check the checksum, read it, then run:
 
 ```bash
-base=https://github.com/Di-kairos/securetrash/releases/latest/download
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -111,7 +111,7 @@ automated one. The installer verifies `securetrash.ps1` against `SHA256SUMS` fro
 release tag before installing.
 
 ```powershell
-irm https://github.com/Di-kairos/securetrash/releases/latest/download/install.ps1 | iex
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/install.ps1 | iex
 ```
 
 > **Beta:** the Windows port is logic-tested (Pester, mocked Windows APIs) but not yet

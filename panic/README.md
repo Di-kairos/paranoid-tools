@@ -22,7 +22,7 @@ clipboard, and locks the screen.
 Checksum-verified install from the release tag — verify-then-run (don't trust, verify):
 
 ```bash
-base=https://github.com/Di-kairos/panic/releases/latest/download
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -36,7 +36,7 @@ bash install.sh                                  # pulls panic + checksum, verif
 Quick form (one line, **skips verification** — choose deliberately):
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/panic/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16/install.sh | bash
 ```
 
 `install.sh` pulls the binary and `SHA256SUMS` from the immutable release tag (not the

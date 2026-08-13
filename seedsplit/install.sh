@@ -11,8 +11,8 @@
 # requires a signature / Homebrew.
 #
 # Usage (verify-then-run recommended, see README):
-#   curl -fsSLO https://github.com/Di-kairos/seedsplit/releases/latest/download/install.sh
-#   curl -fsSLO https://github.com/Di-kairos/seedsplit/releases/latest/download/SHA256SUMS
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/install.sh
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/SHA256SUMS
 #   shasum -a 256 -c SHA256SUMS --ignore-missing   # verify install.sh itself
 #   less install.sh                                  # read it with your own eyes
 #   bash install.sh
@@ -27,14 +27,16 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "seedsplit работает только на macOS." >&2; exit 1
 fi
 
-REPO="Di-kairos/seedsplit"
-# Source: explicit SEEDSPLIT_BASE_URL → specific tag SEEDSPLIT_VERSION → latest release.
+REPO="Di-kairos/paranoid-tools"
+# Default release of this tool; kept in lockstep with the seedsplit-vX.Y.Z tag by a
+# release.yml gate. In the monorepo `releases/latest` would be the latest release
+# of ANY tool, so nothing here ever uses `latest` — the tag is always pinned.
+SEEDSPLIT_VERSION_DEFAULT="0.5.6"
+# Source: explicit SEEDSPLIT_BASE_URL → SEEDSPLIT_VERSION override → the baked-in default tag.
 if [[ -n "${SEEDSPLIT_BASE_URL:-}" ]]; then
   BASE_URL="$SEEDSPLIT_BASE_URL"
-elif [[ -n "${SEEDSPLIT_VERSION:-}" ]]; then
-  BASE_URL="https://github.com/${REPO}/releases/download/v${SEEDSPLIT_VERSION}"
 else
-  BASE_URL="https://github.com/${REPO}/releases/latest/download"
+  BASE_URL="https://github.com/${REPO}/releases/download/seedsplit-v${SEEDSPLIT_VERSION:-$SEEDSPLIT_VERSION_DEFAULT}"
 fi
 # Install directory. The `paranoid-tools` umbrella installs everything into ~/.local/bin
 # (no sudo), while this installer historically targets /usr/local/bin. If the tool is

@@ -53,11 +53,11 @@ and a **[Windows path](#windows)** (PowerShell 7). Homebrew covers `securetrash`
 
 | # | Tool | Step in a secret's life | Platform | Latest |
 |---|------|-------------------------|----------|--------|
-| 1 | [`securetrash`](securetrash/) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/securetrash?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/securetrash/releases/latest) |
-| 2 | [`vaultwatch`](vaultwatch/)   | guard a vault while it's open — **early, work in progress** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/vaultwatch?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/vaultwatch/releases/latest) |
-| 3 | [`panic`](panic/)             | close vaults, detach volumes, clear the clipboard, lock the screen — instantly | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/panic?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/panic/releases/latest) |
-| 4 | [`ghostdraft`](ghostdraft/)   | write/view text without leaving copies in the usual places — **early** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/ghostdraft?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/ghostdraft/releases/latest) |
-| 5 | [`seedsplit`](seedsplit/)     | split a secret into Shamir shares — paper shares survive a typo or two (+ passphrase on macOS) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/seedsplit?display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/seedsplit/releases/latest) |
+| 1 | [`securetrash`](securetrash/) | store in an encrypted vault, empty or destroy it | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=securetrash-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
+| 2 | [`vaultwatch`](vaultwatch/)   | guard a vault while it's open — **early, work in progress** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=vaultwatch-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
+| 3 | [`panic`](panic/)             | close vaults, detach volumes, clear the clipboard, lock the screen — instantly | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=panic-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
+| 4 | [`ghostdraft`](ghostdraft/)   | write/view text without leaving copies in the usual places — **early** | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=ghostdraft-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
+| 5 | [`seedsplit`](seedsplit/)     | split a secret into Shamir shares — paper shares survive a typo or two (+ passphrase on macOS) | macOS · Windows (beta) | [![latest](https://img.shields.io/github/v/release/Di-kairos/paranoid-tools?filter=seedsplit-v*&display_name=tag&label=&color=2ea44f)](https://github.com/Di-kairos/paranoid-tools/releases) |
 
 All five tools live in this repository (one directory each, full history preserved),
 version independently, and release independently under `<tool>-vX.Y.Z` tags. Each ships
@@ -91,10 +91,13 @@ That is the claim in the heading, executable. More on what is tested and how:
 **The cryptography is honest about itself.** `seedsplit` implements Shamir over GF(256)
 in pure Bash — our own implementation, **not independently audited**, and log/antilog
 multiplication is not constant-time (stated in its README). What stands in for an audit
-today: CI differentially tests it against an independent Python implementation on every
-push — shares split here must combine there and vice versa — plus property tests for the
-threshold, set mixing, and Reed-Solomon typo repair. The boundary is written where you
-can read it: [seedsplit → Scope &amp; limitations](seedsplit/README.md#scope--limitations).
+today: CI differentially tests it on every push against a second, from-scratch
+implementation in another language written to the same spec — shares split here must
+combine there and vice versa — plus property tests for the threshold, set mixing, and
+Reed-Solomon typo repair, with the field arithmetic anchored to published FIPS-197
+vectors. That catches implementation mistakes, not scheme flaws, and it is not a
+third-party review. The boundary is written where you can read it:
+[seedsplit → Scope &amp; limitations](seedsplit/README.md#scope--limitations).
 
 Whether this toolkit fits your case — and what it will **not** protect you from — is
 spelled out in the **[threat model](THREAT-MODEL.md)**. It closes the gap between your
@@ -297,8 +300,8 @@ ships at `windows/paranoid.ps1` (beta) — run it with `pwsh -File windows/paran
 **Opt-in update check.** Off by default — nothing on the dashboard touches the network
 unless you ask. Set `PARANOID_UPDATE_CHECK=1` and the dashboard adds an *"update
 available"* line when an installed tool has a newer signed release. It's the only
-network call the launcher makes: a single redirect lookup per tool against GitHub's
-`releases/latest` (no API key, no telemetry), cached for 24h. Enable it for a session
+network call the launcher makes: one fetch of the repository's public `releases.atom`
+feed covering all five tools (no API key, no telemetry), cached for 24h. Enable it for a session
 with `PARANOID_UPDATE_CHECK=1 paranoid`, or export it in your shell rc to keep it on.
 
 ## How it fits together

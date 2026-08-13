@@ -245,8 +245,9 @@ function Get-PnVaultwatchTtl {
 
 # --- opt-in update check (OFF by default; network only with explicit consent) ---
 # Privacy contract: no telemetry / background "phoning home". Runs ONLY if
-# $env:PARANOID_UPDATE_CHECK='1', does nothing but a HEAD redirect to GitHub releases/latest,
-# is throttled by a 24h cache and silently skips a tool on any network error.
+# $env:PARANOID_UPDATE_CHECK='1', does nothing but one fetch of the monorepo's public
+# releases.atom feed (covers all five tools in a single request), is throttled by a
+# 24h cache and silently skips a tool on any network error.
 
 # Installed tool version as x.y.z (empty if the tool is missing / the version cannot be parsed).
 function Get-PnToolVersion {
@@ -261,8 +262,24 @@ function Get-PnToolVersion {
     return ''
 }
 
-# The tool's latest release tag. In tests it is substituted by the $env:PARANOID_UPDATE_FEED
-# file (`tool=vX.Y.Z` lines), otherwise — the releases/latest redirect → .../tag/vX.Y.Z.
+# The monorepo release feed, fetched at most once per process (one request
+# covers all five tools; entries are newest-first). Short timeout: the render
+# waits across all tools, the 24h cache makes the slow path rare.
+$script:PnReleaseFeed = $null
+function Get-PnReleaseFeed {
+    if ($null -eq $script:PnReleaseFeed) {
+        try {
+            $r = Invoke-WebRequest -Uri 'https://github.com/Di-kairos/paranoid-tools/releases.atom' `
+                -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+            $script:PnReleaseFeed = [string]$r.Content
+        } catch { $script:PnReleaseFeed = '' }
+    }
+    return $script:PnReleaseFeed
+}
+
+# The tool's latest release tag (vX.Y.Z). In tests it is substituted by the
+# $env:PARANOID_UPDATE_FEED file (`tool=vX.Y.Z` lines); otherwise the monorepo's
+# releases.atom is scanned for the newest <tool>-vX.Y.Z entry.
 function Get-PnLatestTag {
     param([string]$Tool)
     if ($env:PARANOID_UPDATE_FEED) {
@@ -274,17 +291,8 @@ function Get-PnLatestTag {
         }
         return ''
     }
-    try {
-        # -Method Head: fetch only the redirect headers, not the GitHub page body (minimization,
-        # parity with bash `curl -I`). -UseBasicParsing — for PS 5.1. Short timeout: the render
-        # waits across all tools, the 24h cache makes the slow path rare.
-        $u = "https://github.com/Di-kairos/$Tool/releases/latest"
-        $r = Invoke-WebRequest -Uri $u -Method Head -MaximumRedirection 5 -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-        $final = ''
-        if ($r.BaseResponse.ResponseUri) { $final = $r.BaseResponse.ResponseUri.AbsoluteUri }        # PS5.1
-        elseif ($r.BaseResponse.RequestMessage) { $final = $r.BaseResponse.RequestMessage.RequestUri.AbsoluteUri }  # PS7
-        if ($final -match '/tag/(.+)$') { return $Matches[1] }
-    } catch { }
+    $feed = Get-PnReleaseFeed
+    if ($feed -match ('{0}-(v\d+\.\d+\.\d+)' -f [regex]::Escape($Tool))) { return $Matches[1] }
     return ''
 }
 

@@ -1,7 +1,7 @@
 name: ci-ghostdraft
-# Монорепо: гоняется при изменениях внутри ghostdraft/ и при правке канонического
-# securetrash/lib/common.sh — vendor --check ловит источник, разошедшийся с пином.
-# Перенесён из ghostdraft-репо при миграции; все run-шаги работают из каталога тула.
+# Monorepo: runs on changes inside ghostdraft/ and on edits to the canonical
+# securetrash/lib/common.sh — vendor --check catches a source that drifted from the pin.
+# Moved from the ghostdraft repo during the migration; all run steps work from the tool directory.
 on:
   push:
     paths: ['ghostdraft/**', 'securetrash/lib/common.sh']
@@ -12,8 +12,8 @@ defaults:
     working-directory: ghostdraft
 jobs:
   test:
-    # Linux-раннер: бесплатные минуты. ghostdraft scaffold — чистая логика
-    # (shellcheck + vendor-check + bats); macOS-примитивы стабятся в тестах.
+    # Linux runner: free minutes. The ghostdraft scaffold is pure logic
+    # (shellcheck + vendor-check + bats); macOS primitives are stubbed in the tests.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,9 +27,9 @@ jobs:
         run: bats test/
 
   windows:
-    # Windows-порт (PowerShell, BETA): ghostdraft трогает editor/shred/clipboard, поэтому
-    # Pester проверяет оркестровку (выбор каталога, shred-в-finally, --clipboard-гейт) с
-    # замоканными внешними эффектами.
+    # Windows port (PowerShell, BETA): ghostdraft touches editor/shred/clipboard, so
+    # Pester checks the orchestration (directory choice, shred-in-finally, the --clipboard gate)
+    # with mocked external effects.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

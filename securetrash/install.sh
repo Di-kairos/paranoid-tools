@@ -10,8 +10,8 @@
 # signature (F-4) / Homebrew.
 #
 # Usage (verify-then-run recommended, see README):
-#   curl -fsSLO https://github.com/Di-kairos/securetrash/releases/latest/download/install.sh
-#   curl -fsSLO https://github.com/Di-kairos/securetrash/releases/latest/download/SHA256SUMS
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/install.sh
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/SHA256SUMS
 #   shasum -a 256 -c SHA256SUMS --ignore-missing   # verify install.sh itself
 #   less install.sh                                  # read it with your own eyes
 #   bash install.sh
@@ -26,14 +26,16 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "securetrash работает только на macOS." >&2; exit 1
 fi
 
-REPO="Di-kairos/securetrash"
-# Source: explicit ST_BASE_URL → specific ST_VERSION tag → latest release.
+REPO="Di-kairos/paranoid-tools"
+# Default release of this tool; kept in lockstep with the securetrash-vX.Y.Z tag by a
+# release.yml gate. In the monorepo `releases/latest` would be the latest release
+# of ANY tool, so nothing here ever uses `latest` — the tag is always pinned.
+ST_VERSION_DEFAULT="0.5.7"
+# Source: explicit ST_BASE_URL → ST_VERSION override → the baked-in default tag.
 if [[ -n "${ST_BASE_URL:-}" ]]; then
   BASE_URL="$ST_BASE_URL"
-elif [[ -n "${ST_VERSION:-}" ]]; then
-  BASE_URL="https://github.com/${REPO}/releases/download/v${ST_VERSION}"
 else
-  BASE_URL="https://github.com/${REPO}/releases/latest/download"
+  BASE_URL="https://github.com/${REPO}/releases/download/securetrash-v${ST_VERSION:-$ST_VERSION_DEFAULT}"
 fi
 # Install directory. The `paranoid-tools` umbrella installs everything into ~/.local/bin (no
 # sudo), while this installer historically targets /usr/local/bin. If the tool is already

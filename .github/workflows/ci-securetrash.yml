@@ -1,6 +1,6 @@
 name: ci-securetrash
-# Монорепо: гоняется только при изменениях внутри securetrash/ (paths-фильтр).
-# Перенесён из securetrash-репо при миграции; все run-шаги работают из каталога тула.
+# Monorepo: runs only on changes inside securetrash/ (paths filter).
+# Moved from the securetrash repo during the migration; all run steps work from the tool directory.
 on:
   push:
     paths: ['securetrash/**']
@@ -10,7 +10,7 @@ defaults:
   run:
     working-directory: securetrash
 jobs:
-  # Бесплатный Linux-job: lint на каждый push (macOS-минуты не тратятся).
+  # Free Linux job: lint on every push (no macOS minutes spent).
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -20,8 +20,8 @@ jobs:
       - name: Lint
         run: shellcheck securetrash install.sh lib/common.sh
 
-  # macOS-job: bats-тесты завязаны на require_macos/hdiutil/shasum, plus реальный
-  # vault-smoke. Требует валидного способа оплаты (платные macOS-раннеры).
+  # macOS job: the bats tests depend on require_macos/hdiutil/shasum, plus a real
+  # vault smoke. Requires a valid payment method (paid macOS runners).
   test:
     runs-on: macos-latest
     steps:

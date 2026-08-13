@@ -1,7 +1,7 @@
 name: ci-vaultwatch
-# Монорепо: гоняется при изменениях внутри vaultwatch/ и при правке канонического
-# securetrash/lib/common.sh — vendor --check ловит источник, разошедшийся с пином.
-# Перенесён из vaultwatch-репо при миграции; все run-шаги работают из каталога тула.
+# Monorepo: runs on changes inside vaultwatch/ and on edits to the canonical
+# securetrash/lib/common.sh — vendor --check catches a source that drifted from the pin.
+# Moved from the vaultwatch repo during the migration; all run steps work from the tool directory.
 on:
   push:
     paths: ['vaultwatch/**', 'securetrash/lib/common.sh']
@@ -12,8 +12,8 @@ defaults:
     working-directory: vaultwatch
 jobs:
   test:
-    # Linux-раннер: бесплатные минуты в GitHub Free. vaultwatch 3a — чистая
-    # логика (shellcheck + vendor-check + bats), macOS/hdiutil пока не нужен.
+    # Linux runner: free minutes on GitHub Free. vaultwatch 3a is pure
+    # logic (shellcheck + vendor-check + bats); macOS/hdiutil is not needed yet.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,9 +27,9 @@ jobs:
         run: bats test/
 
   windows:
-    # Windows-порт (PowerShell, BETA): vaultwatch трогает Search/Task Scheduler/BitLocker/VSS,
-    # поэтому Pester проверяет оркестровку (state, TTL-планирование, restore, hooks) с
-    # замоканными системными примитивами.
+    # Windows port (PowerShell, BETA): vaultwatch touches Search/Task Scheduler/BitLocker/VSS,
+    # so Pester checks the orchestration (state, TTL scheduling, restore, hooks) with
+    # mocked system primitives.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

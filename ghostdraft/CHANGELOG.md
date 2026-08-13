@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+## [0.1.19] — 2026-08-13
+
+### Changed
+- **Проект переехал в монорепозиторий [`paranoid-tools`](https://github.com/Di-kairos/paranoid-tools).**
+  Код, история и релизы всех пяти инструментов живут теперь в одном репозитории; релизные теги
+  получили префикс — этот выпуск опубликован как `ghostdraft-v0.1.19`. Прежний репозиторий архивирован,
+  его старые релизы продолжают отдаваться.
+- **Установщики качают из монорепо по закреплённому тегу.** `releases/latest` в монорепо означает
+  «последний релиз любого инструмента», поэтому и `install.sh`, и `windows/install.ps1` всегда
+  пиннят собственный тег `ghostdraft-vX.Y.Z`; версию по умолчанию сторожит гейт в `release.yml`.
+- **Комментарии в коде переведены на английский** для внешних контрибьюторов; строки интерфейса
+  остаются двуязычными, русская документация — на месте.
+- Приватные сообщения об уязвимостях принимаются теперь в одном месте —
+  [advisories монорепо](https://github.com/Di-kairos/paranoid-tools/security/advisories/new).
+
 ## [0.1.18] — 2026-08-08
 
 ### Fixed
@@ -288,6 +303,7 @@
   shred и detach (регрессия subshell-leak покрыта).
 
 [Unreleased]: https://github.com/Di-kairos/ghostdraft/compare/v0.1.17...HEAD
+[0.1.19]: https://github.com/Di-kairos/paranoid-tools/releases/tag/ghostdraft-v0.1.19
 [0.1.17]: https://github.com/Di-kairos/ghostdraft/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/Di-kairos/ghostdraft/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/Di-kairos/ghostdraft/compare/v0.1.14...v0.1.15

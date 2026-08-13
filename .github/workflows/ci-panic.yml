@@ -1,7 +1,7 @@
 name: ci-panic
-# Монорепо: гоняется при изменениях внутри panic/ и при правке канонического
-# securetrash/lib/common.sh — vendor --check ловит источник, разошедшийся с пином.
-# Перенесён из panic-репо при миграции; все run-шаги работают из каталога тула.
+# Monorepo: runs on changes inside panic/ and on edits to the canonical
+# securetrash/lib/common.sh — vendor --check catches a source that drifted from the pin.
+# Moved from the panic repo during the migration; all run steps work from the tool directory.
 on:
   push:
     paths: ['panic/**', 'securetrash/lib/common.sh']
@@ -12,8 +12,8 @@ defaults:
     working-directory: panic
 jobs:
   test:
-    # Linux-раннер: бесплатные минуты. panic scaffold — чистая логика
-    # (shellcheck + vendor-check + bats); macOS-примитивы стабятся в тестах.
+    # Linux runner: free minutes. The panic scaffold is pure logic
+    # (shellcheck + vendor-check + bats); macOS primitives are stubbed in the tests.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +27,8 @@ jobs:
         run: bats test/
 
   windows:
-    # Windows-порт (PowerShell, BETA): panic — сплошные side-effect'ы, поэтому Pester
-    # проверяет оркестровку (lock/dismount/clear/--hard-гейт) с замоканными примитивами.
+    # Windows port (PowerShell, BETA): panic is side effects through and through, so Pester
+    # checks the orchestration (lock/dismount/clear/the --hard gate) with mocked primitives.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

@@ -125,7 +125,7 @@ on a live system.
 
 ## What securetrash does about it
 
-[securetrash](https://github.com/Di-kairos/securetrash) is a small, dependency-free
+[securetrash](https://github.com/Di-kairos/paranoid-tools) is a small, dependency-free
 CLI built around this honesty:
 
 - It **won't pretend** that overwriting shreds an SSD. Its own output says
@@ -154,4 +154,4 @@ brew install Di-kairos/tap/securetrash
 - A security tool should tell you this instead of selling you a comforting myth.
 
 *securetrash is MIT-licensed and readable end to end:
-<https://github.com/Di-kairos/securetrash>*
+<https://github.com/Di-kairos/paranoid-tools>*

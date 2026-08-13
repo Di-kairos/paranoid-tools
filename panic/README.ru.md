@@ -21,7 +21,7 @@ Kill-switch в один шаг — всё с экрана, vault'ы заперт
 Checksum-verified установка с релизного тега — verify-then-run (не доверяй — проверяй):
 
 ```bash
-base=https://github.com/Di-kairos/panic/releases/latest/download
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -35,7 +35,7 @@ bash install.sh                                  # тянет panic + сумму
 Быстрая форма (одна строка, **пропускает проверку** — выбирай осознанно):
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/panic/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16/install.sh | bash
 ```
 
 `install.sh` тянет бинарь и `SHA256SUMS` из неизменного релизного тега и проверяет хеш

@@ -9,8 +9,8 @@
 # substitution of the RELEASE itself (both rewritten); authenticity needs a signature / Homebrew.
 #
 # Usage (verify-then-run recommended, see README):
-#   curl -fsSLO https://github.com/Di-kairos/panic/releases/latest/download/install.sh
-#   curl -fsSLO https://github.com/Di-kairos/panic/releases/latest/download/SHA256SUMS
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16/install.sh
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16/SHA256SUMS
 #   shasum -a 256 -c SHA256SUMS --ignore-missing   # verify install.sh itself
 #   less install.sh                                  # read it with your own eyes
 #   bash install.sh
@@ -25,14 +25,16 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "panic работает только на macOS." >&2; exit 1
 fi
 
-REPO="Di-kairos/panic"
-# Source: explicit PANIC_BASE_URL → specific tag PANIC_VERSION → latest release.
+REPO="Di-kairos/paranoid-tools"
+# Default release of this tool; kept in lockstep with the panic-vX.Y.Z tag by a
+# release.yml gate. In the monorepo `releases/latest` would be the latest release
+# of ANY tool, so nothing here ever uses `latest` — the tag is always pinned.
+PANIC_VERSION_DEFAULT="0.1.16"
+# Source: explicit PANIC_BASE_URL → PANIC_VERSION override → the baked-in default tag.
 if [[ -n "${PANIC_BASE_URL:-}" ]]; then
   BASE_URL="$PANIC_BASE_URL"
-elif [[ -n "${PANIC_VERSION:-}" ]]; then
-  BASE_URL="https://github.com/${REPO}/releases/download/v${PANIC_VERSION}"
 else
-  BASE_URL="https://github.com/${REPO}/releases/latest/download"
+  BASE_URL="https://github.com/${REPO}/releases/download/panic-v${PANIC_VERSION:-$PANIC_VERSION_DEFAULT}"
 fi
 # Install directory. The `paranoid-tools` umbrella installs everything into ~/.local/bin (no
 # sudo), while this installer historically targets /usr/local/bin. If the tool is already there

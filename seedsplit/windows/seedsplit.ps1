@@ -17,7 +17,7 @@
 # Data output (shares, secret, version) goes to stdout via Write-Output / raw stream — so that
 # `seedsplit split > shares.txt` and pipes work (Write-Host in PS 5.1 does not reach stdout).
 
-$VERSION = '0.5.5'
+$VERSION = '0.5.6'
 
 # --- locale: en by default; ru — if ST_LANG or the system UI locale starts with 'ru' ---
 function Get-SsLocale {
