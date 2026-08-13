@@ -4,9 +4,9 @@ name: ci-vaultwatch
 # Moved from the vaultwatch repo during the migration; all run steps work from the tool directory.
 on:
   push:
-    paths: ['vaultwatch/**', 'securetrash/lib/common.sh']
+    paths: ['vaultwatch/**', 'securetrash/lib/common.sh', '.github/workflows/ci-vaultwatch.yml']
   pull_request:
-    paths: ['vaultwatch/**', 'securetrash/lib/common.sh']
+    paths: ['vaultwatch/**', 'securetrash/lib/common.sh', '.github/workflows/ci-vaultwatch.yml']
 defaults:
   run:
     working-directory: vaultwatch

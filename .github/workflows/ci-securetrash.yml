@@ -3,9 +3,9 @@ name: ci-securetrash
 # Moved from the securetrash repo during the migration; all run steps work from the tool directory.
 on:
   push:
-    paths: ['securetrash/**']
+    paths: ['securetrash/**', '.github/workflows/ci-securetrash.yml']
   pull_request:
-    paths: ['securetrash/**']
+    paths: ['securetrash/**', '.github/workflows/ci-securetrash.yml']
 defaults:
   run:
     working-directory: securetrash

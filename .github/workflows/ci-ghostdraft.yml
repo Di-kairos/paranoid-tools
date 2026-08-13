@@ -4,9 +4,9 @@ name: ci-ghostdraft
 # Moved from the ghostdraft repo during the migration; all run steps work from the tool directory.
 on:
   push:
-    paths: ['ghostdraft/**', 'securetrash/lib/common.sh']
+    paths: ['ghostdraft/**', 'securetrash/lib/common.sh', '.github/workflows/ci-ghostdraft.yml']
   pull_request:
-    paths: ['ghostdraft/**', 'securetrash/lib/common.sh']
+    paths: ['ghostdraft/**', 'securetrash/lib/common.sh', '.github/workflows/ci-ghostdraft.yml']
 defaults:
   run:
     working-directory: ghostdraft

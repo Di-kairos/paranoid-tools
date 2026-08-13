@@ -4,9 +4,9 @@ name: ci-panic
 # Moved from the panic repo during the migration; all run steps work from the tool directory.
 on:
   push:
-    paths: ['panic/**', 'securetrash/lib/common.sh']
+    paths: ['panic/**', 'securetrash/lib/common.sh', '.github/workflows/ci-panic.yml']
   pull_request:
-    paths: ['panic/**', 'securetrash/lib/common.sh']
+    paths: ['panic/**', 'securetrash/lib/common.sh', '.github/workflows/ci-panic.yml']
 defaults:
   run:
     working-directory: panic

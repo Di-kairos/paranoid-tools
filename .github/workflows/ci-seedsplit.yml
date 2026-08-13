@@ -2,11 +2,13 @@ name: ci-seedsplit
 # Monorepo: runs on changes inside seedsplit/ and on edits to the canonical
 # securetrash/lib/common.sh — vendor --check catches a source that drifted from the pin.
 # Moved from the seedsplit repo during the migration; all run steps work from the tool directory.
+# The workflow file is in its own paths filter: without it, editing a gate here does not run
+# that gate, and a broken or silently-skipped step reaches main looking green.
 on:
   push:
-    paths: ['seedsplit/**', 'securetrash/lib/common.sh']
+    paths: ['seedsplit/**', 'securetrash/lib/common.sh', '.github/workflows/ci-seedsplit.yml']
   pull_request:
-    paths: ['seedsplit/**', 'securetrash/lib/common.sh']
+    paths: ['seedsplit/**', 'securetrash/lib/common.sh', '.github/workflows/ci-seedsplit.yml']
 defaults:
   run:
     working-directory: seedsplit
