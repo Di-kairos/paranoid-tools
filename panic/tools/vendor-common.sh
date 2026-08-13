@@ -10,8 +10,8 @@
 # When bumping the common.sh version, update PIN and COMMON_SHA256 together (and the BEGIN marker).
 set -euo pipefail
 
-PIN="221f2c7fbed10a220b832aab9264e6665581b514"
-COMMON_SHA256="348afdd5d924230b4eea6e495b6b21bd78fc851ac5795108078abf7dc5d4e6a0"
+PIN="42fc268"
+COMMON_SHA256="7f122385b8a8f62021f9883c185409ec3f4dc26bcfb59521d127a91368649f45"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Monorepo: the source is the sibling securetrash directory in this same repository.
 # PIN remains the version label in the markers; SHA256 still guards the bytes.
