@@ -1,10 +1,17 @@
 # Contributing to Paranoid Tools
 
-This repository is the umbrella: the `paranoid` launcher (bash + PowerShell), the
-installer, the GUI wrappers, and the shared documentation. **The five tools live in
-their own repositories** — `securetrash`, `vaultwatch`, `panic`, `ghostdraft`,
-`seedsplit` — each with its own `CONTRIBUTING.md`. A change to a tool belongs there;
-a change to the launcher, the installer, the guides or the GUI belongs here.
+This is a monorepo: the `paranoid` launcher (bash + PowerShell), the installer, the
+GUI wrappers, the shared documentation — and the five tools, one directory each
+(`securetrash/`, `vaultwatch/`, `panic/`, `ghostdraft/`, `seedsplit/`), every tool
+with its own `CONTRIBUTING.md`, its own CI (`ci-<tool>.yml`) and its own
+independently versioned releases (`<tool>-vX.Y.Z` tags). A change to a tool belongs
+in its directory and follows its `CONTRIBUTING.md`; a change to the launcher, the
+installer, the guides or the GUI follows this one.
+
+**Transparency note:** development is AI-assisted (Claude), directed and reviewed by
+the maintainer. Every change still has to clear the same gates as any human PR —
+shellcheck, bats, Pester, the differential crypto tests — and those gates, not the
+author, are what you should trust.
 
 ## Principles (please don't break these)
 
