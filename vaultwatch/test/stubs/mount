@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Стаб mount. Таблица монтирования задаётся файлом $STUB_MOUNTS (по строке на том).
+# Корень печатаем всегда: настоящий mount пустой таблицы дать не может, и пустой вывод
+# _volume_mounted трактует как «прочитать не удалось» (код 2), а не как «ничего не смонтировано».
+# STUB_MOUNT_FAIL=1 моделирует именно этот отказ — ненулевой код.
+if [[ "${STUB_MOUNT_FAIL:-0}" == "1" ]]; then
+  exit 1
+fi
+printf '/dev/disk1s5 on / (apfs, local, read-only, journaled)\n'
+if [[ -n "${STUB_MOUNTS:-}" && -f "${STUB_MOUNTS}" ]]; then
+  cat "$STUB_MOUNTS"
+fi
+exit 0

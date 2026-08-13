@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Стаб uname: выдаём Darwin на `uname -s`, чтобы require_macos прошёл и на Linux-CI.
+# Остальные вызовы делегируем настоящему uname (bats/bash могут его дёргать).
+if [[ "${1:-}" == "-s" ]]; then
+  echo Darwin
+  exit 0
+fi
+for real in /usr/bin/uname /bin/uname; do
+  [[ -x "$real" ]] && exec "$real" "$@"
+done
+echo Darwin

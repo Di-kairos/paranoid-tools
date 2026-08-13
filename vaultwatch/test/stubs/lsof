@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Стаб lsof. Логирует вызов. «Занятость» тома задаётся $STUB_LSOF_BUSY (0|1).
+# Реальный lsof: exit 0 + строки, если есть открытые файлы; exit 1, если нет.
+printf 'lsof %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+if [[ "${STUB_LSOF_BUSY:-0}" == "1" ]]; then
+  echo "COMMAND  PID  USER  FD  TYPE  NAME"
+  echo "vim      999  user  3r  REG   ${*: -1}/secret.txt"
+  exit 0
+fi
+exit 1

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Стаб tmutil. Логирует вызовы в $VW_STUB_LOG.
+#   isexcluded <path>  → [Excluded]/[Included] по $STUB_TM_EXCLUDED (0|1, дефолт 0).
+#   listlocalsnapshots → строки по $STUB_SNAPSHOTS (csv дат, дефолт пусто).
+printf 'tmutil %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+case "${1:-}" in
+  isexcluded)
+    shift
+    if [[ "${STUB_TM_EXCLUDED:-0}" == "1" ]]; then
+      printf '[Excluded]    %s\n' "${1:-}"
+    else
+      printf '[Included]    %s\n' "${1:-}"
+    fi
+    ;;
+  listlocalsnapshots)
+    if [[ -n "${STUB_SNAPSHOTS:-}" ]]; then
+      IFS=',' read -ra _s <<<"$STUB_SNAPSHOTS"
+      for snap in "${_s[@]}"; do
+        printf 'com.apple.TimeMachine.%s.local\n' "$snap"
+      done
+    fi
+    ;;
+  addexclusion|removeexclusion)
+    : # фиксируется в логе
+    ;;
+esac
+exit 0

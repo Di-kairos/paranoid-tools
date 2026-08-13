@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Стаб pgrep для cloud-детекта. Активные процессы задаются $STUB_CLOUD_PROCS
+# (список имён через пробел). `pgrep -x <name>` → exit 0 если name в списке.
+name=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -x|-i|-l) shift ;;
+    *) name="$1"; shift ;;
+  esac
+done
+for p in ${STUB_CLOUD_PROCS:-}; do
+  if [[ "$p" == "$name" ]]; then
+    echo 1
+    exit 0
+  fi
+done
+exit 1

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Стаб hdiutil. Логирует вызов в $VW_STUB_LOG.
+# detach: убирает том из таблицы монтирования ($STUB_MOUNTS) и удаляет mountpoint из FS —
+# так выглядит реальный unmount. Не делает ничего при STUB_DETACH_FAIL=1.
+# STUB_DETACH_LEAVES_DIR=1: том из таблицы уходит, а каталог остаётся — остаточный
+# /Volumes/… после настоящего размонтирования выглядит именно так.
+printf 'hdiutil %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+if [[ "$1" == "detach" && "${STUB_DETACH_FAIL:-0}" != "1" ]]; then
+  _vw_mount="${@: -1}"
+  if [[ -n "${STUB_MOUNTS:-}" && -f "${STUB_MOUNTS}" ]]; then
+    grep -vF " on ${_vw_mount} " "$STUB_MOUNTS" >"${STUB_MOUNTS}.tmp" || :
+    mv "${STUB_MOUNTS}.tmp" "$STUB_MOUNTS"
+  fi
+  if [[ "${STUB_DETACH_LEAVES_DIR:-0}" != "1" && -d "$_vw_mount" ]]; then
+    rm -rf "$_vw_mount"
+  fi
+fi
+exit 0

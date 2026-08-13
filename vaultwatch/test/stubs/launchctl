@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Стаб launchctl. Логирует вызов в $VW_STUB_LOG; всегда успех (job не запускается).
+# STUB_LAUNCHCTL_FAIL=1 — bootstrap завершается ошибкой (симуляция сбоя launchd).
+printf 'launchctl %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+if [[ "${STUB_LAUNCHCTL_FAIL:-0}" == "1" && "${1:-}" == "bootstrap" ]]; then
+  exit 1
+fi
+exit 0

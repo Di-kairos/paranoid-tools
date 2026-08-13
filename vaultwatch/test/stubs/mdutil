@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Стаб mdutil. Логирует вызовы в $VW_STUB_LOG. Состояние индексации задаётся
+# через $STUB_SPOTLIGHT (enabled|disabled, по умолчанию enabled).
+printf 'mdutil %s\n' "$*" >>"${VW_STUB_LOG:-/dev/null}"
+case "${1:-}" in
+  -s)
+    shift
+    printf '%s:\n\tIndexing %s.\n' "${1:-/}" "${STUB_SPOTLIGHT:-enabled}"
+    ;;
+  -i)
+    # STUB_MDUTIL_FAIL=1 симулирует сбой mdutil -i on (путь не существует после detach).
+    [[ "${STUB_MDUTIL_FAIL:-0}" == "1" ]] && exit 1
+    :
+    ;;
+esac
+exit 0
