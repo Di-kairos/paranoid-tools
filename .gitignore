@@ -18,3 +18,5 @@ gui/macos/ParanoidBar
 gui/macos/ParanoidBar.app/
 gui/macos/*.dmg
 gui/macos/*.zip
+__pycache__/
+*.pyc
