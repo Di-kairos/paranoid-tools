@@ -13,7 +13,7 @@ find a vulnerability, please report it responsibly.
 Use GitHub's private vulnerability reporting:
 
 1. Go to the repository's **Security** tab → **Report a vulnerability**
-   (<https://github.com/Di-kairos/vaultwatch/security/advisories/new>).
+   (<https://github.com/Di-kairos/paranoid-tools/security/advisories/new>).
 2. Describe the issue, affected versions, and a reproduction if possible.
 
 You'll get a response as soon as reasonably possible. Once a fix is ready, the

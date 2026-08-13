@@ -14,13 +14,9 @@ Use GitHub's private vulnerability reporting:
    (<https://github.com/Di-kairos/paranoid-tools/security/advisories/new>).
 2. Describe the issue, the affected version or commit, and a reproduction if possible.
 
-If the issue is in one specific tool, report it in that tool's repository instead —
-[securetrash](https://github.com/Di-kairos/securetrash/security/advisories/new) ·
-[vaultwatch](https://github.com/Di-kairos/vaultwatch/security/advisories/new) ·
-[panic](https://github.com/Di-kairos/panic/security/advisories/new) ·
-[ghostdraft](https://github.com/Di-kairos/ghostdraft/security/advisories/new) ·
-[seedsplit](https://github.com/Di-kairos/seedsplit/security/advisories/new).
-When in doubt, report it here and it will be routed.
+All five tools live in this repository, so this is the single reporting channel —
+name the affected tool (securetrash, vaultwatch, panic, ghostdraft, seedsplit,
+the launcher, or the GUI) in the report.
 
 ## Scope
 
