@@ -1,0 +1,542 @@
+#!/usr/bin/env bash
+# ghostdraft — эфемерный черновик для чувствительного текста (экосистема Paranoid Tools).
+#
+# Написать/просмотреть seed/пароль/ключ так, чтобы после закрытия следов не осталось
+# в обычных местах (.*_history, tmp, recent docs, editor backups/viminfo).
+#
+# ЧЕСТНО (легко скатиться в снейкойл — НЕ обещаем «ноль следов»):
+#   - на macOS /dev/shm НЕТ; «временный файл» в /tmp лежит на APFS (на диске).
+#     Настоящая память — только RAM-диск (hdiutil ram://). Реализуем честно.
+#   - swap и scrollback терминала ОС может оставить — перечисляем честно, не скрываем.
+#   - --clipboard для seed опасен (clipboard-менеджеры + Universal Clipboard в iCloud) —
+#     по умолчанию ВЫКЛ, с предупреждением.
+# Полное ядро — в следующих паках; см. README «Scope & limitations».
+set -euo pipefail
+
+VERSION="0.1.18"
+
+# === BEGIN vendored common (pin: 221f2c7fbed10a220b832aab9264e6665581b514) ===
+# shellcheck shell=bash
+# common.sh — переиспользуемые примитивы экосистемы Paranoid Tools.
+#
+# Канонический источник: securetrash/lib/common.sh. Инструменты экосистемы
+# (vaultwatch/panic/ghostdraft) вендорят его inline между маркерами
+# (см. CLAUDE.md «Vendoring»). Файл sourceable и идемпотентен (двойной source/inline
+# безопасны — guard через if-обёртку, без top-level return, поэтому корректен и когда
+# блок вставлен в исполняемый скрипт).
+#
+# Даёт tool-агностичные примитивы: локаль (ST_LOCALE), цветной вывод (info/warn/err),
+# подтверждение (confirm), детект платформы macOS (require_macos/is_ssd/_disk_kind/
+# _fv_state/filevault_on), детект примонтированного тома (_volume_mounted), канонизацию
+# пути (_abspath). Своя i18n-таблица — у каждого инструмента.
+#
+# ВЕНДОРИНГ — зарезервированные имена (не переопределять в host-скрипте): функции
+# info warn err confirm require_macos is_ssd _disk_kind _fv_state filevault_on
+# _volume_mounted _abspath _st_detect_locale; переменные ST_LOCALE C_RED C_GRN C_YEL
+# C_RST _ST_COMMON_LOADED.
+
+# Идемпотентность через if-обёртку (а не top-level return): безопасно при source,
+# исполнении и inline-вставке. Определения функций внутри if регистрируются глобально.
+if [[ -z "${_ST_COMMON_LOADED:-}" ]]; then
+  _ST_COMMON_LOADED=1
+
+  # --- locale ---
+  # en по умолчанию; ru — если ST_LANG или системная локаль начинаются с 'ru'.
+  _st_detect_locale() {
+    local want="${ST_LANG:-}"
+    if [[ -n "$want" ]]; then
+      case "$want" in ru*) echo ru ;; *) echo en ;; esac
+      return
+    fi
+    local sys="${LC_ALL:-${LANG:-}}"
+    case "$sys" in ru*) echo ru ;; *) echo en ;; esac
+  }
+  # Уважаем заранее выставленный ST_LOCALE (host может переопределить).
+  ST_LOCALE="${ST_LOCALE:-$(_st_detect_locale)}"
+
+  # --- output ---
+  # Цвет только в TTY (в пайпах/файлах — без ANSI).
+  if [[ -t 1 ]]; then
+    C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'; C_RST=$'\033[0m'
+  else
+    C_RED=""; C_GRN=""; C_YEL=""; C_RST=""
+  fi
+  info() { echo "${C_GRN}✓${C_RST} $*"; }
+  warn() { echo "${C_YEL}!${C_RST} $*" >&2; }
+  err()  { echo "${C_RED}✗${C_RST} $*" >&2; }
+
+  # --- confirm ---
+  # Подтверждение необратимой операции. ST_ASSUME_YES=1 обходит вопрос (скрипты/тесты).
+  # Возвращает 0 только при точном вводе 'yes' (EOF/пусто → отказ, fail-closed).
+  # Суффикс намеренно продублирован из i18n securetrash (lib без таблицы строк).
+  confirm() {
+    local prompt="$1" ans suffix
+    [[ "${ST_ASSUME_YES:-0}" == "1" ]] && return 0
+    case "$ST_LOCALE" in ru) suffix="[введите yes]" ;; *) suffix="[type yes]" ;; esac
+    read -r -p "$prompt $suffix: " ans
+    [[ "$ans" == "yes" ]]
+  }
+
+  # --- platform (macOS) ---
+  require_macos() {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+      case "$ST_LOCALE" in
+        ru) err "работает только на macOS." ;;
+        *)  err "runs on macOS only." ;;
+      esac
+      exit 1
+    fi
+  }
+
+  # Диск под путём — SSD? (diskutil info: "Solid State: Yes")
+  is_ssd() {
+    local path="${1:-/}"
+    diskutil info "$path" 2>/dev/null | grep -qi "Solid State:.*Yes"
+  }
+
+  # Тип диска: ssd | hdd | unknown. Честность важнее догадок: неизвестный тип
+  # НЕ приравниваем к hdd-эффективному (нет поля "Solid State" → unknown).
+  _disk_kind() {
+    local path="${1:-/}" out
+    out="$(diskutil info "$path" 2>/dev/null)"
+    if grep -qi "Solid State:.*Yes" <<<"$out"; then echo ssd
+    elif grep -qi "Solid State:.*No" <<<"$out"; then echo hdd
+    else echo unknown; fi
+  }
+
+  # Состояние FileVault — tri-state: on / off / unknown. Отличать «выключен» от
+  # «не смогли определить» обязательно: инструмент, который печатает «ВЫКЛЮЧЕН» на
+  # отсутствующий fdesetup, врёт пользователю о его защите.
+  #
+  # Вывод захватываем в переменную и матчим here-string, а НЕ через прямой пайп
+  # `fdesetup ... | grep -q`: под `set -o pipefail` такой пайп ложно «падает» — grep -q
+  # закрывает канал на первом совпадении, источник получает SIGPIPE (141), и pipefail
+  # делает весь конвейер ненулевым (ложный unknown).
+  _fv_state() {
+    command -v fdesetup >/dev/null 2>&1 || { echo unknown; return; }
+    local s; s="$(fdesetup status 2>/dev/null)"
+    if   grep -qi "FileVault is On"  <<<"$s"; then echo on
+    elif grep -qi "FileVault is Off" <<<"$s"; then echo off
+    else echo unknown; fi
+  }
+
+  # FileVault включён? Двоичная обёртка над _fv_state для мест, где «не определили»
+  # безопасно трактовать как «не включён» (fail-closed).
+  filevault_on() {
+    [[ "$(_fv_state)" == on ]]
+  }
+
+  # Том РЕАЛЬНО примонтирован по этому пути? Единственный ответ на этот вопрос в
+  # экосистеме — раньше их было три: `[[ -d ]]` (лаунчер), `mount | grep` (ghostdraft),
+  # mountedVolumeURLs (GUI), и на остаточном каталоге /Volumes/… они расходились:
+  # каталог, оставшийся от прошлого монтирования (или созданный руками), читался как
+  # «ОТКРЫТ». Проверяем таблицу монтирования, а не наличие каталога.
+  #
+  # Разбираем строку `mount` целиком и сравниваем точку монтирования ЦЕЛИКОМ, а не
+  # ищем подстроку: `grep -F " on /Volumes/Foo "` считает смонтированным `/Volumes/Foo`,
+  # когда на деле смонтирован `/Volumes/Foo Bar` — пробел внутри имени тома выглядит
+  # как разделитель перед опциями (нашёл Codex). Формат строки на macOS:
+  #   /dev/diskNsM on /Volumes/Имя тома (apfs, local, nobrowse)
+  # Имя тома может содержать и пробелы, и `(`, поэтому опции срезаем КОРОТЧАЙШИМ
+  # суффиксом ` (*` — у тома `/Volumes/Foo (1)` останется именно `/Volumes/Foo (1)`.
+  #
+  # Код возврата — три состояния, а не два: 0 — примонтирован, 1 — точно НЕ примонтирован,
+  # 2 — таблицу монтирования прочитать не удалось. Предикатным вызовам (`if
+  # _volume_mounted …`) двойка честно читается как «не смонтирован» (fail-closed: не пишем
+  # черновик в путь, про который не знаем), а тот, кто показывает состояние пользователю,
+  # обязан отличить «закрыт» от «не смогли посмотреть» — иначе дашборд зелёным напишет
+  # «закрыт» над открытым сейфом.
+  _volume_mounted() {
+    local vol="${1:-}" line mp out
+    [[ -n "$vol" ]] || return 1
+    command -v mount >/dev/null 2>&1 || return 2
+    out="$(mount 2>/dev/null)" || return 2
+    [[ -n "$out" ]] || return 2   # пустая таблица невозможна (корень всегда смонтирован)
+    while [[ "$vol" == */ && "$vol" != "/" ]]; do vol="${vol%/}"; done
+    while IFS= read -r line; do
+      [[ "$line" == *" on "* ]] || continue
+      mp="${line#* on }"
+      mp="${mp% (*}"
+      [[ "$mp" == "$vol" ]] && return 0
+    done <<<"$out"
+    return 1
+  }
+
+  # --- path ---
+  # Физический канонический путь: режет trailing-slash, резолвит .. и симлинки,
+  # ВКЛЮЧАЯ финальный компонент. Непустая строка или код !=0, если путь недоступен.
+  _abspath() {
+    local p="$1"
+    while [[ "$p" == */ && "$p" != "/" ]]; do p="${p%/}"; done
+    if [[ -d "$p" ]]; then
+      ( cd -P -- "$p" 2>/dev/null && pwd -P ); return
+    fi
+    local d b
+    d="$(cd -P -- "$(dirname -- "$p")" 2>/dev/null && pwd -P)" || return 1
+    b="$(basename -- "$p")"
+    printf '%s/%s' "${d%/}" "$b"
+  }
+fi
+# === END vendored common ===
+
+# --- i18n (таблица строк ghostdraft; общие примитивы — в vendored common) ---
+t() {
+  local key="$1"; shift
+  case "$ST_LOCALE:$key" in
+    en:usage)
+      cat <<'EOF'
+Usage: ghostdraft <command> [args]
+
+Commands:
+  new [--clipboard]   Edit an ephemeral draft (in an open vault / RAM disk), then
+                      shred it and clean editor history on exit.
+  pipe                Read stdin, print to the terminal, write NOTHING to disk
+                      (e.g. pbpaste | ghostdraft pipe).
+  version             Show the version
+
+Flags:
+  --yes               Skip confirmation prompts (same as ST_ASSUME_YES=1)
+
+ghostdraft does NOT promise "zero traces" where the OS may keep a copy (swap,
+terminal scrollback) — those are listed honestly. --clipboard is OFF by default.
+EOF
+      ;;
+    ru:usage)
+      cat <<'EOF'
+Usage: ghostdraft <command> [args]
+
+Commands:
+  new [--clipboard]   Редактировать эфемерный черновик (в открытом vault / на RAM-диске),
+                      по выходу — shred + чистка editor-истории.
+  pipe                Читать stdin, печатать в терминал, на диск НЕ писать ничего
+                      (напр. pbpaste | ghostdraft pipe).
+  version             Показать версию
+
+Флаги:
+  --yes               Не спрашивать подтверждений (то же, что ST_ASSUME_YES=1)
+
+ghostdraft НЕ обещает «ноль следов» там, где ОС может оставить копию (swap,
+scrollback терминала) — перечисляем честно. --clipboard по умолчанию ВЫКЛ.
+EOF
+      ;;
+    en:unknown_cmd) printf 'Unknown command: %s' "$1" ;;
+    ru:unknown_cmd) printf 'Неизвестная команда: %s' "$1" ;;
+    en:pipe_scrollback) printf 'Shown above. Nothing written to disk — but terminal scrollback still holds it; clear it (Cmd-K) when done.' ;;
+    ru:pipe_scrollback) printf 'Показано выше. На диск ничего не записано — но в scrollback терминала текст остаётся; очисти его (Cmd-K), когда закончишь.' ;;
+    en:new_loc_vault) printf 'Draft inside the open securetrash vault (%s) — encrypted; closing the vault crypto-shreds it.' "$1" ;;
+    ru:new_loc_vault) printf 'Черновик внутри открытого vault securetrash (%s) — зашифрован; закрытие vault даёт crypto-shred.' "$1" ;;
+    en:new_loc_ram) printf 'Draft on a RAM disk (%s) — lives in RAM, gone on detach. Not synced, not on the SSD.' "$1" ;;
+    ru:new_loc_ram) printf 'Черновик на RAM-диске (%s) — живёт в RAM, исчезает при detach. Не синкается, не на SSD.' "$1" ;;
+    en:new_loc_override) printf 'Draft in GHOSTDRAFT_DIR (%s) — you chose this path; its on-disk safety is on you.' "$1" ;;
+    ru:new_loc_override) printf 'Черновик в GHOSTDRAFT_DIR (%s) — путь выбран тобой; безопасность на диске на твоей совести.' "$1" ;;
+    en:new_no_loc) printf 'No safe location: no open vault and a RAM disk could not be created. Refusing to write to the on-disk /tmp (APFS). Open a vault: securetrash vault open.' ;;
+    ru:new_no_loc) printf 'Нет безопасного места: vault не открыт, RAM-диск создать не удалось. Отказываюсь писать в /tmp на диске (APFS). Открой vault: securetrash vault open.' ;;
+    en:new_residue) printf 'Draft shredded and editor backups cleaned. CANNOT scrub: terminal scrollback, OS swap, and ~/.viminfo (registers/last yank) — handle those yourself.' ;;
+    ru:new_residue) printf 'Черновик удалён, editor-бэкапы вычищены. НЕ могу вычистить: scrollback терминала, swap ОС и ~/.viminfo (регистры/последний yank) — это на тебе.' ;;
+    en:new_needs_tty) printf 'ghostdraft opens a text editor and needs an interactive terminal. Open a real terminal tab (Terminal / iTerm / Warp) and run it there — NOT through a pipe, a non-interactive runner, or an embedded command box (the editor would open but never receive your keystrokes).' ;;
+    ru:new_needs_tty) printf 'ghostdraft открывает текстовый редактор и требует интерактивный терминал. Открой настоящую вкладку терминала (Terminal / iTerm / Warp) и запусти там — НЕ через пайп, не в неинтерактивном раннере и не во встроенном командном поле (редактор откроется, но не получит нажатия клавиш).' ;;
+    en:new_warp_hint) printf 'Warp detected. Its AI popup ("Use agent / Dismiss") and its F-key bindings can steal keystrokes from the editor — if typing does nothing, press Esc to dismiss the popup, then click into the editor. To leave the editor: Ctrl-D saves and exits, Ctrl-X exits without saving. Both work whether you are typing or not — no Esc needed first.' ;;
+    ru:new_warp_hint) printf 'Обнаружен Warp. Его AI-попап («Use agent / Dismiss») и биндинги F-клавиш могут перехватывать ввод у редактора — если печать не работает, нажми Esc чтобы закрыть попап, затем кликни в редактор. Выйти из редактора: Ctrl-D — сохранить и выйти, Ctrl-X — выйти без сохранения. Обе работают из любого режима, Esc заранее жать не нужно.' ;;
+    en:clip_danger) printf 'DANGER: --clipboard copies the secret to the system clipboard. Clipboard managers may keep a copy, and iCloud Universal Clipboard syncs it to your other devices. Auto-clear cannot undo a copy already taken.' ;;
+    ru:clip_danger) printf 'ОПАСНО: --clipboard кладёт секрет в системный буфер. Clipboard-менеджеры могут сохранить копию, а iCloud Universal Clipboard синкает его на твои другие устройства. Авто-очистка НЕ отменяет уже снятую копию.' ;;
+    en:clip_confirm) printf 'Copy to clipboard anyway?' ;;
+    ru:clip_confirm) printf 'Всё равно скопировать в буфер?' ;;
+    en:clip_set) printf 'Copied to clipboard; will auto-clear in %ss if still unchanged.' "$1" ;;
+    ru:clip_set) printf 'Скопировано в буфер; авто-очистка через %sс, если буфер не сменится.' "$1" ;;
+    en:clip_cancelled) printf 'Clipboard skipped.' ;;
+    ru:clip_cancelled) printf 'Буфер пропущен.' ;;
+    en:clip_no_pbcopy) printf 'pbcopy not found — cannot use the clipboard.' ;;
+    ru:clip_no_pbcopy) printf 'pbcopy не найден — буфер недоступен.' ;;
+    *) echo "$key" ;;
+  esac
+}
+
+usage() { t usage; }
+
+cmd_version() { echo "ghostdraft $VERSION"; }
+
+# pipe — прочитать stdin, напечатать в терминал, на диск НЕ писать ничего.
+# Самый безопасный режим: cat не создаёт временных файлов. Честно предупреждаем,
+# что scrollback терминала всё равно держит текст в памяти (это не «ноль следов»).
+cmd_pipe() {
+  cat
+  [[ -t 2 ]] && warn "$(t pipe_scrollback)"
+  return 0
+}
+
+# --- new: эфемерный черновик (vault / RAM-диск) + shred + чистка editor-следов ---
+
+# Состояние для cleanup-трапа (заполняется по ходу cmd_new).
+_GD_DRAFT_FILE=""   # путь к файлу черновика
+_GD_RAM_DEV=""      # dev-node RAM-диска, если создали мы (для detach)
+
+# Том примонтирован и доступен на запись? Сам факт монтирования спрашиваем у
+# канонического `_volume_mounted` из вендоренного common.sh — единственного ответа на
+# этот вопрос в экосистеме; здесь остаётся только специфика ghostdraft: писать черновик
+# можно лишь в каталог, доступный на запись. Не пишем в путь, который лишь выглядит
+# как vault.
+_is_mounted_writable() {
+  local vol="$1"
+  [[ -n "$vol" && -d "$vol" && -w "$vol" ]] || return 1
+  _volume_mounted "$vol"
+}
+
+# Уникальное имя тома RAM-диска: ghostdraft-ram-<8 hex>. Уникальность нужна, чтобы
+# параллельные инстансы (или несдетаченный остаток) не делили один /Volumes/ghostdraft-ram
+# (тогда macOS примонтировал бы второй как "ghostdraft-ram 1" — наш detach по фиксированному
+# имени промахнулся бы). Энтропия — из /dev/urandom (как и в seedsplit), без зависимости от $RANDOM.
+_ram_volname() {
+  local suffix
+  suffix="$(head -c 4 /dev/urandom 2>/dev/null | od -An -v -tx1 | tr -d ' \n')"
+  [[ -n "$suffix" ]] || suffix="$$"   # деградация: PID, если urandom недоступен
+  printf 'ghostdraft-ram-%s' "$suffix"
+}
+
+# Создать RAM-диск (HFS+). Печатает "<mnt>\t<dev>"; код!=0 — не удалось.
+# ВАЖНО: dev-node возвращается через stdout, НЕ через глобал — функция вызывается
+# в command-substitution ($(...)), где присваивание глобалу потерялось бы в subshell
+# (из-за этого RAM-диск раньше утекал без detach). GHOSTDRAFT_DISABLE_RAM=1 отключает
+# (тесты не должны создавать реальные RAM-диски).
+_ram_make() {
+  [[ "${GHOSTDRAFT_DISABLE_RAM:-0}" == "1" ]] && return 1
+  command -v hdiutil >/dev/null 2>&1 || return 1
+  local sectors dev mnt volname
+  sectors=$(( 64 * 1024 * 1024 / 512 ))   # 64 MiB; сектор 512 B
+  dev="$(hdiutil attach -nomount "ram://${sectors}" 2>/dev/null)" || return 1
+  dev="$(printf '%s' "$dev" | tr -d '[:space:]')"
+  [[ -n "$dev" ]] || return 1
+  volname="$(_ram_volname)"
+  if ! diskutil erasevolume HFS+ "$volname" "$dev" >/dev/null 2>&1; then
+    hdiutil detach "$dev" >/dev/null 2>&1 || true
+    return 1
+  fi
+  # Реальный mountpoint берём из diskutil (а не угадываем /Volumes/<volname>): macOS
+  # мог бы добавить суффикс при коллизии — детач у нас по dev-node, путь нужен точный.
+  mnt="$(diskutil info "$dev" 2>/dev/null | awk -F': +' '/Mount Point/{print $2; exit}')"
+  [[ -n "$mnt" ]] || mnt="/Volumes/${volname}"
+  if [[ ! -d "$mnt" || ! -w "$mnt" ]]; then
+    hdiutil detach "$dev" >/dev/null 2>&1 || true
+    return 1
+  fi
+  printf '%s\t%s' "$mnt" "$dev"
+}
+
+# Выбрать каталог для черновика. Печатает "<dir>\t<kind>\t<ram_dev>" (ram_dev пуст,
+# если это не RAM-диск); код!=0 — безопасного места нет. Приоритет: GHOSTDRAFT_DIR
+# (override) → открытый vault → RAM-диск. ram_dev несём через stdout, чтобы родитель
+# мог сделать detach (см. _ram_make — глобал в $(...) не пережил бы subshell).
+_pick_draft_dir() {
+  local ov="${GHOSTDRAFT_DIR:-}"
+  if [[ -n "$ov" ]]; then
+    mkdir -p "$ov" 2>/dev/null || true
+    if [[ -d "$ov" && -w "$ov" ]]; then printf '%s\toverride\t' "$ov"; return 0; fi
+  fi
+  local vol="${ST_VAULT_VOLUME:-/Volumes/SecretVault}"
+  if _is_mounted_writable "$vol"; then printf '%s\tvault\t' "$vol"; return 0; fi
+  local rdpair rmnt rdev
+  if rdpair="$(_ram_make)"; then
+    IFS=$'\t' read -r rmnt rdev <<<"$rdpair"
+    printf '%s\tram\t%s' "$rmnt" "$rdev"; return 0
+  fi
+  return 1
+}
+
+# Затереть и удалить файл. Предпочитаем securetrash shred (его честная логика);
+# иначе fallback: overwrite случайными байтами + rm. На RAM-диске реальное стирание —
+# detach (байты в RAM), на vault — закрытие контейнера (crypto-shred); fallback — на SSD
+# best-effort и не гарантия (ровно об этом securetrash и предупреждает).
+_shred_file() {
+  local f="$1"
+  [[ -n "$f" && -e "$f" ]] || return 0
+  if command -v securetrash >/dev/null 2>&1; then
+    ST_ASSUME_YES=1 securetrash shred "$f" >/dev/null 2>&1 && return 0
+  fi
+  local n; n="$(wc -c <"$f" 2>/dev/null || echo 0)"
+  if [[ "$n" -gt 0 ]]; then
+    dd if=/dev/urandom of="$f" bs="$n" count=1 conv=notrunc 2>/dev/null || true
+  fi
+  rm -f "$f" 2>/dev/null || true
+}
+
+# Удалить editor-следы рядом с черновиком: vim swap/undo, nano backup.
+# Честно: ~/.viminfo, swap ОС и scrollback мы выборочно вычистить НЕ можем (см. new_residue).
+_clean_editor_residue() {
+  local f="$1" dir base
+  [[ -n "$f" ]] || return 0
+  dir="$(dirname "$f")"; base="$(basename "$f")"
+  rm -f "$dir/.$base.swp" "$dir/.$base.swo" "$dir/.$base.swn" "$dir/.$base.un~" \
+        "$dir/$base~" 2>/dev/null || true
+}
+
+# Очистить буфер, ТОЛЬКО если он всё ещё держит наш секрет (не затираем то, что
+# пользователь скопировал позже). Сравниваем pbpaste с известным содержимым.
+_clip_clear_if_match() {
+  local want="$1"
+  command -v pbpaste >/dev/null 2>&1 || return 0
+  [[ "$(pbpaste 2>/dev/null)" == "$want" ]] && printf '' | pbcopy 2>/dev/null
+  return 0
+}
+
+# Положить черновик в системный буфер с явным подтверждением (опасно: clipboard-
+# менеджеры + iCloud Universal Clipboard). Авто-очистка через N сек в фоне, но только
+# если буфер не сменился. Код!=0 — буфер не тронут (вызывающий продолжает shred).
+_clip_put() {
+  local f="$1" secs content
+  command -v pbcopy >/dev/null 2>&1 || { warn "$(t clip_no_pbcopy)"; return 1; }
+  warn "$(t clip_danger)"
+  if ! confirm "$(t clip_confirm)"; then warn "$(t clip_cancelled)"; return 1; fi
+  pbcopy < "$f"
+  secs="${GHOSTDRAFT_CLIP_SECS:-20}"
+  content="$(cat "$f")"
+  info "$(t clip_set "$secs")"
+  # Фон: подождать и очистить, если буфер всё ещё наш. stdout/stderr закрываем,
+  # чтобы не держать пайп вызывающего; функции наследуются в субшелл ( ).
+  ( sleep "$secs"; _clip_clear_if_match "$content" ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  return 0
+}
+
+# Трап: shred файла → чистка editor-следов → detach RAM-диска (если наш).
+_gd_cleanup() {
+  _shred_file "$_GD_DRAFT_FILE"
+  _clean_editor_residue "$_GD_DRAFT_FILE"
+  if [[ -n "$_GD_RAM_DEV" ]]; then
+    hdiutil detach "$_GD_RAM_DEV" >/dev/null 2>&1 || true
+    _GD_RAM_DEV=""
+  fi
+}
+
+cmd_new() {
+  require_macos
+  # Редактору нужен интерактивный терминал. В пайпе / неинтерактивном раннере / встроенном
+  # командном окне vim(nano) откроется, но клавиатура до него не дойдёт — пользователь застревает
+  # в неуправляемом редакторе. Fail-closed с подсказкой ДО создания RAM-диска/черновика.
+  # GD_ASSUME_TTY=1 — обход для тестов (редактор там замокан не-интерактивным).
+  if [[ "${GD_ASSUME_TTY:-0}" != "1" && ( ! -t 0 || ! -t 1 ) ]]; then
+    err "$(t new_needs_tty)"; exit 1
+  fi
+  # Warp — настоящий TTY (guard выше проходит), но его AI-попап («Use agent») перехватывает
+  # фокус, а F-клавиши он биндит под себя → ввод не доходит до редактора, newbie застревает.
+  # Не фатально: печатаем разовую подсказку (Esc закрывает попап; выход из редактора — Ctrl-D / Ctrl-X).
+  if [[ "${TERM_PROGRAM:-}" == "WarpTerminal" ]]; then
+    warn "$(t new_warp_hint)"
+  fi
+  local use_clip=0 a
+  for a in "$@"; do
+    case "$a" in
+      --clipboard) use_clip=1 ;;
+      *) t unknown_cmd "$a" >&2; echo >&2; exit 1 ;;
+    esac
+  done
+
+  local pick dir kind ram_dev
+  if ! pick="$(_pick_draft_dir)"; then err "$(t new_no_loc)"; exit 3; fi
+  IFS=$'\t' read -r dir kind ram_dev <<<"$pick"
+  _GD_RAM_DEV="$ram_dev"   # в родителе — чтобы trap сделал detach
+
+  # Файл черновика: mktemp в выбранном каталоге, права 600.
+  local f
+  f="$(mktemp "${dir%/}/.ghostdraft.XXXXXX")" || { err "$(t new_no_loc)"; _gd_cleanup; exit 3; }
+  chmod 600 "$f"
+  _GD_DRAFT_FILE="$f"
+  trap _gd_cleanup EXIT INT TERM
+
+  case "$kind" in
+    vault)    info "$(t new_loc_vault "$dir")" ;;
+    ram)      info "$(t new_loc_ram "$dir")" ;;
+    override) warn "$(t new_loc_override "$dir")" ;;
+  esac
+
+  # Редактор: уважаем $EDITOR (можно с флагами, напр. "vim -i NONE"); иначе дефолт —
+  # `vim -i NONE`: мягкий перенос длинных строк (ключ не уезжает за край и не рвётся
+  # вставленными переводами строк) + `-i NONE` отключает ~/.viminfo, который иначе мы
+  # вычистить НЕ можем (см. new_residue). Нет vim — nano.
+  #
+  # Разбор $EDITOR: сначала пробуем как ЦЕЛЫЙ путь, и только потом бьём на слова. Путь с
+  # пробелом — норма на macOS (`/Applications/Visual Studio Code.app/…/code`), а `read -ra`
+  # рвал его на куски, и редактор не запускался вовсе. `eval` здесь сознательно НЕ
+  # используем: он выполнил бы подстановки внутри переменной окружения (`$(…)`), а это уже
+  # другой класс доверия, чем «запустить названную программу».
+  local -a _ed=()
+  if [[ -n "${EDITOR:-}" ]]; then
+    if [[ -x "$EDITOR" ]] || command -v "$EDITOR" >/dev/null 2>&1; then
+      _ed=("$EDITOR")
+    else
+      read -ra _ed <<<"$EDITOR"
+    fi
+  fi
+  # Пусто/пробелы в $EDITOR (read -ra даёт пустой массив) → дефолт, не пытаемся
+  # исполнить сам черновик как команду.
+  if [[ ${#_ed[@]} -eq 0 ]]; then
+    if command -v vim >/dev/null 2>&1; then
+      # Дружелюбный дефолтный vim. Выход — ОДНА клавиша, работающая из ЛЮБОГО режима:
+      # Ctrl-D сохранить и выйти, Ctrl-X выйти без сохранения. Так сделано потому, что все
+      # прежние пути ломались о живого пользователя: F-клавиши перехватывает терминал (Warp),
+      # а `ZZ`/`ZQ` работают только в normal-режиме — из режима вставки они просто печатаются
+      # в текст, и редактор выглядит зависшим. Ctrl-аккорд терминалы пропускают, и он
+      # не зависит от того, в каком режиме человек оказался.
+      # `q` в normal-режиме отключён намеренно: промах по `ZQ` включал запись макроса
+      # (`recording @q` в статусбаре), после чего редактор перестаёт отвечать на привычное —
+      # ровно этот тупик и ловил новичка. Макросы в блокноте для эфемерной заметки не нужны.
+      # F2/F3 и ZZ/ZQ/:wq/:q! оставлены как есть — кто их знает, теряет ничего.
+      # `-i NONE` — та же приватность (без ~/.viminfo). Применяем ТОЛЬКО к дефолту:
+      # свой $EDITOR пользователя не трогаем.
+      # NB: в statusline нельзя сырой `|` (vim примет за разделитель команд) — поэтому разделители
+      # пробелами; пробелы экранируем `\ ` (требование :set statusline).
+      # NB2: vim принимает МАКСИМУМ 10 аргументов `-c` («Too many "+command"») и на
+      # одиннадцатом просто отказывается стартовать — то есть блокнот не откроется вовсе.
+      # Поэтому все маппинги живут в ОДНОМ `-c`: `|` нельзя ставить между самими :map
+      # (он уедет в правую часть маппинга), а между `execute "…"` — можно.
+      # `-N` + `startinsert`: блокнот открывается ГОТОВЫМ К ПЕЧАТИ. vim стартует в
+      # normal-режиме, где буквы — это команды: человек печатает, текст не появляется, а
+      # внизу висит огрызок недобранной команды (`f` ждёт следующий символ) — именно так
+      # выглядело «писать не могу». Без ~/.vimrc vim ещё и уходит в compatible-режим, где
+      # Backspace и стрелки в insert ведут себя не как ждёт любой не-vim-пользователь;
+      # `-N` это снимает. `showmode` показывает `-- INSERT --`, чтобы режим был виден.
+      _ed=(vim -N -i NONE
+        -c 'set laststatus=2 backspace=indent,eol,start showmode'
+        -c 'set statusline=\ \ Ctrl-D\ =\ save\ &\ exit\ \ \ \ Ctrl-X\ =\ discard\ \ \ \ works\ in\ any\ mode\ \ \ \ (Esc\ then\ ZZ\ /\ ZQ\ also\ work)'
+        -c 'execute "nnoremap <silent> <C-d> :wq<CR>" | execute "inoremap <silent> <C-d> <Esc>:wq<CR>" | execute "vnoremap <silent> <C-d> <Esc>:wq<CR>" | execute "nnoremap <silent> <C-x> :q!<CR>" | execute "inoremap <silent> <C-x> <Esc>:q!<CR>" | execute "vnoremap <silent> <C-x> <Esc>:q!<CR>" | execute "nnoremap q <Nop>" | execute "nnoremap <F2> :wq<CR>" | execute "inoremap <F2> <Esc>:wq<CR>" | execute "nnoremap <F3> :q!<CR>" | execute "inoremap <F3> <Esc>:q!<CR>"'
+        -c 'startinsert')
+    else
+      _ed=(nano)
+    fi
+  fi
+  "${_ed[@]}" "$f"
+
+  [[ $use_clip == 1 ]] && { _clip_put "$f" || true; }   # буфер не должен ломать shred
+
+  warn "$(t new_residue)"
+  # cleanup сработает по trap EXIT (shred + чистка следов + detach RAM).
+}
+
+main() {
+  # --yes где угодно в аргументах == ST_ASSUME_YES=1 (тот же контракт, что у securetrash:
+  # раньше подтверждение очистки буфера обходилось только через env). Флаг вырезаем,
+  # порядок остальных аргументов сохраняем.
+  # После `--` аргументы литеральные — тот же контракт, что у vaultwatch.
+  local args=() a literal=0
+  for a in "$@"; do
+    if [[ "$literal" == 0 && "$a" == "--yes" ]]; then ST_ASSUME_YES=1; continue; fi
+    [[ "$a" == "--" ]] && literal=1
+    args+=("$a")
+  done
+  set -- "${args[@]:-}"
+  # Пустой массив разворачивается в одну пустую строку — нормализуем к «нет аргументов».
+  if [[ $# -eq 1 && -z "${1:-}" ]]; then set --; fi
+
+  local cmd="${1:-}"
+  if [[ -z "$cmd" ]]; then usage; exit 1; fi
+  shift || true
+  case "$cmd" in
+    version|-v|--version) cmd_version "$@" ;;
+    help|--help|-h) usage ;;
+    pipe)           cmd_pipe "$@" ;;
+    new)            cmd_new "$@" ;;
+    *) t unknown_cmd "$cmd" >&2; echo >&2; usage >&2; exit 1 ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
