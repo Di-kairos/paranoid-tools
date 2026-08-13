@@ -200,6 +200,31 @@ Describe 'check' {
         $out | Should -Not -Match 'BitLocker is OFF'
     }
 
+    # On real hardware the unknown verdict came from missing rights, not from a broken query:
+    # Get-BitLockerVolume refuses without elevation, and an elevated re-run answered at once.
+    It 'BitLocker unknown without elevation -> names the elevated prompt as the missing piece' {
+        Mock Get-StDiskKind { 'ssd' }
+        Mock Get-StBitLockerState { 'unknown' }
+        Mock Get-StBitLockerCapable { $true }
+        Mock Get-StVeraCryptPath { $null }
+        Mock Test-StElevated { $false }
+
+        $out = Get-StCombinedOutput { Invoke-StCheck }
+        $out | Should -Match 'elevated prompt'
+        $out | Should -Match 'NOT protected'
+    }
+
+    It 'BitLocker unknown WITH elevation -> plain unknown, no misleading elevation advice' {
+        Mock Get-StDiskKind { 'ssd' }
+        Mock Get-StBitLockerState { 'unknown' }
+        Mock Get-StBitLockerCapable { $true }
+        Mock Get-StVeraCryptPath { $null }
+        Mock Test-StElevated { $true }
+
+        $out = Get-StCombinedOutput { Invoke-StCheck }
+        $out | Should -Match 'could not determine status'
+    }
+
     It 'i18n: ST_LANG=ru -> Russian substring' {
         $env:ST_LANG = 'ru'
         $script:ST_LOCALE = Get-StLocale
@@ -512,6 +537,84 @@ Describe 'vault status — bash parity (P2-8)' {
         Should -Invoke Invoke-StDiskpart -Times 0 -Exactly
         Should -Invoke Dismount-StVault -Times 0 -Exactly
         Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+}
+
+# Found on real Windows hardware (2026-08-13), invisible to every mocked test until now:
+# `vault create 50m` died inside Enable-BitLocker AFTER diskpart had created, attached and
+# formatted the vhdx — and `vault status` then reported "[ok] Container is OPEN (mounted at
+# E:\)" for a volume that Get-BitLockerVolume showed as FullyDecrypted / ProtectionStatus Off.
+Describe 'vault: attached is not open, and a failed create leaves nothing behind' {
+
+    BeforeEach {
+        $script:ST_LOCALE = 'en'
+        $env:ST_ASSUME_YES = '1'
+        $env:ST_VAULT_PASS = 'testpass123'
+        Mock Test-StAsidePresent { $false }
+        Mock Get-StBitLockerCapable { $true }
+        Mock Get-StVeraCryptPath { $null }
+        Mock Get-StFreeDriveLetter { 'W' }
+        Mock Set-StPrivateAcl { }
+        Mock Write-StVaultBackend { }
+    }
+
+    AfterEach {
+        Remove-Item Env:\ST_VAULT_PASS -ErrorAction SilentlyContinue
+        Remove-Item Env:\ST_ASSUME_YES -ErrorAction SilentlyContinue
+    }
+
+    It 'a locked volume is reported as LOCKED, never as OPEN' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'E:\' }
+        Mock Get-StVaultProtection { 'locked' }
+
+        $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('status') }
+        $out | Should -Match 'LOCKED'
+        $out | Should -Not -Match 'is OPEN'
+    }
+
+    It 'an unencrypted volume is reported as NOT encrypted, never as OPEN' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'E:\' }
+        Mock Get-StVaultProtection { 'unencrypted' }
+
+        $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('status') }
+        $out | Should -Match 'NOT encrypted'
+        $out | Should -Not -Match 'is OPEN'
+    }
+
+    It 'a protected volume is still reported as OPEN' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'E:\' }
+        Mock Get-StVaultProtection { 'protected' }
+
+        $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('status') }
+        $out | Should -Match 'OPEN'
+        $out | Should -Match 'E:'
+    }
+
+    It 'a create that dies inside Enable-BitLocker detaches and deletes the half-made container' {
+        Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock New-StBitLockerVault { throw 'The drive is too small to be protected using BitLocker Drive Encryption. (0x8031006F)' }
+        Mock Dismount-StVault { }
+        Mock Remove-Item { } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+
+        { Invoke-StVault -VaultArgs @('create', '200m') 6>$null } | Should -Throw
+        Should -Invoke Dismount-StVault -Times 1 -Exactly
+        Should -Invoke Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        # A failed create records no backend: a leftover sidecar would make `open` promise BitLocker.
+        Should -Invoke Write-StVaultBackend -Times 0 -Exactly
+    }
+
+    It 'a size below the BitLocker minimum is refused before diskpart touches the disk' {
+        Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock New-StBitLockerVault { }
+
+        { Invoke-StVault -VaultArgs @('create', '50m') 6>$null } | Should -Throw
+        Should -Invoke New-StBitLockerVault -Times 0 -Exactly
     }
 }
 

@@ -74,6 +74,9 @@ Flags:
     'en:bl_unknown_check'   = 'BitLocker: unknown — could not determine status; assume the drive is NOT protected.'
     'ru:bl_unknown_check'   = 'BitLocker: неизвестно — не удалось определить статус; считай, что диск НЕ защищён.'
 
+    'en:bl_unknown_elevate' = 'BitLocker: unknown — reading the status needs an elevated prompt. Assume the drive is NOT protected; re-run this from an administrator PowerShell to get a verdict.'
+    'ru:bl_unknown_elevate' = 'BitLocker: неизвестно — чтобы прочитать статус, нужны права администратора. Считай, что диск НЕ защищён; для вердикта повтори из PowerShell от имени администратора.'
+
     'en:disk_ssd'           = '  Disk: SSD.'
     'ru:disk_ssd'           = '  Диск: SSD.'
 
@@ -222,6 +225,15 @@ Flags:
 
     'en:vault_status_unknown' = 'Container exists, but its state could NOT be determined (Storage cmdlets unavailable or the image could not be read): {0}. Do not assume it is closed.'
     'ru:vault_status_unknown' = 'Контейнер есть, но состояние определить НЕ удалось (нет Storage-командлетов или образ не читается): {0}. Не считай его закрытым.'
+
+    'en:vault_status_locked' = 'Container is attached at {0} but LOCKED — the password was not accepted, the contents are unreadable. Detach it: securetrash vault close.'
+    'ru:vault_status_locked' = 'Контейнер подключён ({0}), но ЗАБЛОКИРОВАН — пароль принят не был, содержимое недоступно. Отключить: securetrash vault close.'
+
+    'en:vault_status_unencrypted' = 'Container is mounted at {0} but NOT encrypted (BitLocker protection is off) — do NOT put secrets in it. This is what a `vault create` that failed halfway leaves behind: destroy it and create it again.'
+    'ru:vault_status_unencrypted' = 'Контейнер смонтирован ({0}), но НЕ зашифрован (защита BitLocker выключена) — не клади в него секреты. Так выглядит `vault create`, упавший на полпути: уничтожь контейнер и создай заново.'
+
+    'en:vault_size_too_small' = 'Size {0} MB is below the BitLocker minimum (64 MB) — the container was NOT created. Pick a bigger size.'
+    'ru:vault_size_too_small' = 'Размер {0} МБ меньше минимума BitLocker (64 МБ) — контейнер НЕ создан. Возьми размер больше.'
 
     'en:vault_usage'        = 'vault: provide create|open|close|reset|destroy|status|destroy-old'
     'ru:vault_usage'        = 'vault: укажи create|open|close|reset|destroy|status|destroy-old'
@@ -531,6 +543,24 @@ function Get-StMountedVaultRoot {
     return $null
 }
 
+# BitLocker protection of an ALREADY attached vault volume: 'protected' (unlocked and
+# encrypted), 'locked' (attached, password not accepted), 'unencrypted' (attached, no
+# protection — what a half-failed create leaves behind), or 'unknown'. Attached is neither
+# readable nor encrypted, so `status` must not read "mounted" as "open". Wrapper for Mock.
+function Get-StVaultProtection {
+    param([string]$MountRoot)
+    if (-not $MountRoot) { return 'unknown' }
+    try {
+        $v = Get-BitLockerVolume -MountPoint ($MountRoot.TrimEnd('\')) -ErrorAction Stop
+        if ($v.LockStatus -eq 'Locked')   { return 'locked' }
+        if ($v.ProtectionStatus -eq 'On') { return 'protected' }
+        return 'unencrypted'
+    } catch {
+        # No BitLocker cmdlets, or a VeraCrypt/foreign volume: unknown, never a verdict.
+        return 'unknown'
+    }
+}
+
 # Unmount/detach the container (wrapper for Mock).
 function Dismount-StVault {
     param([string]$Path)
@@ -797,7 +827,13 @@ function Invoke-StCheck {
     switch (Get-StBitLockerState) {
         'on'    { Write-StInfo (T 'bl_on') }
         'off'   { Write-StWarn (T 'bl_off_check') }
-        default { Write-StWarn (T 'bl_unknown_check') }   # undetermined → conservative, assume unprotected
+        # Undetermined → conservative, assume unprotected. Without elevation Get-BitLockerVolume
+        # simply refuses, so name the missing ingredient instead of a dead-end "could not
+        # determine" — the shadow-copy line below has said it that way all along.
+        default {
+            if (Test-StElevated) { Write-StWarn (T 'bl_unknown_check') }
+            else                 { Write-StWarn (T 'bl_unknown_elevate') }
+        }
     }
 
     switch (Get-StDiskKind) {
@@ -1007,13 +1043,28 @@ function Invoke-StVaultCreateNow {
     Assert-StValidVaultPath -Path $vaultPath
     Assert-StValidSize -Size $Size
     if (Get-StBitLockerCapable) {
+        # diskpart understands only an MB number: suffixes (1g/500m) are expanded here,
+        # the message keeps what the user typed.
+        $mb = Convert-StSizeToMb -Size $Size
+        # BitLocker refuses volumes under 64 MB (0x8031006F) — and it refuses AFTER diskpart has
+        # created, attached and formatted the vhdx. Checked here, before anything exists on disk.
+        if ($mb -lt 64) { Write-StErr (T 'vault_size_too_small' $mb); Stop-StCommand }
         # Native: VHDX + Enable-BitLocker. The password is SecureString end-to-end (#13).
         $sec = Get-StVaultPasswordSecure
         $letter = Get-StFreeDriveLetter                 # #3: a free letter, not a hardcoded 'V'
         Assert-StValidDriveLetter -DriveLetter $letter
-        # diskpart understands only an MB number: suffixes (1g/500m) are expanded here,
-        # the message keeps what the user typed.
-        New-StBitLockerVault -Path $vaultPath -Size (Convert-StSizeToMb -Size $Size) -Password $sec -DriveLetter $letter
+        try {
+            New-StBitLockerVault -Path $vaultPath -Size $mb -Password $sec -DriveLetter $letter
+        } catch {
+            # Enable-BitLocker fails only AFTER diskpart has attached and formatted the vhdx, so
+            # what is left is an UNENCRYPTED mounted volume that occupies the vault's path — and
+            # `status` used to report it as an open vault. Remove it, exactly as the macOS branch
+            # does (securetrash: _vault_create_now). Detach first: an attached vhdx cannot be deleted.
+            try { Dismount-StVault -Path $vaultPath } catch { }
+            Remove-Item -LiteralPath $vaultPath -Force -Recurse -ErrorAction SilentlyContinue
+            Write-StErr (T 'vault_create_fail' $vaultPath)
+            Stop-StCommand
+        }
         Set-StPrivateAcl -Path $vaultPath               # #15: ACL on the container
         Write-StVaultBackend -VaultPath $vaultPath -Backend 'bitlocker'  # #10
         Write-StInfo (T 'vault_created' $vaultPath $Size)
@@ -1254,7 +1305,15 @@ function Invoke-StVault {
                 $mount = Get-StMountedVaultRoot -Path $vaultPath
                 if (-not $mount) { $mount = Read-StVaultMount -VaultPath $vaultPath }
                 if (-not $mount) { $mount = $vaultPath }
-                Write-StInfo (T 'vault_status_open' $mount)
+                # Attached is not the same as open: a failed unlock leaves the vhdx attached and
+                # LOCKED, a create that died on Enable-BitLocker leaves it attached and PLAINTEXT.
+                # Both used to print "OPEN" — reassuring and false. 'unknown' (VeraCrypt, no
+                # cmdlets) keeps the old wording: no verdict without evidence.
+                switch (Get-StVaultProtection -MountRoot $mount) {
+                    'locked'      { Write-StWarn (T 'vault_status_locked' $mount) }
+                    'unencrypted' { Write-StWarn (T 'vault_status_unencrypted' $mount) }
+                    default       { Write-StInfo (T 'vault_status_open' $mount) }
+                }
             } else {
                 Write-StInfo (T 'vault_status_closed' $vaultPath)
             }
