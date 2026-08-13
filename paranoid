@@ -178,15 +178,10 @@ t() {
   esac
 }
 
-# --- инструменты экосистемы: имя|репо (для хинта на установку) ---
+# --- инструменты экосистемы: репо для хинта на установку ---
+# После монорепо-миграции все тулы живут в одном репозитории.
 _tool_repo() {
-  case "$1" in
-    securetrash) echo 'https://github.com/Di-kairos/securetrash' ;;
-    vaultwatch)  echo 'https://github.com/Di-kairos/vaultwatch' ;;
-    panic)       echo 'https://github.com/Di-kairos/panic' ;;
-    seedsplit)   echo 'https://github.com/Di-kairos/seedsplit' ;;
-    ghostdraft)  echo 'https://github.com/Di-kairos/ghostdraft' ;;
-  esac
+  echo 'https://github.com/Di-kairos/paranoid-tools'
 }
 
 _tool_installed() { command -v "$1" >/dev/null 2>&1; }
@@ -278,6 +273,9 @@ _tool_version() {
 
 # Последний релизный тег тула. В тестах подменяется файлом PARANOID_UPDATE_FEED
 # (строки `tool=vX.Y.Z`), иначе — HEAD-редирект releases/latest → .../tag/vX.Y.Z.
+# Пер-тул URL указывает на архивированный репозиторий: GitHub продолжает отдавать
+# его releases/latest. С первым монорепо-релизом (теги <tool>-vX.Y.Z) источником
+# станет releases.atom монорепо — см. чеклист в docs/RELEASE-STATE.md.
 _fetch_latest_tag() {
   local tool="$1" url
   if [[ -n "${PARANOID_UPDATE_FEED:-}" ]]; then

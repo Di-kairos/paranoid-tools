@@ -338,7 +338,7 @@ Describe 'Get-PnVaultMount (F2: dynamic drive letter)' {
 
 Describe 'Get-PnToolRepo' {
     It 'returns the panic repo url' {
-        (Get-PnToolRepo 'panic') | Should -Match 'github.com/Di-kairos/panic'
+        (Get-PnToolRepo 'panic') | Should -Match 'github.com/Di-kairos/paranoid-tools'
     }
     It 'returns empty for an unknown tool' {
         (Get-PnToolRepo 'nope') | Should -Be ''

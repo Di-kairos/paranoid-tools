@@ -147,7 +147,7 @@ run_paranoid() {
   run_paranoid $'2\n\n0\n'
   [ "$status" -eq 0 ]
   ! grep -q "^panic " "$LOG"
-  [[ "$output" == *"github.com/Di-kairos/panic"* ]]
+  [[ "$output" == *"github.com/Di-kairos/paranoid-tools"* ]]
 }
 
 # --- сейф: подменю (пункт 3 → ...) ---
@@ -330,7 +330,7 @@ STUB
   [ "$status" -eq 0 ]
   ! grep -q "^seedsplit" "$LOG"
   # И показан хинт на установку (репо).
-  [[ "$output" == *"github.com/Di-kairos/seedsplit"* ]]
+  [[ "$output" == *"github.com/Di-kairos/paranoid-tools"* ]]
 }
 
 # --- top-level: три группы-подменю ---

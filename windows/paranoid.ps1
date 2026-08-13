@@ -156,16 +156,10 @@ function T {
 }
 
 # --- инструменты экосистемы: репо для хинта ---
+# После монорепо-миграции все тулы живут в одном репозитории.
 function Get-PnToolRepo {
     param([string]$Tool)
-    switch ($Tool) {
-        'securetrash' { 'https://github.com/Di-kairos/securetrash' }
-        'vaultwatch'  { 'https://github.com/Di-kairos/vaultwatch' }
-        'panic'       { 'https://github.com/Di-kairos/panic' }
-        'seedsplit'   { 'https://github.com/Di-kairos/seedsplit' }
-        'ghostdraft'  { 'https://github.com/Di-kairos/ghostdraft' }
-        default       { '' }
-    }
+    'https://github.com/Di-kairos/paranoid-tools'
 }
 
 function Test-PnTool { param([string]$Tool) [bool](Get-Command $Tool -ErrorAction SilentlyContinue) }
