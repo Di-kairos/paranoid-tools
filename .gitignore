@@ -1,9 +1,3 @@
-# Вложенные tool-репо — каждый свой git-репо, не трекаем здесь.
-securetrash/
-vaultwatch/
-panic/
-ghostdraft/
-seedsplit/
 # Секреты и артефакты графа/системные.
 .env*
 *.log
