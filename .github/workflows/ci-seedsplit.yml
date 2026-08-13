@@ -25,6 +25,14 @@ jobs:
         run: ./tools/vendor-common.sh --check
       - name: Unit tests
         run: bats test/
+      - name: Known-answer vectors for the GF(256) core
+        # Kept a separate step from the differential run below on purpose: that one proves the
+        # two implementations agree with each other, which stays true if both carry the same
+        # mistake. This one anchors the field arithmetic to published constants (FIPS-197,
+        # the Rijndael antilog table) plus the share-set frozen in the suite since v0.3.0.
+        # The README cites it as grounds for trusting the arithmetic, so CI has to run it.
+        run: python3 test/differential/kat_vectors.py
+
       - name: Differential tests vs an independent implementation
         # Both directions on every push: bash split → independent python combine and
         # independent python split → bash combine, plus property checks

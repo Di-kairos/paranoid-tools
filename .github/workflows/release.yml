@@ -97,6 +97,21 @@ jobs:
           [ -x tools/vendor-common.sh ] && ./tools/vendor-common.sh --check
           bats test/
 
+      - name: Crypto known-answer + differential tests (for tools that ship them)
+        # Signing an artifact proves where it came from, not that it is correct. seedsplit is
+        # the one tool whose defect would be silent — wrong field arithmetic still produces
+        # shares that look fine — so its crypto tests belong in the release gate, not only in
+        # ci-seedsplit. File-guarded rather than tool-named: any tool that grows the same
+        # layout is covered without editing this workflow.
+        run: |
+          cd "$TOOL"
+          if [ -f test/differential/kat_vectors.py ]; then
+            python3 test/differential/kat_vectors.py
+          fi
+          if [ -f test/differential/diff_test.py ]; then
+            python3 test/differential/diff_test.py
+          fi
+
       - name: Stage release assets (flat basenames)
         run: |
           mkdir -p dist
