@@ -186,6 +186,14 @@ failed integrity check.
 Honesty is the whole point of this ecosystem, and Shamir sharing is especially easy to
 oversell. So here are the honest limits:
 
+- **This is our own GF(256) implementation, and it has NOT been independently
+  audited.** What we offer instead of silence: on every push, CI differentially
+  tests it against an [independent Python implementation](test/differential/) —
+  `split` here must combine there and vice versa, over random vectors in both
+  directions — plus property tests (T−1 shares refuse, any T of N reconstruct,
+  mixed sets refuse, Reed-Solomon repairs up to 2 typos per share). An
+  independent audit would still be better; until one happens, treat this line
+  as the trust boundary.
 - **share quality = RNG quality** — we use `/dev/urandom`, not a homegrown PRNG;
 - **a secret in `argv` is visible in `ps`** — input is via stdin/file only, never an
   argument;
@@ -213,8 +221,9 @@ oversell. So here are the honest limits:
   the RNG is `/dev/urandom`. Tests: **bats** (44 tests — `split`/`combine`/`verify`,
   round-trip over every threshold subset, the full failure taxonomy, the 128-bit
   integrity tag, plus known-answer tests: FIPS-197 GF vectors and a frozen share-set).
-- The shared core (`lib/common.sh`) is **vendored** inline from securetrash, pinned to a
-  git ref; `tools/vendor-common.sh --check` catches drift in CI. See
+- The shared core (`lib/common.sh`) is **vendored** inline from the sibling
+  `securetrash/` directory of this monorepo, content-pinned by SHA256;
+  `tools/vendor-common.sh --check` catches drift in CI. See
   [`paranoid-tools/README.md`](../README.md).
 
 ## Windows (beta)
