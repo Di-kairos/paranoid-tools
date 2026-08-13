@@ -1038,7 +1038,10 @@ function Get-StVaultPasswordSecure {
 # Create the container. WITHOUT an existence check — the caller does it (create checks;
 # reset calls after destroy, when the container is known to be gone). Size is in MB for diskpart.
 function Invoke-StVaultCreateNow {
-    param([string]$Size = '1024')
+    # -KeepFailedContainer: the caller owns the rollback and will clean the path itself.
+    # Only `reset` passes it (Restore-StVaultAside removes the leftover before moving the
+    # set-aside vault back). A plain create never sets it — see the catch block below.
+    param([string]$Size = '1024', [switch]$KeepFailedContainer)
     $vaultPath = Get-StVaultPath
     Assert-StValidVaultPath -Path $vaultPath
     Assert-StValidSize -Size $Size
@@ -1061,10 +1064,11 @@ function Invoke-StVaultCreateNow {
             # `status` used to report it as an open vault. Remove it, exactly as the macOS branch
             # does (securetrash: _vault_create_now). Detach first: an attached vhdx cannot be deleted.
             try { Dismount-StVault -Path $vaultPath } catch { }
-            # Only when nothing is set aside: during `reset` the half-made container is removed by
-            # Restore-StVaultAside, which owns that rollback — and reset must reach the aside
-            # container untouched, so create does not delete anything under it.
-            if (-not (Test-StAsidePresent -VaultPath $vaultPath)) {
+            # Skipped only when the caller says it owns the rollback (reset). Ownership is passed
+            # explicitly and never inferred from a .old container lying around: a stale aside from
+            # an interrupted reset is unrelated to a plain create, and letting it suppress this
+            # cleanup would leave exactly the unencrypted mounted volume described above.
+            if (-not $KeepFailedContainer) {
                 try { Remove-StVaultContainer -Path $vaultPath } catch { }
             }
             Write-StErr (T 'vault_create_fail' $vaultPath)
@@ -1247,7 +1251,7 @@ function Invoke-StVault {
             # create, and the original error must not be swallowed in the process.
             $stCreated = $false
             try {
-                Invoke-StVaultCreateNow -Size $resetSize
+                Invoke-StVaultCreateNow -Size $resetSize -KeepFailedContainer
                 $stCreated = $true
             } finally {
                 if (-not $stCreated) {

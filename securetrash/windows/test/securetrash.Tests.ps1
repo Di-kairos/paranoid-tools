@@ -601,13 +601,26 @@ Describe 'vault: attached is not open, and a failed create leaves nothing behind
         Mock New-StBitLockerVault { throw 'The drive is too small to be protected using BitLocker Drive Encryption. (0x8031006F)' }
         Mock Dismount-StVault { }
         Mock Remove-StVaultContainer { }
-        Mock Test-StAsidePresent { $false }   # plain create: nothing set aside, so create cleans up itself
 
         { Invoke-StVault -VaultArgs @('create', '200m') 6>$null } | Should -Throw
         Should -Invoke Dismount-StVault -Times 1 -Exactly
         Should -Invoke Remove-StVaultContainer -Times 1 -Exactly
         # A failed create records no backend: a leftover sidecar would make `open` promise BitLocker.
         Should -Invoke Write-StVaultBackend -Times 0 -Exactly
+    }
+
+    # An interrupted reset leaves a .old container on disk. It belongs to the user's data and has
+    # nothing to do with a plain create, so it must not suppress the cleanup above — otherwise the
+    # unencrypted mounted volume survives exactly as it did before that cleanup existed.
+    It 'still deletes the half-made container when an unrelated .old is on disk' {
+        Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock New-StBitLockerVault { throw 'The drive is too small to be protected using BitLocker Drive Encryption. (0x8031006F)' }
+        Mock Dismount-StVault { }
+        Mock Remove-StVaultContainer { }
+        Mock Test-StAsidePresent { $true }   # a leftover from an interrupted reset
+
+        { Invoke-StVault -VaultArgs @('create', '200m') 6>$null } | Should -Throw
+        Should -Invoke Remove-StVaultContainer -Times 1 -Exactly
     }
 
     It 'a wrong password gives our message and leaves no attached volume behind' {
