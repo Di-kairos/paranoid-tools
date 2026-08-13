@@ -1,9 +1,9 @@
-﻿# Pester 5 — логика paranoid.ps1 (Windows-зеркало лаунчера). Дот-сорс под ST_NO_MAIN=1:
-# определяет функции, не запуская интерактивный цикл. paranoid — тонкий лаунчер: он сам
-# ничего не делает с секретами, а только диспетчеризует пять CLI. Поэтому МОКАЮТСЯ сидячие
-# места (Invoke-PnTool, Read-PnLine, *-State), а тест проверяет оркестровку: какой тул с
-# какими аргументами вызван, мгновенную панику (now --hard), open/close сейфа, ttl у watch.
-# CLI-уровень (version, exit-коды) — через свежий pwsh.
+﻿# Pester 5 — the logic of paranoid.ps1 (the Windows mirror of the launcher). Dot-sourced under
+# ST_NO_MAIN=1: defines the functions without starting the interactive loop. paranoid is a thin
+# launcher: it does nothing with secrets itself, it only dispatches the five CLIs. So the seams
+# are MOCKED (Invoke-PnTool, Read-PnLine, *-State), and the tests verify the orchestration: which
+# tool is called with which arguments, instant panic (now --hard), vault open/close, ttl for watch.
+# The CLI level (version, exit codes) — via a fresh pwsh.
 
 BeforeAll {
     $env:ST_NO_MAIN = '1'
@@ -37,7 +37,7 @@ Describe 'i18n' {
 Describe 'Get-PnDashboard — read-only status text' {
     BeforeEach {
         $script:PN_LOCALE = 'en'
-        # vaultwatch/bitlocker не должны лезть в реальную систему из dashboard.
+        # vaultwatch/bitlocker must not touch the real system from the dashboard.
         Mock Get-PnBitLockerState  { 'unknown' }
         Mock Get-PnVaultwatchState { 'idle' }
         Mock Test-PnTool { $true }
@@ -242,8 +242,8 @@ Describe 'Get-PnVaultState (4-state: open / closed / none / unknown)' {
         Mock Get-PnMountPoints { @('C:\') }
         (Get-PnVaultState) | Should -Be 'none'
     }
-    # Главный кейс: сейф, примонтированный в ПАПКУ, оставляет её после eject. Проверка
-    # «путь существует» звала такой сейф открытым — дашборд пугал «ОТКРЫТ · под угрозой».
+    # The main case: a vault mounted into a FOLDER leaves it behind after an eject. The
+    # "path exists" check called such a vault open — the dashboard cried "OPEN - at risk".
     It 'a folder left behind by an eject is not an open vault' {
         $script:VAULT_VOLUME = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_v_" + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:VAULT_VOLUME -Force | Out-Null
@@ -268,7 +268,7 @@ Describe 'Get-PnVaultState (4-state: open / closed / none / unknown)' {
 Describe 'unknown vault state — the launcher names it and refuses to guess' {
     BeforeEach {
         $script:VAULT_VOLUME = 'D:\'
-        # Дашборд, меню и watch перечитывают букву тома перед работой — держим её постоянной.
+        # The dashboard, the menu and watch re-read the drive letter before acting — keep it constant.
         Mock Get-PnVaultMount  { 'D:\' }
         Mock Get-PnMountPoints { $null }
         Mock Invoke-PnPause { }
@@ -286,7 +286,7 @@ Describe 'unknown vault state — the launcher names it and refuses to guess' {
     It 'the vault menu keeps item 1 but promises no action' {
         $out = (Get-PnVaultMenu) -join "`n"
         $out | Should -Match 'state unknown'
-        $out | Should -Match 'vault state unknown'   # empty/destroy — с причиной
+        $out | Should -Match 'vault state unknown'   # empty/destroy — with the reason
     }
 
     It 'toggle, empty, destroy and watch all refuse instead of guessing' {
@@ -353,7 +353,7 @@ Describe 'dispatch — panic (choice 2)' {
     }
 
     It 'dispatches panic now --hard instantly (no confirm)' {
-        # Паника мгновенна и всегда --hard: кнопка, требующая «yes», теряет смысл.
+        # Panic is instant and always --hard: a button that demands "yes" defeats the purpose.
         Invoke-PnDispatch '2' | Should -BeFalse
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'panic' -and ($ToolArgs -contains 'now') -and ($ToolArgs -contains '--hard')
@@ -504,10 +504,10 @@ Describe 'vault submenu dispatch — watch toggle (item 4)' {
     BeforeEach {
         Mock Invoke-PnTool { }
         Mock Invoke-PnPause { }
-        # Через override: Invoke-PnActWatch рефрешит $script:VAULT_VOLUME = Get-PnVaultMount,
-        # а Get-PnVaultMount читает ST_VAULT_VOLUME первым — так refresh не затирает 'V:\'.
+        # Via the override: Invoke-PnActWatch refreshes $script:VAULT_VOLUME = Get-PnVaultMount,
+        # and Get-PnVaultMount reads ST_VAULT_VOLUME first — so the refresh does not clobber 'V:\'.
         $env:ST_VAULT_VOLUME = 'V:\'
-        # Том в таблице: иначе состояние — unknown, и watch честно откажется стартовать.
+        # The volume is in the table: otherwise the state is unknown and watch honestly refuses to start.
         Mock Get-PnMountPoints { @('C:\', 'V:\') }
     }
     AfterEach { Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue }
@@ -549,9 +549,9 @@ Describe 'notepad submenu dispatch (ghostdraft)' {
         $script:PN_LOCALE = 'en'
     }
     It '1 (unified note) runs ghostdraft new --clipboard (with a DANGER caveat first)' {
-        # Заметка схлопнута в один пункт: пишешь/правишь/копируешь. На Windows честный
-        # DANGER-caveat (нет авто-очистки буфера) печатается через Write-Output перед запуском,
-        # поэтому проверяем сам вызов (Out-Null глушит подсказку), а не возврат.
+        # The note flow is collapsed into one item: write/edit/copy. On Windows the honest
+        # DANGER caveat (no clipboard auto-wipe) is printed via Write-Output before the run,
+        # so we verify the call itself (Out-Null swallows the hint), not the return value.
         $out = (Invoke-PnNotepadDispatch '1' 6>&1) -join "`n"
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'ghostdraft' -and ($ToolArgs -contains 'new') -and ($ToolArgs -contains '--clipboard')
@@ -592,8 +592,8 @@ Describe 'secrets submenu dispatch (seedsplit) + status (top 1)' {
         }
     }
     It 'secrets 1 runs seedsplit split and leaves the prompt to the tool itself' {
-        # Промпт печатает сам seedsplit (он же читает ввод без эха) — лаунчер свой убрал,
-        # иначе пользователь получал две разные инструкции подряд (AUDIT_2026-08-03 P2-1).
+        # seedsplit prints the prompt itself (and reads the input without echo) — the launcher
+        # dropped its own, otherwise the user got two different instructions in a row (AUDIT_2026-08-03 P2-1).
         $out = (Invoke-PnSecretsDispatch '1' 6>&1) -join "`n"
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'seedsplit' -and ($ToolArgs -contains 'split')

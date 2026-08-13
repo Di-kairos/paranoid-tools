@@ -1,15 +1,15 @@
-﻿# Pester 5 тесты для securetrash.ps1 (Windows-порт, BETA).
-# Все Windows-specific cmdlet/exe замоканы — проверяется только диспетчер,
-# i18n и ветвление. Реальное поведение BitLocker/VHDX/VeraCrypt НЕ верифицируется.
+﻿# Pester 5 tests for securetrash.ps1 (Windows port, BETA).
+# All Windows-specific cmdlets/exes are mocked — only the dispatcher,
+# i18n and branching are checked. Real BitLocker/VHDX/VeraCrypt behavior is NOT verified.
 
 BeforeAll {
-    $env:ST_NO_MAIN = '1'   # отключить диспетчер при dot-source
+    $env:ST_NO_MAIN = '1'   # disable the dispatcher on dot-source
     $script:ScriptPath = Join-Path $PSScriptRoot '..\securetrash.ps1'
     . $script:ScriptPath
 
-    # Write-StWarn/Write-StErr пишут прямо в [Console]::Error (паритет с bash warn/err >&2),
-    # а такой вывод перенаправление PowerShell не ловит. Хелпер подменяет консольный stderr
-    # на StringWriter и отдаёт stdout+информационный поток+stderr одной строкой.
+    # Write-StWarn/Write-StErr write directly to [Console]::Error (parity with bash warn/err >&2),
+    # and PowerShell redirection does not catch that output. The helper swaps the console stderr
+    # for a StringWriter and returns stdout+information stream+stderr as a single string.
     function global:Get-StCombinedOutput {
         param([scriptblock]$Body)
         $sw = New-Object System.IO.StringWriter
@@ -24,9 +24,9 @@ AfterAll {
     Remove-Item Env:\ST_NO_MAIN -ErrorAction SilentlyContinue
 }
 
-# --- P0-1: securetrash.ps1 должен уважать ST_VAULT_PATH (destructive-таргет = контейнер) ---
-# Иначе GUI/tray/launcher показывают один сейф (через ST_VAULT_*), а destroy/reset/open
-# бьют по захардкоженному дефолту. Паритет с bash securetrash.
+# --- P0-1: securetrash.ps1 must respect ST_VAULT_PATH (the destructive target = container) ---
+# Otherwise the GUI/tray/launcher show one vault (via ST_VAULT_*) while destroy/reset/open
+# hit the hardcoded default. Parity with bash securetrash.
 Describe 'vault container path env override (P0-1)' {
     AfterEach { Remove-Item Env:\ST_VAULT_PATH -ErrorAction SilentlyContinue }
 
@@ -50,14 +50,14 @@ Describe 'dispatcher' {
     }
 
     It 'no-arg shows usage and exits non-zero' {
-        # Invoke-Main с пустыми аргументами должен показать usage и завершиться кодом 1.
+        # Invoke-Main with empty arguments must show usage and exit with code 1.
         $code = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Invoke-Main -Argv @()"
         $LASTEXITCODE | Should -Be 1
         ($code -join "`n") | Should -Match 'Usage:'
     }
 
     It 'unknown command exits non-zero with message' {
-        # 2>&1: сообщение об ошибке уходит в stderr (паритет с bash), usage — в stdout.
+        # 2>&1: the error message goes to stderr (parity with bash), usage to stdout.
         $out = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Invoke-Main -Argv @('bogus')" 2>&1
         $LASTEXITCODE | Should -Be 1
         ($out -join "`n") | Should -Match 'Unknown command'
@@ -66,7 +66,7 @@ Describe 'dispatcher' {
     It 'version prints beta label' {
         $out = Invoke-StVersion 6>&1
         ($out -join "`n") | Should -Match 'Windows, beta'
-        # Версия не пиннится — проверяем формат semver, а не конкретное число.
+        # The version is not pinned — check the semver format, not a specific number.
         ($out -join "`n") | Should -Match '\d+\.\d+\.\d+'
     }
 
@@ -95,7 +95,7 @@ Describe 'dispatcher' {
     }
 
     It 'writes info to stdout, not to the host (launcher/redirect parity)' {
-        # 1>&1 не сливает информационный поток: если сообщение уйдёт в Write-Host, тут будет пусто.
+        # 1>&1 does not merge the information stream: if the message went to Write-Host, this would be empty.
         $out = & pwsh -NoProfile -Command "`$env:ST_NO_MAIN='1'; . '$script:ScriptPath'; Write-StInfo 'hello' 6>`$null"
         ($out -join "`n") | Should -Match 'hello'
     }
@@ -111,11 +111,11 @@ Describe 'size units — bash parity (P2-8)' {
 
     It 'accepts the hdiutil-style suffixes bash accepts' {
         Convert-StSizeToMb -Size '1g'   | Should -Be 1024
-        Convert-StSizeToMb -Size '512'  | Should -Be 512      # голое число = МБ
+        Convert-StSizeToMb -Size '512'  | Should -Be 512      # bare number = MB
         Convert-StSizeToMb -Size '512m' | Should -Be 512
         Convert-StSizeToMb -Size '1t'   | Should -Be 1048576
         Convert-StSizeToMb -Size '2048k'| Should -Be 2
-        Convert-StSizeToMb -Size '1500k'| Should -Be 2        # округление вверх, не в 1 МБ
+        Convert-StSizeToMb -Size '1500k'| Should -Be 2        # rounds up, not down to 1 MB
     }
 
     It 'rejects an absurdly long number instead of throwing a raw overflow' {
@@ -135,7 +135,7 @@ Describe 'size units — bash parity (P2-8)' {
 
 Describe 'Get-StBitLockerState — tri-state, зеркало macOS _fv_state (F5)' {
     BeforeAll {
-        # Pester мокает только существующие команды; на раннере без BitLocker-модуля — стаб.
+        # Pester mocks only existing commands; on a runner without the BitLocker module — a stub.
         if (-not (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue)) {
             function script:Get-BitLockerVolume { [CmdletBinding()] param($MountPoint) }
         }
@@ -267,7 +267,7 @@ Describe 'diskpart input validation (#3)' {
     }
 
     It 'Invoke-StDiskpart throws on non-zero exit code' {
-        # Подменяем diskpart на функцию, выставляющую $LASTEXITCODE != 0.
+        # Replace diskpart with a function that sets $LASTEXITCODE != 0.
         Mock Set-Content { }
         function diskpart { $global:LASTEXITCODE = 1 }
         { Invoke-StDiskpart -Script 'noop' 6>$null } | Should -Throw
@@ -319,7 +319,7 @@ Describe 'vault create branching' {
         Mock Get-StVeraCryptPath { 'C:\Program Files\VeraCrypt\VeraCrypt.exe' }
         Mock New-StBitLockerVault { }
 
-        # #2: автоматический VeraCrypt-create запрещён -> честный отказ (StExit) + GUI-инструкция.
+        # #2: automated VeraCrypt create is forbidden -> honest refusal (StExit) + GUI instructions.
         $out = ''
         $threw = $false
         try { $out = (Invoke-StVault -VaultArgs @('create') 6>&1) -join "`n" }
@@ -353,7 +353,7 @@ Invoke-Main -Argv @('vault','create')
 Describe 'VeraCrypt never receives a password on argv (#2)' {
 
     It 'New-StVeraCryptVault no longer exists (automated VeraCrypt removed)' {
-        # Функция, передававшая /password в argv, удалена целиком.
+        # The function that passed /password on argv was removed entirely.
         (Get-Command New-StVeraCryptVault -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
     }
 
@@ -493,7 +493,7 @@ Describe 'vault status — bash parity (P2-8)' {
 
         $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('status') }
         $out | Should -Match 'NOT be determined'
-        $out | Should -Not -Match 'is CLOSED \(not mounted\)'   # именно ложного «закрыт» тут быть не должно
+        $out | Should -Not -Match 'is CLOSED \(not mounted\)'   # a false "closed" is exactly what must not appear here
     }
 
     It 'fails with a non-zero exit when there is no container at all' {
@@ -608,7 +608,7 @@ Describe 'backend metadata routing (#10)' {
 
 Describe 'vault destroy' {
 
-    # Структурная проверка контейнера по умолчанию проходит; негативный кейс мокает $false.
+    # The structural container check passes by default; the negative case mocks $false.
     BeforeEach { Mock Test-StVaultContainer { $true } }
 
     It 'refuses to destroy a path that is not our container (before confirm)' {
@@ -625,13 +625,13 @@ Describe 'vault destroy' {
     It 'honors ST_ASSUME_YES and calls remove-container mock (bitlocker backend)' {
         $env:ST_ASSUME_YES = '1'
         $script:ST_LOCALE = 'en'
-        # Pester 6: вызов вне ParameterFilter'ов (напр. *.vhdx.mount) больше не проваливается
-        # в реальный Test-Path — нужен явный default-мок.
+        # Pester 6: a call outside the ParameterFilters (e.g. *.vhdx.mount) no longer falls
+        # through to the real Test-Path — an explicit default mock is needed.
         Mock Test-Path { $false }
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.backend' }
         Mock Read-StVaultBackend { 'bitlocker' }
-        # tri-state: смонтирован → размонтировать; postcondition видит размонтированный.
+        # tri-state: mounted → dismount; the postcondition sees it unmounted.
         $script:vaultStates = [System.Collections.Queue]::new()
         $script:vaultStates.Enqueue('mounted'); $script:vaultStates.Enqueue('unmounted')
         Mock Get-StVaultState { if ($script:vaultStates.Count -gt 0) { $script:vaultStates.Dequeue() } else { 'unmounted' } }
@@ -664,7 +664,7 @@ Describe 'vault destroy' {
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.backend' }
         Mock Read-StVaultBackend { 'bitlocker' }
-        Mock Get-StVaultState { 'mounted' }   # и до, и после dismount — отказ
+        Mock Get-StVaultState { 'mounted' }   # both before and after dismount — refuse
         Mock Dismount-StVault { }
         Mock Remove-StVaultContainer { }
 
@@ -675,7 +675,7 @@ Describe 'vault destroy' {
     It 'destroy on veracrypt backend removes the file but does not diskpart-dismount' {
         $env:ST_ASSUME_YES = '1'
         $script:ST_LOCALE = 'en'
-        Mock Test-Path { $false }   # Pester 6: default-мок для вызовов вне фильтров
+        Mock Test-Path { $false }   # Pester 6: default mock for calls outside the filters
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.backend' }
         Mock Read-StVaultBackend { 'veracrypt' }
@@ -690,7 +690,7 @@ Describe 'vault destroy' {
     It 'destroy prints honest (non-absolute) recovery wording' {
         $env:ST_ASSUME_YES = '1'
         $script:ST_LOCALE = 'en'
-        Mock Test-Path { $false }   # Pester 6: default-мок для вызовов вне фильтров
+        Mock Test-Path { $false }   # Pester 6: default mock for calls outside the filters
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx.backend' }
         Mock Read-StVaultBackend { 'bitlocker' }
@@ -718,17 +718,17 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
         Mock Dismount-StVault { }
         Mock Remove-StVaultContainer { }
         Mock Remove-StVaultMount { }
-        # create-сторона (recreate)
+        # the create side (recreate)
         Mock Get-StBitLockerCapable { $true }
         Mock Get-StVeraCryptPath { $null }
         Mock Get-StFreeDriveLetter { 'W' }
         Mock Set-StPrivateAcl { }
         Mock Write-StVaultBackend { }
         Mock New-StBitLockerVault { }
-        # create-then-swap: старый контейнер уезжает в .old и шредится только после успеха
+        # create-then-swap: the old container moves to .old and is shredded only after success
         Mock Move-StVaultAside { }
         Mock Restore-StVaultAside { }
-        Mock Test-StAsidePresent { $false }   # по умолчанию отставленного контейнера нет
+        Mock Test-StAsidePresent { $false }   # by default no set-aside container exists
     }
 
     AfterEach {

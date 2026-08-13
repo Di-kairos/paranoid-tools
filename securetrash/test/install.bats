@@ -1,12 +1,12 @@
-# Тесты целостности install.sh: проверяет, что установщик ставит бинарь только
-# при совпадении SHA256 и fail-closed отказывается при подмене.
+# Integrity tests for install.sh: verifies the installer places the binary only
+# when the SHA256 matches and refuses fail-closed on tampering.
 setup() {
   INSTALL="${BATS_TEST_DIRNAME}/../install.sh"
   WORK="$(mktemp -d)"
-  FIX="${WORK}/release"        # «релиз»: securetrash + SHA256SUMS
+  FIX="${WORK}/release"        # the "release": securetrash + SHA256SUMS
   DEST="${WORK}/bin/securetrash"
   mkdir -p "$FIX" "${WORK}/bin"
-  # Полезная нагрузка-заглушка.
+  # Stub payload.
   printf '#!/usr/bin/env bash\necho payload-ok\n' > "${FIX}/securetrash"
   ( cd "$FIX" && shasum -a 256 securetrash > SHA256SUMS )
 }
@@ -16,7 +16,7 @@ teardown() {
 }
 
 @test "install.sh installs binary when checksum matches" {
-  # ALLOW_UNSIGNED_LEGACY=1 — тест проверяет только checksum, не подпись.
+  # ALLOW_UNSIGNED_LEGACY=1 — the test checks only the checksum, not the signature.
   run env ST_BASE_URL="file://${FIX}" ST_DEST="$DEST" ALLOW_UNSIGNED_LEGACY=1 bash "$INSTALL"
   [ "$status" -eq 0 ]
   [ -x "$DEST" ]
@@ -25,7 +25,7 @@ teardown() {
 }
 
 @test "install.sh fails closed on checksum mismatch" {
-  # Подменяем бинарь ПОСЛЕ генерации SHA256SUMS — хеш больше не сходится.
+  # Replace the binary AFTER SHA256SUMS is generated — the hash no longer matches.
   printf '#!/usr/bin/env bash\necho TAMPERED\n' > "${FIX}/securetrash"
   run env ST_BASE_URL="file://${FIX}" ST_DEST="$DEST" ALLOW_UNSIGNED_LEGACY=1 bash "$INSTALL"
   [ "$status" -ne 0 ]
@@ -40,7 +40,7 @@ teardown() {
 }
 
 @test "install.sh fails closed when .sig is absent (no ALLOW_UNSIGNED_LEGACY)" {
-  # Нет SHA256SUMS.sig → жёсткий отказ (новые релизы всегда подписаны).
+  # No SHA256SUMS.sig → hard refusal (new releases are always signed).
   run env ST_BASE_URL="file://${FIX}" ST_DEST="$DEST" bash "$INSTALL"
   [ "$status" -ne 0 ]
   [ ! -e "$DEST" ]
@@ -53,8 +53,8 @@ teardown() {
   [ -x "$DEST" ]
 }
 
-# Минимальный fakebin: ровно те внешние бинари, что нужны install.sh, + fake uname=Darwin.
-# $1 = with-keygen | without-keygen — управляет наличием ssh-keygen.
+# Minimal fakebin: exactly the external binaries install.sh needs, plus fake uname=Darwin.
+# $1 = with-keygen | without-keygen — controls whether ssh-keygen is present.
 _make_fakebin() {
   local mode="$1" bins="${WORK}/fakebin" b p
   mkdir -p "$bins"
@@ -71,7 +71,7 @@ _make_fakebin() {
 }
 
 @test "install.sh fails closed when ssh-keygen is missing (no silent hash-only)" {
-  # Молчаливая деградация до hash-only маскировала бы подмену (P1-1, паритет с umbrella).
+  # Silent degradation to hash-only would mask tampering (P1-1, parity with umbrella).
   BINS="$(_make_fakebin without-keygen)"
   run env PATH="$BINS" ST_BASE_URL="file://${FIX}" ST_DEST="$DEST" bash "$INSTALL"
   [ "$status" -ne 0 ]
@@ -87,9 +87,9 @@ _make_fakebin() {
 }
 
 @test "install.sh installs next to an existing umbrella copy instead of making a second one" {
-  # Умбрелла ставит всё в ~/.local/bin; этот установщик по умолчанию — в /usr/local/bin.
-  # Две копии одного тула = обновление, которое молча не доезжает: какая запустится, решает
-  # порядок в PATH. Если копия из умбреллы уже есть — ставим поверх неё, а не рядом.
+  # The umbrella installs everything into ~/.local/bin; this installer defaults to /usr/local/bin.
+  # Two copies of one tool = an update that silently never lands: PATH order decides which
+  # one runs. If the umbrella copy already exists — install over it, not next to it.
   BINS="$(_make_fakebin with-keygen)"
   FAKEHOME="${WORK}/home"
   mkdir -p "${FAKEHOME}/.local/bin"

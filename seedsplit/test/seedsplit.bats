@@ -1,15 +1,15 @@
-# Тесты seedsplit (pack 1: scaffold — вендоринг + skeleton + dispatcher).
+# Tests for seedsplit (pack 1: scaffold — vendoring + skeleton + dispatcher).
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../seedsplit"
-  # uname-стаб (-> Darwin) на PATH: ядро будет звать require_macos. macOS-примитивы
-  # тесты не трогают; стаб держит require_macos зелёным на Linux-CI (как у panic/ghostdraft).
+  # A uname stub (-> Darwin) on PATH: the core will call require_macos. The tests never
+  # touch macOS primitives; the stub keeps require_macos green on Linux CI (as in panic/ghostdraft).
   STUBS="${BATS_TEST_DIRNAME}/stubs"
   export PATH="$STUBS:$PATH"
 }
 
-# Прогнать команду под pty. BSD (macOS): script -q <file> <cmd...>; GNU (util-linux, Linux-CI):
-# script -qec "<cmd>" <file>. Различаем по `script --version` — проба «запусти true под pty»
-# оказалась нестабильной, а uname здесь врёт (в PATH стаб, отдающий Darwin).
+# Run a command under a pty. BSD (macOS): script -q <file> <cmd...>; GNU (util-linux, Linux CI):
+# script -qec "<cmd>" <file>. We distinguish via `script --version` — probing "run true under a pty"
+# turned out flaky, and uname lies here (a stub on PATH reports Darwin).
 _pty() {
   if script --version 2>&1 | grep -qi util-linux; then
     script -qec "$*" /dev/null
@@ -67,25 +67,25 @@ _pty() {
 }
 
 @test "split with no secret prints error (not crash) — core is implemented" {
-  # split без stdin-секрета и без --file: должен внятно отказать, не падать молча.
+  # split with no stdin secret and no --file: must refuse clearly, not fail silently.
   run bash -c "printf '' | bash '$SCRIPT' split"
   [ "$status" -ne 0 ]
 }
 
 @test "split on a terminal prompts instead of silently waiting on stdin (P2-1)" {
-  # Раньше интерактивный `seedsplit split` молча ждал stdin — читалось как зависание,
-  # а набранный секрет оставался в scrollback. Нужен pty: без него ветка не срабатывает.
+  # Interactive `seedsplit split` used to wait on stdin silently — it read as a hang,
+  # and the typed secret stayed in scrollback. A pty is required: without it the branch doesn't fire.
   command -v script >/dev/null 2>&1 || skip "script(1) unavailable"
   out="$( (sleep 0.4; printf 'correct horse battery staple\n'; sleep 0.4) \
           | _pty bash "$SCRIPT" split -n 2 -t 2 2>&1 )"
   [[ "$out" == *"Secret to split"* ]] || [[ "$out" == *"Секрет для разбиения"* ]]
-  [[ "$out" == *"SSS3-"* ]]                        # доли всё же выданы
-  [[ "$out" != *"correct horse battery staple"* ]] # и секрет не отражён эхом
+  [[ "$out" == *"SSS3-"* ]]                        # shares are still produced
+  [[ "$out" != *"correct horse battery staple"* ]] # and the secret is not echoed back
 }
 
 @test "TTY input reconstructs byte-for-byte, spaces included (Codex review)" {
-  # Дефолтный IFS срезал бы ведущие/хвостовые пробелы, и один и тот же секрет через
-  # терминал и через пайп дал бы разные доли. Сверяем восстановленный секрет побайтно.
+  # Default IFS would strip leading/trailing spaces, and the same secret via the
+  # terminal and via a pipe would yield different shares. Compare the reconstructed secret byte-for-byte.
   command -v script >/dev/null 2>&1 || skip "script(1) unavailable"
   secret='  two spaces  and trailing  '
   out="$( (sleep 0.4; printf '%s\n' "$secret"; sleep 0.4) \
@@ -116,8 +116,8 @@ _pty() {
 }
 
 @test "split/combine work without the macOS gate (POSIX-only dependencies)" {
-  # Ядро seedsplit — арифметика над GF(256) поверх od/tr/printf: macOS-примитивов в нём нет,
-  # а ps1-порт такого гейта не имел вовсе. Гоняем БЕЗ uname-стаба, отдающего Darwin.
+  # The seedsplit core is GF(256) arithmetic on top of od/tr/printf: there are no macOS primitives
+  # in it, and the ps1 port never had this gate at all. Run WITHOUT the uname stub reporting Darwin.
   secret='legal winner thank year wave'
   shares="$(printf '%s' "$secret" | env PATH="/usr/bin:/bin" bash "$SCRIPT" split -n 3 -t 2)"
   [[ "$shares" == *"SSS3-"* ]]

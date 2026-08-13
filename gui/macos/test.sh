@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Гейт ParanoidBar: компиляция + selftest чистой логики (--selftest, аналог ST_NO_MAIN=1
-# у Windows-tray). GUI-поверхность (окна/меню) проверяется руками — см. gui/README.md.
+# The ParanoidBar gate: compilation + a selftest of the pure logic (--selftest, the analog of
+# ST_NO_MAIN=1 for the Windows tray). The GUI surface (windows/menus) is checked by hand — see gui/README.md.
 set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh

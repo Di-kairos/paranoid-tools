@@ -1,6 +1,6 @@
-﻿# Pester — логика system-tray агента (paranoid-tray.ps1). Дот-сорс под ST_NO_MAIN=1: определяет
-# функции, НЕ запуская WinForms-цикл. WinForms на Linux/macOS-CI недоступен, поэтому тестируем
-# чистую логику: спецификацию меню (динамический пункт сейфа по состоянию) и диспетчер CLI.
+﻿# Pester — the logic of the system-tray agent (paranoid-tray.ps1). Dot-sourced under ST_NO_MAIN=1:
+# defines the functions WITHOUT starting the WinForms loop. WinForms is unavailable on Linux/macOS
+# CI, so we test the pure logic: the menu spec (the dynamic vault item by state) and the CLI dispatcher.
 
 BeforeAll {
     $env:ST_NO_MAIN = '1'
@@ -37,11 +37,11 @@ Describe 'Get-PtMenuSpec — структура меню' {
     It 'пункт сейфа: unknown → спросить securetrash, а не гадать действием' {
         $spec = Get-PtMenuSpec -VaultState 'unknown' -Lang 'en'
         $spec[6].Label   | Should -Be (Get-PtL -Key 'vault_ask' -Lang 'en')
-        $spec[6].Command | Should -Be 'securetrash vault status'   # read-only, ничего не меняет
-        # Необратимое поверх неизвестного состояния не предлагаем.
+        $spec[6].Command | Should -Be 'securetrash vault status'   # read-only, changes nothing
+        # No irreversible actions are offered on top of an unknown state.
         ($spec | Where-Object { $_.Label -match 'Empty' }).Enabled   | Should -BeFalse
         ($spec | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeFalse
-        # И заголовок называет состояние своим именем, а не «closed».
+        # And the header calls the state by its name, not "closed".
         $spec[0].Label | Should -Match 'unknown'
     }
     It 'empty = securetrash vault reset (crypto-shred)' {
@@ -115,7 +115,7 @@ Describe 'Limit-PtTrayText — лимит NotifyIcon.Text (63 на .NET Framewor
     }
     It 'RU worst-case tooltip (открыт + авто-выход) укладывается в лимит' {
         $t = "$(Get-PtL 'tip_open' -Lang 'ru') - $(Get-PtL 'auto_exit_in' -Lang 'ru') $(Format-PtDuration 86399)"
-        $t.Length | Should -BeGreaterThan 63   # сценарий реально переполняет лимит до обрезки
+        $t.Length | Should -BeGreaterThan 63   # the scenario really overflows the limit before truncation
         (Limit-PtTrayText $t).Length | Should -BeLessOrEqual 63
     }
 }
@@ -132,8 +132,8 @@ Describe 'Get-PtVaultwatchSessions — чтение session-файлов vaultwa
     It 'TTL-сессия: remaining = started + ttl_secs - now' {
         Set-Content -LiteralPath (Join-Path $vwDir '_Volumes_SecretVault') -Value @(
             'mount=/Volumes/SecretVault', 'started=1000', 'ttl_secs=3600', 'ttl_force=0')
-        # @() обязательно: под Windows PowerShell 5.1 у одиночного [pscustomobject] нет
-        # автосвойства .Count (в PS7 есть) — без обёртки сравнение получает $null.
+        # @() is mandatory: under Windows PowerShell 5.1 a single [pscustomobject] has no
+        # automatic .Count property (PS7 has it) — without the wrapper the comparison gets $null.
         $s = @(Get-PtVaultwatchSessions -Now 1900)
         $s.Count        | Should -Be 1
         $s[0].Mount     | Should -Be '/Volumes/SecretVault'
@@ -151,20 +151,20 @@ Describe 'Get-PtVaultwatchSessions — чтение session-файлов vaultwa
         (Get-PtVaultwatchSessions -Now 1900).Count | Should -Be 0
     }
     It 'битый файл (нечисловые started/ttl) не валит чтение остальных сессий' {
-        # Раньше `[int]'garbage'` бросал → падал весь rebuild меню/таймера. Теперь TryParse
-        # гасит, валидная сессия всё равно возвращается.
+        # `[int]'garbage'` used to throw → the whole menu/timer rebuild died. Now TryParse
+        # swallows it and the valid session is still returned.
         Set-Content -LiteralPath (Join-Path $vwDir 'a_good') -Value @('mount=/Volumes/Good', 'started=1000', 'ttl_secs=3600')
         Set-Content -LiteralPath (Join-Path $vwDir 'b_bad')  -Value @('mount=/Volumes/Bad', 'started=xxx', 'ttl_secs=yyy')
         $s = @(Get-PtVaultwatchSessions -Now 1900)
         ($s | Where-Object { $_.Mount -eq '/Volumes/Good' }).Remaining | Should -Be 2700
-        # битый: started/ttl не распарсились → ttl=0 → Remaining null, но без исключения
+        # broken one: started/ttl did not parse → ttl=0 → Remaining null, but no exception
         { Get-PtVaultwatchSessions -Now 1900 } | Should -Not -Throw
     }
     It 'файл, исчезнувший между листингом и чтением, пропускается (race-safe)' {
         Set-Content -LiteralPath (Join-Path $vwDir 'a_good') -Value @('mount=/Volumes/Good', 'started=1000', 'ttl_secs=0')
-        # Реальный I/O-фейл вместо мока Get-Content: Pester 6 сломал прежнюю семантику
-        # ParameterFilter-мока (немоканые вызовы больше не идут в оригинал). Эксклюзивный лок
-        # имитирует файл, ставший недоступным между листингом и чтением, — тот же прод-путь.
+        # A real I/O failure instead of mocking Get-Content: Pester 6 broke the old semantics of a
+        # ParameterFilter mock (unmocked calls no longer fall through to the original). An exclusive
+        # lock imitates a file gone inaccessible between listing and reading — the same prod path.
         $gonePath = Join-Path $vwDir 'z_gone'
         Set-Content -LiteralPath $gonePath -Value @('mount=/Volumes/Gone', 'started=1', 'ttl_secs=0')
         $lock = [System.IO.File]::Open($gonePath, [System.IO.FileMode]::Open,
@@ -275,7 +275,7 @@ Describe 'Get-PtSettings / Set-PtSettings — хранилище настрое�
 Describe 'Settings v2 (language/hotkey/onboarded)' {
     BeforeEach {
         $env:PT_SETTINGS_FILE = Join-Path $TestDrive 'settings.json'
-        # чистый лист на каждый It: файл мог остаться от соседнего теста в том же TestDrive
+        # a clean slate for every It: a file could be left over from a neighbouring test in the same TestDrive
         Remove-Item -LiteralPath $env:PT_SETTINGS_FILE -ErrorAction SilentlyContinue
     }
     AfterEach  { Remove-Item Env:\PT_SETTINGS_FILE -ErrorAction SilentlyContinue }
@@ -335,7 +335,7 @@ Describe 'Onboarding' {
 
 Describe 'Cross-platform l10n parity' {
     It 'ps1 key set equals Swift key set' {
-        # Join-Path принимает больше двух сегментов только в PS7; под 5.1 — ровно два.
+        # Join-Path accepts more than two segments only in PS7; under 5.1 — exactly two.
         $swiftPath = Join-Path (Join-Path (Join-Path (Join-Path $PSScriptRoot '..') '..') 'macos') 'ParanoidBar.swift'
         $swift = Get-Content -LiteralPath $swiftPath -Raw
         $swiftKeys = [regex]::Matches($swift, '(?m)^\s*"([a-z0-9_]+)":\s*\(') |
@@ -344,9 +344,9 @@ Describe 'Cross-platform l10n parity' {
         ($psKeys -join ',') | Should -Be ($swiftKeys -join ',')
     }
     It 'every referenced l10n key exists in the strings table' {
-        # Опечатка в ключе (`set_titel`) молча вернула бы имя ключа в UI — L/Get-PtL не падают.
-        # Ловим статически: все литеральные ссылки в обоих исходниках обязаны быть в таблице.
-        # Динамические ссылки (Get-PtL -Key $var / L(okKey...)) регексы намеренно не матчат.
+        # A typo in a key (`set_titel`) would silently return the key name in the UI — L/Get-PtL never fail.
+        # Caught statically: every literal reference in both sources must exist in the table.
+        # Dynamic references (Get-PtL -Key $var / L(okKey...)) are deliberately not matched by the regexes.
         $table = @($PtStrings.en.Keys)
         $psSrc = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
         $psRefs = [regex]::Matches($psSrc, "Get-PtL\s+'?([a-z][a-z0-9_]*)'?") |
@@ -355,7 +355,7 @@ Describe 'Cross-platform l10n parity' {
         @($psRefs | Where-Object { $_ -notin $table }) | Should -BeNullOrEmpty
         $swiftPath = Join-Path (Join-Path (Join-Path (Join-Path $PSScriptRoot '..') '..') 'macos') 'ParanoidBar.swift'
         $swift = Get-Content -LiteralPath $swiftPath -Raw
-        # no_such_key — сентинел Swift-selftest'а на fallback L(); в таблице его быть не должно.
+        # no_such_key is the Swift selftest sentinel for the L() fallback; it must not be in the table.
         $swiftRefs = [regex]::Matches($swift, 'L\("([a-z0-9_]+)"') |
             ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -ne 'no_such_key' } | Sort-Object -Unique
         $swiftRefs | Should -Not -BeNullOrEmpty
@@ -380,13 +380,13 @@ Describe 'Panic hotkey' {
         Get-PtHotkeySpec -Preset 'off' | Should -BeNullOrEmpty
         Get-PtHotkeySpec -Preset 'garbage' | Should -BeNullOrEmpty
     }
-    # $env:OS, не $IsWindows: последняя определена только в PowerShell 6+, под Windows
-    # PowerShell 5.1 она $null — и тест уходил в Unix-ветку прямо на Windows.
-    # Под Windows PowerShell 5.1 хелпер не соберётся и не должен: он ссылается на
-    # System.Windows.Forms.Primitives, а этой сборки в .NET Framework нет. Сам трей туда
-    # и не пускает — отвечает честным «нужен pwsh 7» вместо ошибки компилятора.
+    # $env:OS, not $IsWindows: the latter is defined only in PowerShell 6+; under Windows
+    # PowerShell 5.1 it is $null — and the test went down the Unix branch right on Windows.
+    # Under Windows PowerShell 5.1 the helper will not compile, and it must not: it references
+    # System.Windows.Forms.Primitives, and .NET Framework has no such assembly. The tray does not
+    # go there either — it answers with an honest "pwsh 7 required" instead of a compiler error.
     It 'compiles the PtHotkeyWindow helper (windows-only)' -Skip:($env:OS -ne 'Windows_NT' -or $PSVersionTable.PSVersion.Major -lt 6) {
-        # тот же Add-Type сниппет, что в Start-PtTray (идемпотентен: тип уже загружен -> ловим и проверяем)
+        # the same Add-Type snippet as in Start-PtTray (idempotent: type already loaded -> catch and verify)
         try {
             Add-Type -ReferencedAssemblies System.Windows.Forms, System.Windows.Forms.Primitives -TypeDefinition @'
 using System;
@@ -410,7 +410,7 @@ public class PtHotkeyWindow : NativeWindow {
         }
         [PtHotkeyWindow] | Should -Not -BeNullOrEmpty
         $w = New-Object PtHotkeyWindow
-        $w.Unregister()   # smoke: instance + P/Invoke биндинг живы
+        $w.Unregister()   # smoke: the instance + the P/Invoke binding are alive
     }
 }
 
@@ -454,8 +454,8 @@ Describe 'Notification engine' {
     }
 }
 
-# AUDIT_2026-08-03 P2-9: трей отставал от CLI-фиксов — не знал про ST_VAULT_PATH и считал
-# «всё установлено» по трём тулам из пяти, не проверяя сам лаунчер.
+# AUDIT_2026-08-03 P2-9: the tray lagged behind the CLI fixes — it did not know about ST_VAULT_PATH
+# and judged "everything installed" by three tools out of five, without checking the launcher itself.
 Describe 'readiness и путь сейфа — паритет с CLI (P2-9)' {
     AfterEach { Remove-Item Env:\ST_VAULT_PATH -ErrorAction SilentlyContinue }
 

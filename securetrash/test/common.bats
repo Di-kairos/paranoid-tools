@@ -1,4 +1,4 @@
-# Тесты канонической библиотеки lib/common.sh (источник вендоринга экосистемы).
+# Tests for the canonical lib/common.sh library (the vendoring source for the ecosystem).
 setup() {
   LIB="${BATS_TEST_DIRNAME}/../lib/common.sh"
 }
@@ -111,10 +111,10 @@ setup() {
   [[ "$output" == "unknown" ]]
 }
 
-# Отсутствующий fdesetup — это «не знаем», а не «выключен»: инструмент, который на
-# пустом PATH печатает «FileVault ВЫКЛЮЧЕН», врёт пользователю о его защите.
+# A missing fdesetup means "we don't know", not "off": a tool that prints
+# "FileVault is OFF" on an empty PATH lies to the user about their protection.
 @test "_fv_state says unknown when fdesetup is missing entirely" {
-  tmp="$(mktemp -d)"   # пустой PATH; сам bash зовём по абсолютному пути
+  tmp="$(mktemp -d)"   # empty PATH; invoke bash itself via absolute path
   run env PATH="$tmp" /bin/bash -c "source '$LIB'; _fv_state"
   [[ "$output" == "unknown" ]]
   rm -rf "$tmp"
@@ -138,9 +138,9 @@ EOF
   rm -rf "$tmp"
 }
 
-# Регресс структурного P3: остаточный каталог /Volumes/… (от прошлого монтирования или
-# созданный руками) — НЕ смонтированный том. Раньше лаунчер отвечал на него «ОТКРЫТ»,
-# а ghostdraft и GUI — «закрыт»: три реализации, три разных ответа.
+# Regression for structural P3: a leftover /Volumes/… directory (from a past mount or
+# created by hand) is NOT a mounted volume. The launcher used to answer "OPEN" for it,
+# while ghostdraft and the GUI said "closed": three implementations, three different answers.
 @test "_volume_mounted refuses a stale directory that is not mounted" {
   tmp="$(mktemp -d)"; mkdir -p "$tmp/bin" "$tmp/Volumes/SecretVault"
   cat >"$tmp/bin/mount" <<'EOF'
@@ -153,8 +153,8 @@ EOF
   rm -rf "$tmp"
 }
 
-# Путь тома — данные, а не регексп: том с '.', '[' или '+' в имени не должен давать
-# ложное совпадение с соседним томом.
+# The volume path is data, not a regexp: a volume with '.', '[' or '+' in its name
+# must not falsely match a neighbouring volume.
 @test "_volume_mounted treats the volume path literally" {
   tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
   cat >"$tmp/bin/mount" <<'EOF'
@@ -167,9 +167,9 @@ EOF
   rm -rf "$tmp"
 }
 
-# Кейсы Codex-ревью: подстрочный поиск считал `/Volumes/Foo` смонтированным, когда на
-# деле смонтирован `/Volumes/Foo Bar` — пробел в имени тома читался как разделитель
-# перед опциями. Сравниваем точку монтирования целиком.
+# Cases from the Codex review: substring search considered `/Volumes/Foo` mounted when
+# `/Volumes/Foo Bar` was actually mounted — the space in the volume name was read as the
+# separator before the options. Compare the mount point as a whole.
 @test "_volume_mounted does not confuse a volume with a longer-named neighbour" {
   tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
   cat >"$tmp/bin/mount" <<'EOF'
@@ -184,7 +184,7 @@ EOF
   rm -rf "$tmp"
 }
 
-# Имя тома со скобкой (macOS так разрешает коллизию имён: "Vault", "Vault (1)").
+# Volume name containing a parenthesis (how macOS resolves name collisions: "Vault", "Vault (1)").
 @test "_volume_mounted handles a volume name containing a parenthesis" {
   tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
   cat >"$tmp/bin/mount" <<'EOF'
@@ -209,18 +209,18 @@ EOF
   rm -rf "$tmp"
 }
 
-# Вендорится в скрипты с `set -u`: вызов без аргумента не должен ронять хост.
+# Vendored into scripts with `set -u`: a call without an argument must not crash the host.
 @test "_volume_mounted with no argument is false, not a crash under set -u" {
   run bash -c "set -u; source '$LIB'; _volume_mounted && echo MOUNTED || echo NO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"NO"* ]]
 }
 
-# Нечитаемая таблица монтирования — это «не знаем» (код 2), а не «не смонтирован»:
-# показать зелёное «закрыт» над открытым сейфом хуже, чем сказать «не определили».
-# Предикатным вызовам двойка по-прежнему читается как ложь (fail-closed).
+# An unreadable mount table means "we don't know" (code 2), not "not mounted":
+# showing a green "closed" over an open vault is worse than saying "could not determine".
+# Predicate callers still read the 2 as false (fail-closed).
 @test "_volume_mounted returns 2 when the mount table cannot be read" {
-  tmp="$(mktemp -d)"   # PATH без mount; bash по абсолютному пути
+  tmp="$(mktemp -d)"   # PATH without mount; bash via absolute path
   run env PATH="$tmp" /bin/bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault"
   [ "$status" -eq 2 ]
   run env PATH="$tmp" /bin/bash -c "source '$LIB'; if _volume_mounted /Volumes/SecretVault; then echo MOUNTED; else echo NO; fi"

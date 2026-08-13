@@ -1,8 +1,8 @@
-﻿# Pester 5 — логика ghostdraft.ps1 (Windows-порт). Дот-сорс под ST_NO_MAIN=1: определяет
-# функции, не запуская диспетчер. ghostdraft трогает внешний мир (editor/shred/clipboard),
-# поэтому эти примитивы МОКАЮТСЯ: тест проверяет оркестровку (выбор каталога, порядок,
-# shred-в-finally, --clipboard-гейт), не запуская notepad и не стирая реальные файлы.
-# CLI-уровень (version, pipe, exit-коды) — через свежий pwsh.
+﻿# Pester 5 — ghostdraft.ps1 logic (Windows port). Dot-sourced under ST_NO_MAIN=1: defines
+# the functions without running the dispatcher. ghostdraft touches the outside world
+# (editor/shred/clipboard), so those primitives are MOCKED: the tests verify orchestration
+# (directory choice, ordering, shred-in-finally, the --clipboard gate) without launching
+# notepad or wiping real files. The CLI level (version, pipe, exit codes) — via a fresh pwsh.
 
 BeforeAll {
     $env:ST_NO_MAIN = '1'
@@ -62,8 +62,8 @@ Describe 'ghostdraft new — on-disk fallback (no vault)' {
         Remove-Item Env:\GHOSTDRAFT_DIR -ErrorAction SilentlyContinue
         $script:Fake = Join-Path ([System.IO.Path]::GetTempPath()) ("gd_fb_" + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Fake -Force | Out-Null
-        Mock Test-GdWritableDir  { $false }            # vault недоступен
-        Mock New-GdSecureTempDir { $script:Fake }      # детерминированный temp
+        Mock Test-GdWritableDir  { $false }            # vault unavailable
+        Mock New-GdSecureTempDir { $script:Fake }      # deterministic temp
         Mock Invoke-GdEditor     { }
         Mock Invoke-GdShred      { }
         Mock Clear-GdEditorResidue { }
@@ -80,15 +80,15 @@ Describe 'ghostdraft new — on-disk fallback (no vault)' {
     }
 }
 
-# AUDIT_2026-08-03 P0-3: securetrash.ps1 монтирует VHDX на первую свободную букву и пишет
-# её в sidecar <vault>.mount — ghostdraft обязан читать его, а не надеяться на 'V:\'.
+# AUDIT_2026-08-03 P0-3: securetrash.ps1 mounts the VHDX on the first free letter and writes
+# it into the <vault>.mount sidecar — ghostdraft must read it rather than hope for 'V:\'.
 Describe 'vault volume resolution (mount sidecar)' {
     BeforeEach {
         Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue
         Remove-Item Env:\ST_VAULT_PATH -ErrorAction SilentlyContinue
         Remove-Item Env:\GHOSTDRAFT_DIR -ErrorAction SilentlyContinue
         $script:FakeVault = Join-Path ([System.IO.Path]::GetTempPath()) ("gd_v_" + [Guid]::NewGuid().ToString('N') + '.vhdx')
-        # Файл контейнера существует — иначе Test-GdVaultAttached честно бракует sidecar.
+        # The container file exists — otherwise Test-GdVaultAttached honestly rejects the sidecar.
         Set-Content -LiteralPath $script:FakeVault -Value 'vhdx-stub' -NoNewline
     }
     AfterEach {
@@ -119,7 +119,7 @@ Describe 'vault volume resolution (mount sidecar)' {
     It 'stale sidecar without the vault container is ignored (hint, not proof)' {
         $env:ST_VAULT_PATH = $script:FakeVault
         Set-Content -LiteralPath "$script:FakeVault.mount" -Value 'D:\' -NoNewline
-        Remove-Item -LiteralPath $script:FakeVault -Force   # контейнера больше нет
+        Remove-Item -LiteralPath $script:FakeVault -Force   # the container is gone
         Get-GdVaultVolume | Should -Be 'V:\'
     }
 
@@ -162,8 +162,8 @@ Describe 'i18n' {
 
 Describe 'CLI surface (child pwsh)' {
     It 'prints the version' {
-        # Версия-агностично: не хардкодим число (иначе тест рвётся на каждом bump) —
-        # проверяем формат `ghostdraft <semver> (Windows, beta)`.
+        # Version-agnostic: don't hardcode the number (otherwise the test breaks on every bump) —
+        # check the format `ghostdraft <semver> (Windows, beta)`.
         $out = & pwsh -NoProfile -File $script:ScriptPath version
         ($out -join "`n") | Should -Match 'ghostdraft \d+\.\d+\.\d+ \(Windows, beta\)'
     }
@@ -188,8 +188,8 @@ Describe 'CLI surface (child pwsh)' {
     }
 }
 
-# AUDIT_2026-08-03, P3-хвост: shred через securetrash подставлял ST_ASSUME_YES=1 и в finally
-# УДАЛЯЛ переменную — вместе со значением, которое выставил вызывающий.
+# AUDIT_2026-08-03, P3 tail: shred via securetrash injected ST_ASSUME_YES=1 and in finally
+# DELETED the variable — together with the value the caller had set.
 Describe 'Invoke-GdShred — не затирает ST_ASSUME_YES вызывающего' {
     AfterEach { Remove-Item Env:\ST_ASSUME_YES -ErrorAction SilentlyContinue }
 

@@ -1,12 +1,12 @@
-﻿# Pester 5 — install.ps1 (Windows-порт ghostdraft). Проверяем integrity-gate + signature-gate
-# без сети: GHOSTDRAFT_BASE_URL указывает на локальный каталог-«релиз», установка идёт во
-# временный каталог, правка PATH отключена. Покрытие: happy-path, провал на расхождении хеша,
-# провал при отсутствии записи в SHA256SUMS, и полный набор для подписи релиза (fail-closed).
+﻿# Pester 5 — install.ps1 (Windows port of ghostdraft). We verify the integrity gate + signature
+# gate without the network: GHOSTDRAFT_BASE_URL points at a local "release" directory, installation
+# goes into a temp directory, PATH editing is disabled. Coverage: happy path, failure on hash
+# mismatch, failure when the SHA256SUMS entry is missing, and the full release-signature set (fail-closed).
 
 BeforeAll {
     $script:InstallScript = Join-Path $PSScriptRoot '..\install.ps1'
 
-    # Запуск install.ps1 в дочернем pwsh с заданным окружением. Возвращает $LASTEXITCODE.
+    # Run install.ps1 in a child pwsh with the given environment. Returns $LASTEXITCODE.
     function Invoke-Install {
         param([hashtable]$Env)
         $prelude = ($Env.GetEnumerator() | ForEach-Object {
@@ -24,7 +24,7 @@ Describe 'install.ps1 integrity gate' {
         $script:Target  = Join-Path $script:Work 'target'
         New-Item -ItemType Directory -Path $script:Release -Force | Out-Null
 
-        # Полезная нагрузка-«скрипт» + корректный SHA256SUMS.
+        # The payload "script" + a correct SHA256SUMS.
         $payload = "Write-Output 'payload-ok'`n"
         $script:ScriptFile = Join-Path $script:Release 'ghostdraft.ps1'
         Set-Content -LiteralPath $script:ScriptFile -Value $payload -NoNewline
@@ -36,7 +36,7 @@ Describe 'install.ps1 integrity gate' {
         Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    # Эти тесты проверяют хеш-гейт, а не подпись → PT_ALLOW_HASH_ONLY=1 (релиз без .sig).
+    # These tests check the hash gate, not the signature → PT_ALLOW_HASH_ONLY=1 (release without .sig).
     It 'installs the script when the checksum matches' {
         Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; PT_ALLOW_HASH_ONLY='1' } | Out-Null
         (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeTrue
@@ -60,19 +60,19 @@ Describe 'install.ps1 integrity gate' {
 
 Describe 'install.ps1 signature gate' {
     It 'can still verify under Windows PowerShell 5.1 (no ArgumentList there)' {
-        # `ArgumentList` есть только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
-        # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README;
-        # без запасного пути установка падала бы на шаге проверки подписи.
+        # `ArgumentList` exists only in .NET Core (PowerShell 7). Windows PowerShell 5.1 is
+        # the stock Windows shell and exactly the one people run the README one-liner in;
+        # without the fallback path the install would fail at the signature-verification step.
         $src = Get-Content -Raw -LiteralPath $script:InstallScript
         $src | Should -Match "PSObject\.Properties\.Name -contains 'ArgumentList'"
         $src | Should -Match '\$psi\.Arguments ='
     }
 
     It 'never pipes the signed data into the verifier (bytes must reach it unchanged)' {
-        # Конвейер PowerShell перекодирует текст (BOM, CRLF) и дописывает перевод строки, поэтому
-        # верификатор увидел бы НЕ те байты, что подписаны: валидная подпись читается как
-        # «incorrect signature», и fail-closed рубит установку с настоящего релиза. Так уже
-        # ломался seedsplit. Канон — сырой поток файла в stdin через ProcessStartInfo.
+        # The PowerShell pipeline re-encodes text (BOM, CRLF) and appends a newline, so the
+        # verifier would see bytes DIFFERENT from what was signed: a valid signature reads as
+        # "incorrect signature", and fail-closed kills an install from a genuine release. This
+        # already broke seedsplit. The canon — the file's raw stream into stdin via ProcessStartInfo.
         $src = Get-Content -Raw -LiteralPath $script:InstallScript
         $src | Should -Match 'ProcessStartInfo'
         $src | Should -Not -Match '(?m)Get-Content[^\r\n]*\|\s*&'
@@ -91,17 +91,17 @@ Describe 'install.ps1 signature gate' {
         $script:Sums = Join-Path $script:Release 'SHA256SUMS'
         Set-Content -LiteralPath $script:Sums -Value "$hash  ghostdraft.ps1"
 
-        # Тестовый ed25519-ключ + подпись SHA256SUMS (namespace 'file', как в release.yml).
+        # Test ed25519 key + SHA256SUMS signature (namespace 'file', as in release.yml).
         $script:Key = Join-Path $script:Work 'signing_key'
-        # Windows PowerShell 5.1 теряет пустой аргумент при вызове нативной программы:
-        # `-N ''` до ssh-keygen не доходит, тот уходит спрашивать парольную фразу, ключ
-        # не создаётся и дальше падает Get-Content на .pub. В дочернем pwsh пустая строка
-        # доезжает как есть.
+        # Windows PowerShell 5.1 drops an empty argument when calling a native program:
+        # `-N ''` never reaches ssh-keygen, which goes off to prompt for a passphrase, the key
+        # is not created and Get-Content then fails on the .pub. In a child pwsh the empty
+        # string arrives as is.
         & pwsh -NoProfile -Command "& ssh-keygen -t ed25519 -N '' -C 'gd-test' -f '$($script:Key)'" *> $null
         Push-Location $script:Release
         & ssh-keygen -Y sign -f $script:Key -n file 'SHA256SUMS' *> $null
         Pop-Location
-        # Публичный ключ БЕЗ комментария: 'ssh-ed25519 <base64>' (формат allowed_signers).
+        # Public key WITHOUT the comment: 'ssh-ed25519 <base64>' (allowed_signers format).
         $pubRaw = (Get-Content -LiteralPath "$($script:Key).pub" -Raw).Trim() -split '\s+'
         $script:PubKey = "$($pubRaw[0]) $($pubRaw[1])"
     }
@@ -123,7 +123,7 @@ Describe 'install.ps1 signature gate' {
     }
 
     It 'treats a bad signature as fatal even with PT_ALLOW_HASH_ONLY=1' {
-        # Плохая подпись — активный признак подмены; hash-only её НЕ спасает.
+        # A bad signature is an active sign of tampering; hash-only does NOT excuse it.
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS.sig') -Value 'not-a-real-signature' -NoNewline
         $code = Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; GHOSTDRAFT_TEST_SIGNING_PUBKEY=$script:PubKey; PT_ALLOW_HASH_ONLY='1' }
         $code | Should -Not -Be 0

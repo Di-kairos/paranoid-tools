@@ -1,10 +1,10 @@
-# Тесты paranoid — интерактивный лаунчер экосистемы (чистый Bash).
-# Техника: пять CLI экосистемы + fdesetup подменяются стабами в $STUBS на PATH;
-# каждый стаб дописывает "<имя> $@" в $LOG. Так тест проверяет, какой тул и с
-# какими аргументами был вызван. Отсутствующий тул = просто не создаём его стаб.
-# Интерактивный цикл гоняется подачей пунктов меню в stdin (каждое действие
-# делает паузу _pause — лишняя пустая строка — перед возвратом в меню, финальный
-# '0' выходит).
+# Tests for paranoid — the interactive ecosystem launcher (pure Bash).
+# Technique: the five ecosystem CLIs + fdesetup are replaced by stubs in $STUBS on PATH;
+# each stub appends "<name> $@" to $LOG. That is how a test verifies which tool was
+# called and with which arguments. A missing tool = simply don't create its stub.
+# The interactive loop is driven by feeding menu items into stdin (each action
+# pauses in _pause — hence the extra empty line — before returning to the menu; the
+# final '0' exits).
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../paranoid"
@@ -14,20 +14,20 @@ setup() {
   mkdir -p "$STUBS"
   : >"$LOG"
 
-  # Базовые утилиты (coreutils + сам bash), на которые опирается скрипт.
-  # PATH = только стабы + системные пути с этими утилитами, чтобы НАСТОЯЩИЕ
-  # securetrash/panic/… (если установлены) не перехватили вызов.
+  # Base utilities (coreutils + bash itself) the script relies on.
+  # PATH = stubs only + the system paths with those utilities, so that the REAL
+  # securetrash/panic/… (if installed) cannot intercept the call.
   _ESSENTIAL_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
-  # Пять CLI экосистемы + fdesetup. По умолчанию ставим все пять; отдельные
-  # тесты удаляют нужный стаб, чтобы смоделировать «не установлен».
+  # The five ecosystem CLIs + fdesetup. All five are installed by default; individual
+  # tests delete the relevant stub to model "not installed".
   for t in securetrash vaultwatch panic seedsplit ghostdraft fdesetup; do
     _make_stub "$t"
   done
 
-  # Таблица монтирования под контролем теста: «сейф открыт» = том есть в выводе `mount`,
-  # а не «каталог существует» (см. _volume_mounted в лаунчере).
-  # Корень в таблице есть всегда — пустой вывод `mount` означал бы «прочитать не смогли».
+  # The mount table is under test control: "vault open" = the volume appears in `mount`
+  # output, not "the directory exists" (see _volume_mounted in the launcher).
+  # The root entry is always there — empty `mount` output would mean "could not read it".
   MOUNTS="$TMP/mounts"
   printf '/dev/disk1s5 on / (apfs, local, read-only, journaled)\n' >"$MOUNTS"
   cat >"$STUBS/mount" <<EOF
@@ -37,15 +37,15 @@ EOF
   chmod +x "$STUBS/mount"
 
   unset ST_LANG ST_LOCALE
-  export ST_LOCALE=en   # детерминированный chrome по умолчанию (en)
+  export ST_LOCALE=en   # deterministic chrome by default (en)
 }
 
-# Объявить том примонтированным для стаба `mount`.
+# Declare a volume as mounted for the `mount` stub.
 _mark_mounted() {
   printf '/dev/disk9s1 on %s (apfs, local, nodev, nosuid, journaled, nobrowse)\n' "$1" >>"$MOUNTS"
 }
 
-# Сломать чтение таблицы монтирования (mount возвращает ненулевой код).
+# Break reading the mount table (mount returns a non-zero code).
 _break_mount() {
   printf '#!/usr/bin/env bash\nexit 1\n' >"$STUBS/mount"
   chmod +x "$STUBS/mount"
@@ -53,8 +53,8 @@ _break_mount() {
 
 teardown() { rm -rf "$TMP"; }
 
-# Создать исполняемый стаб, дописывающий "<имя> $@" в $LOG.
-# Спец-случаи: vaultwatch status → idle (нет "session:"), fdesetup status → On.
+# Create an executable stub that appends "<name> $@" to $LOG.
+# Special cases: vaultwatch status → idle (no "session:"), fdesetup status → On.
 _make_stub() {
   local name="$1"
   cat >"$STUBS/$name" <<EOF
@@ -63,15 +63,15 @@ printf '$name %s\n' "\$*" >>"$LOG"
 case "\${1:-}" in version|--version|-v) echo "$name \${STUB_VER:-0.0.1}"; exit 0 ;; esac
 case "$name:\${1:-}" in
   fdesetup:status) echo "FileVault is On." ;;
-  vaultwatch:status) : ;;  # пусто → _status_vaultwatch = idle
+  vaultwatch:status) : ;;  # empty → _status_vaultwatch = idle
 esac
 exit 0
 EOF
   chmod +x "$STUBS/$name"
 }
 
-# Запустить лаунчер с подменённым PATH и переданным stdin.
-# Использование: run_paranoid "<stdin>" [extra env assignments...]
+# Run the launcher with the substituted PATH and the given stdin.
+# Usage: run_paranoid "<stdin>" [extra env assignments...]
 run_paranoid() {
   local input="$1"; shift
   run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$HOME" \
@@ -79,7 +79,7 @@ run_paranoid() {
     bash -c "printf '%s' \"\$0\" | bash '$SCRIPT'" "$input"
 }
 
-# --- субкоманды (не запускают цикл) ---
+# --- subcommands (do not start the loop) ---
 
 @test "version prints 'paranoid 0.1.0'" {
   run env PATH="$STUBS:$_ESSENTIAL_PATH" bash "$SCRIPT" version
@@ -95,8 +95,8 @@ run_paranoid() {
 }
 
 @test "unknown arg exits 1 with usage on stderr" {
-  # Захватываем ТОЛЬКО stderr (usage + сообщение об ошибке идут в stderr):
-  # stdout глушим, stderr → файл.
+  # Capture ONLY stderr (the usage + the error message go to stderr):
+  # stdout is silenced, stderr → file.
   run env PATH="$STUBS:$_ESSENTIAL_PATH" bash -c "bash '$SCRIPT' bogus 2>'$TMP/err' >/dev/null"
   [ "$status" -eq 1 ]
   grep -q "Usage:" "$TMP/err"
@@ -110,7 +110,7 @@ run_paranoid() {
   [[ "$output" != *"Choose"* ]]
 }
 
-# --- статус (пункт 1) ---
+# --- status (item 1) ---
 
 @test "status runs 'securetrash check' and 'vaultwatch status'" {
   run_paranoid $'1\n\n0\n'
@@ -119,7 +119,7 @@ run_paranoid() {
   grep -qx "vaultwatch status" "$LOG"
 }
 
-# --- паника (пункт 2) ---
+# --- panic (item 2) ---
 
 @test "panic dispatches 'panic now --hard' instantly (no confirm)" {
   run_paranoid $'2\n\n0\n'
@@ -150,10 +150,10 @@ run_paranoid() {
   [[ "$output" == *"github.com/Di-kairos/paranoid-tools"* ]]
 }
 
-# --- сейф: подменю (пункт 3 → ...) ---
+# --- vault: submenu (item 3 → ...) ---
 
 @test "vault submenu: no container -> dispatches 'securetrash vault create'" {
-  # ввод после '1': пустой размер (дефолт) + пустая пауза
+  # input after '1': empty size (default) + empty pause
   run_paranoid $'3\n1\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/no-container-$RANDOM"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault create" "$LOG"
@@ -192,11 +192,11 @@ run_paranoid() {
   ! grep -q "vault create" "$LOG"
 }
 
-# --- сейф: empty = vault reset (подменю 3 → 2) ---
+# --- vault: empty = vault reset (submenu 3 → 2) ---
 
 @test "vault submenu 2 dispatches 'securetrash vault reset' when a vault exists" {
   touch "$TMP/container.sparsebundle"
-  # после '2': пустой размер (дефолт) + пустая пауза
+  # after '2': empty size (default) + empty pause
   run_paranoid $'3\n2\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault reset" "$LOG"
@@ -215,7 +215,7 @@ run_paranoid() {
   ! grep -q "vault reset" "$LOG"
 }
 
-# --- сейф: destroy (подменю 3 → 3) ---
+# --- vault: destroy (submenu 3 → 3) ---
 
 @test "vault submenu 3 dispatches 'securetrash vault destroy' when a vault exists" {
   touch "$TMP/container.sparsebundle"
@@ -237,7 +237,7 @@ run_paranoid() {
   ! grep -q "vault destroy" "$LOG"
 }
 
-# --- секреты: подменю (пункт 5 → ...) ---
+# --- secrets: submenu (item 5 → ...) ---
 
 @test "secrets submenu 1 dispatches 'seedsplit split'" {
   run_paranoid $'5\n1\n\n0\n0\n'
@@ -251,10 +251,10 @@ run_paranoid() {
   grep -qx "seedsplit combine" "$LOG"
 }
 
-# --- блокнот: подменю (пункт 4 → ...) ---
+# --- notepad: submenu (item 4 → ...) ---
 
 @test "notepad submenu 1 (unified note) dispatches 'ghostdraft new --clipboard'" {
-  # Заметка схлопнута: единый пункт пишет/правит/копирует (копия с авто-очисткой ~20с).
+  # The note flow is collapsed: a single item writes/edits/copies (the copy auto-wipes in ~20s).
   run_paranoid $'4\n1\n\n0\n0\n'
   [ "$status" -eq 0 ]
   grep -qx "ghostdraft new --clipboard" "$LOG"
@@ -274,13 +274,13 @@ run_paranoid() {
 }
 
 @test "notepad submenu has no third item (collapsed to note + show-clipboard)" {
-  # Пункт 3 (старый new+clipboard) убран — '3' теперь невалиден, ничего не диспатчит.
+  # Item 3 (the old new+clipboard) was removed — '3' is now invalid and dispatches nothing.
   run_paranoid $'4\n3\n\n0\n0\n'
   [ "$status" -eq 0 ]
   ! grep -q "^ghostdraft" "$LOG"
 }
 
-# --- сейф: vaultwatch start (подменю 3 → 4) ---
+# --- vault: vaultwatch start (submenu 3 → 4) ---
 
 @test "watch with TTL dispatches 'vaultwatch start --ttl <X> <vault>'" {
   run_paranoid $'3\n4\n30m\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
@@ -294,11 +294,11 @@ run_paranoid() {
   grep -qx "vaultwatch start $TMP/vault" "$LOG"
 }
 
-# Регресс: активная сессия должна показываться как "active", а не "idle".
-# Баг: `vaultwatch status | grep -q` под `set -o pipefail` — grep -q закрывает пайп
-# на первой строке, vaultwatch ловит SIGPIPE (141), pipefail делает конвейер
-# ненулевым → ложный "idle". Стаб с session: на первой строке + хвост больше буфера
-# пайпа (~64KB) делает SIGPIPE детерминированным, иначе мелкий вывод влез бы в буфер.
+# Regression: an active session must show as "active", not "idle".
+# The bug: `vaultwatch status | grep -q` under `set -o pipefail` — grep -q closes the pipe
+# on the first line, vaultwatch catches SIGPIPE (141), pipefail turns the pipeline
+# non-zero → a false "idle". A stub with session: on the first line + a tail bigger than the
+# pipe buffer (~64KB) makes the SIGPIPE deterministic; a small output would fit in the buffer.
 @test "active vaultwatch session shows 'active' under pipefail (no SIGPIPE false-idle)" {
   cat >"$STUBS/vaultwatch" <<'STUB'
 #!/usr/bin/env bash
@@ -315,7 +315,7 @@ STUB
   [[ "$output" != *"idle"* ]]
 }
 
-# --- отсутствующий тул ---
+# --- missing tool ---
 
 @test "missing tool shows '(not installed)' inside its submenu" {
   rm -f "$STUBS/seedsplit"
@@ -329,11 +329,11 @@ STUB
   run_paranoid $'5\n1\n\n0\n0\n'
   [ "$status" -eq 0 ]
   ! grep -q "^seedsplit" "$LOG"
-  # И показан хинт на установку (репо).
+  # And the install hint (the repo) is shown.
   [[ "$output" == *"github.com/Di-kairos/paranoid-tools"* ]]
 }
 
-# --- top-level: три группы-подменю ---
+# --- top-level: the three submenu groups ---
 
 @test "top level shows the three submenu groups" {
   run_paranoid $'0\n'
@@ -344,7 +344,7 @@ STUB
 }
 
 @test "submenu 0 returns to the top menu (back navigation)" {
-  # Войти в Сейф, вернуться (0), затем выйти (0). Дашборд показан дважды → видим Status.
+  # Enter Vault, go back (0), then quit (0). The dashboard is drawn twice → we see Status.
   run_paranoid $'3\n0\n0\n'
   [ "$status" -eq 0 ]
   [[ "$output" == *"Vault — encrypted container"* ]]
@@ -365,7 +365,7 @@ STUB
   [[ "$output" == *"Статус — полная проверка"* ]]
 }
 
-# --- выход ---
+# --- quit ---
 
 @test "quit via 0 exits cleanly" {
   run_paranoid $'0\n'
@@ -382,11 +382,11 @@ STUB
   [ "$status" -eq 0 ]
 }
 
-# --- UX: подсказки и тупики ---
+# --- UX: hints and dead-ends ---
 
 @test "split leaves the input prompt to seedsplit itself" {
-  # seedsplit сам просит секрет и читает его без эха; свой промпт лаунчер убрал, иначе
-  # пользователь получал две разные инструкции подряд (AUDIT_2026-08-03 P2-1).
+  # seedsplit prompts for the secret itself and reads it without echo; the launcher dropped
+  # its own prompt, otherwise the user got two different instructions in a row (AUDIT_2026-08-03 P2-1).
   run_paranoid $'5\n1\n\n0\n0\n'
   [ "$status" -eq 0 ]
   [[ "$output" != *"Paste the secret"* ]]
@@ -406,13 +406,13 @@ STUB
 }
 
 @test "ghost new (vim) hint shows how to DISCARD, not just save" {
-  # Live-тест: новичок застрял в vim, видел только сохранение (:wq), хотел выйти БЕЗ
-  # сохранения. Подсказка обязана давать оба пути клавиатурой (F-клавиши в Warp не проходят).
+  # Live test: a novice got stuck in vim, saw only how to save (:wq), wanted to exit WITHOUT
+  # saving. The hint must give both paths by keyboard (F-keys do not get through in Warp).
   EDITOR=vim run_paranoid $'4\n1\n\n0\n0\n' EDITOR=vim
   [ "$status" -eq 0 ]
   [[ "$output" == *"vim"* ]]
-  [[ "$output" == *"ZQ"* ]] || [[ "$output" == *":q!"* ]]   # выйти без сохранения
-  [[ "$output" == *"ZZ"* ]] || [[ "$output" == *":wq"* ]]   # сохранить и выйти
+  [[ "$output" == *"ZQ"* ]] || [[ "$output" == *":q!"* ]]   # exit without saving
+  [[ "$output" == *"ZZ"* ]] || [[ "$output" == *":wq"* ]]   # save and exit
   [[ "$output" == *"Esc"* ]]
 }
 
@@ -442,10 +442,10 @@ EOF
   grep -qx "vaultwatch stop $TMP/vault" "$LOG"
 }
 
-# --- opt-in проверка обновлений (PARANOID_UPDATE_CHECK) ---
+# --- opt-in update check (PARANOID_UPDATE_CHECK) ---
 
 @test "update check stays silent when PARANOID_UPDATE_CHECK is unset (privacy default)" {
-  printf 'ghostdraft=v9.9.9\n' >"$TMP/feed"   # свежак есть, но проверка выключена
+  printf 'ghostdraft=v9.9.9\n' >"$TMP/feed"   # a newer release exists, but the check is off
   run_paranoid $'0\n' PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.0
   [ "$status" -eq 0 ]
   [[ "$output" != *"update available"* ]]
@@ -474,13 +474,13 @@ EOF
   [[ "$output" != *"update available"* ]]
 }
 
-# --- пункт меню Update: перезапуск установщика из клона ---
-# Своей логики скачивания у лаунчера нет намеренно: обновление = install.sh из клона.
-# Тесты идут через run_paranoid (env -i): иначе XDG_DATA_HOME/PARANOID_SRC из окружения
-# разработчика протекли бы внутрь, лаунчер взял бы НАСТОЯЩИЙ клон и тест запустил бы
-# боевой установщик, оставаясь при этом «зелёным».
+# --- the Update menu item: re-running the installer from the clone ---
+# The launcher deliberately has no download logic of its own: update = install.sh from the clone.
+# The tests go through run_paranoid (env -i): otherwise XDG_DATA_HOME/PARANOID_SRC from the
+# developer's environment would leak in, the launcher would pick the REAL clone and the test
+# would run the live installer while still staying "green".
 
-# Каталог, похожий на наш клон: install.sh + paranoid рядом.
+# A directory that looks like our clone: install.sh + paranoid next to it.
 _make_fake_clone() {
   local dir="$1" marker="$2"
   mkdir -p "$dir"
@@ -503,7 +503,7 @@ _make_fake_clone() {
   run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
   [ "$status" -eq 0 ]
   grep -q "INSTALLER RAN" "$LOG"
-  # пользователь обязан ВИДЕТЬ, код какого каталога сейчас выполнится
+  # the user must SEE which directory's code is about to run
   [[ "$output" == *"$TMP/clone"* ]]
 }
 
@@ -546,7 +546,7 @@ _make_fake_clone() {
 }
 
 @test "a directory that is not our clone is not executed" {
-  # только install.sh, без paranoid рядом — чужой каталог запускать нельзя
+  # install.sh alone, no paranoid next to it — a foreign directory must not be run
   mkdir -p "$TMP/notclone"
   printf '#!/usr/bin/env bash\necho "STRANGER RAN" >> "%s"\n' "$LOG" > "$TMP/notclone/install.sh"
   chmod +x "$TMP/notclone/install.sh"
@@ -560,7 +560,7 @@ _make_fake_clone() {
 
 @test "update pulls first when the source really is a git clone" {
   _make_fake_clone "$TMP/clone" "INSTALLER RAN"
-  # стаб git пишет в лог, чтобы увидеть, что pull вообще звали
+  # the git stub writes to the log so we can see pull was called at all
   printf '#!/usr/bin/env bash\necho "git $*" >> "%s"\nexit 0\n' "$LOG" > "$STUBS/git"
   chmod +x "$STUBS/git"
   mkdir -p "$TMP/.local/share/paranoid-tools"
@@ -601,13 +601,13 @@ _make_fake_clone() {
   run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
   [ "$status" -eq 0 ]
   [[ "$output" == *"exited with an error"* ]]
-  # неудачная установка не должна прятать баннер «доступно обновление»
+  # a failed install must not hide the "update available" banner
   [ -f "$TMP/.cache/paranoid-tools/update-check" ]
 }
 
 @test "a symlinked install.sh is not executed" {
-  # -f идёт по ссылке: подменённая цель прошла бы проверку, а пользователь видел бы
-  # прежний доверенный путь. Ссылки не принимаем.
+  # -f follows the link: a swapped target would pass the check while the user kept seeing
+  # the old trusted path. Symlinks are not accepted.
   _make_fake_clone "$TMP/evil" "EVIL RAN"
   mkdir -p "$TMP/clone"
   ln -s "$TMP/evil/install.sh" "$TMP/clone/install.sh"
@@ -621,7 +621,7 @@ _make_fake_clone() {
 }
 
 @test "a trailing space in the state file is not silently trimmed into another dir" {
-  # /tmp/x и '/tmp/x ' — разные каталоги; общий trim подменил бы один другим.
+  # /tmp/x and '/tmp/x ' are different directories; a blanket trim would swap one for the other.
   _make_fake_clone "$TMP/other" "OTHER RAN"
   mkdir -p "$TMP/.local/share/paranoid-tools"
   printf '%s \n' "$TMP/other" > "$TMP/.local/share/paranoid-tools/source"
@@ -641,24 +641,24 @@ _make_fake_clone() {
   run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
   [ "$status" -eq 0 ]
   grep -q "INSTALLER RAN" "$LOG"
-  # успех установщика не должен выдаваться за «всё свежее»
+  # installer success must not be passed off as "everything is fresh"
   [[ "$output" == *"clone itself was not updated"* ]]
 }
 
-# Структурный P3: остаточный каталог /Volumes/… — НЕ открытый сейф. Раньше лаунчер
-# считал «каталог существует» = «смонтирован» и показывал «ОТКРЫТ · под угрозой»,
-# пока ghostdraft и GUI на тот же путь честно отвечали «закрыт»: три реализации
-# детекта, три разных ответа. Теперь ответ один — таблица монтирования.
+# Structural P3: a leftover /Volumes/… directory is NOT an open vault. The launcher used to
+# treat "directory exists" = "mounted" and showed "OPEN · at risk", while ghostdraft and the
+# GUI honestly answered "closed" for the very same path: three detection implementations,
+# three different answers. Now there is one answer — the mount table.
 @test "a leftover volume directory is not reported as an open vault" {
-  mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"   # каталог есть, в mount его нет
+  mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"   # the directory exists, mount does not list it
   run_paranoid $'0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   [[ "$output" != *"OPEN"* ]]
   [[ "$output" == *"closed"* ]]
 }
 
-# И обратное: том в таблице монтирования — открытый сейф, даже если контейнера нет
-# на привычном месте (сейф мог быть открыт с кастомным путём).
+# And the converse: a volume in the mount table is an open vault, even if the container is
+# not in its usual place (the vault could have been opened with a custom path).
 @test "a mounted volume is reported as an open vault" {
   mkdir -p "$TMP/vault"; _mark_mounted "$TMP/vault"
   run_paranoid $'0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
@@ -666,10 +666,11 @@ _make_fake_clone() {
   [[ "$output" == *"OPEN"* ]]
 }
 
-# Нечитаемая таблица монтирования — не «закрыт». Зелёное «закрыт» над реально открытым
-# сейфом опаснее честного «не определили»: пользователь решит, что данные уже зашифрованы.
+# An unreadable mount table is not "closed". A green "closed" over an actually open vault
+# is more dangerous than an honest "could not determine": the user would assume the data
+# is already encrypted.
 @test "an unreadable mount table is reported as unknown, not as closed" {
-  _break_mount   # mount падает → _volume_mounted отдаёт код 2
+  _break_mount   # mount fails → _volume_mounted returns code 2
   mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
   run_paranoid $'0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
@@ -677,7 +678,7 @@ _make_fake_clone() {
   [[ "$output" != *"OPEN"* ]]
 }
 
-# И лаунчер не гадает действием: пункт 1 подменю не диспатчит ни open, ни close.
+# And the launcher does not guess with an action: submenu item 1 dispatches neither open nor close.
 @test "the vault submenu refuses to guess while the state is unknown" {
   _break_mount
   mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
@@ -688,7 +689,7 @@ _make_fake_clone() {
   [[ "$output" == *"Refusing to guess"* ]]
 }
 
-# Ревью Codex: unknown не должен просачиваться в НЕОБРАТИМЫЕ действия подменю.
+# Codex review: unknown must not leak into the IRREVERSIBLE submenu actions.
 @test "empty and destroy refuse to run while the vault state is unknown" {
   _break_mount
   mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
@@ -700,7 +701,7 @@ _make_fake_clone() {
   ! grep -q "vault destroy" "$LOG"
 }
 
-# Охрана вокруг тома, про который неизвестно, смонтирован ли он, — сессия вокруг пустого места.
+# Watching a volume whose mount state is unknown is a session around empty space.
 @test "watch refuses to start while the vault state is unknown" {
   _break_mount
   mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"

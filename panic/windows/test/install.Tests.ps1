@@ -1,11 +1,11 @@
-﻿# Pester 5 — install.ps1 (Windows-порт panic). Проверяем integrity- и signature-gate без сети:
-# PANIC_BASE_URL указывает на локальный каталог-«релиз», установка идёт во временный
-# каталог, правка PATH отключена. Покрытие integrity: happy-path, провал на расхождении хеша,
-# провал при отсутствии записи в SHA256SUMS (fail-closed). Покрытие signature: валидная/битая
-# подпись, отсутствие .sig, отсутствие ssh-keygen — через мок-шим ssh-keygen в PATH.
+﻿# Pester 5 — install.ps1 (Windows port of panic). We verify the integrity and signature gates
+# without the network: PANIC_BASE_URL points at a local "release" directory, installation goes
+# into a temp directory, PATH editing is disabled. Integrity coverage: happy path, failure on
+# hash mismatch, failure when the SHA256SUMS entry is missing (fail-closed). Signature coverage:
+# valid/broken signature, missing .sig, missing ssh-keygen — via a mock ssh-keygen shim in PATH.
 #
-# Integrity-тесты гоняются с PT_ALLOW_HASH_ONLY='1' (фикстура без .sig): цель — только хеш-гейт;
-# сам signature-гейт покрыт отдельным Describe.
+# Integrity tests run with PT_ALLOW_HASH_ONLY='1' (fixture has no .sig): the goal is the hash gate
+# only; the signature gate itself is covered by a separate Describe.
 
 BeforeAll {
     $script:InstallScript = Join-Path $PSScriptRoot '..\install.ps1'
@@ -18,7 +18,7 @@ Describe 'install.ps1 integrity gate' {
         $script:Target  = Join-Path $script:Work 'target'
         New-Item -ItemType Directory -Path $script:Release -Force | Out-Null
 
-        # Полезная нагрузка-«скрипт» + корректный SHA256SUMS.
+        # The payload "script" + a correct SHA256SUMS.
         $payload = "Write-Output 'payload-ok'`n"
         $script:ScriptFile = Join-Path $script:Release 'panic.ps1'
         Set-Content -LiteralPath $script:ScriptFile -Value $payload -NoNewline
@@ -31,15 +31,15 @@ Describe 'install.ps1 integrity gate' {
     }
 
     It 'installs the script when the checksum matches' {
-        # Установщик гоняем в дочернем pwsh: env-настройки выставляем внутри -Command,
-        # чтобы не протекали в тест-сессию.
+        # Run the installer in a child pwsh: env settings are set inside -Command
+        # so they don't leak into the test session.
         & pwsh -NoProfile -Command "`$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; `$env:PT_ALLOW_HASH_ONLY='1'; & '$($script:InstallScript)'" *> $null
         (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeTrue
         (Test-Path (Join-Path $script:Target 'panic.cmd')) | Should -BeTrue
     }
 
     It 'fails closed when the checksum does not match' {
-        # Портим SHA256SUMS — хеш не сойдётся.
+        # Corrupt SHA256SUMS — the hash won't match.
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("0"*64 + "  panic.ps1")
         & pwsh -NoProfile -Command "`$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; `$env:PT_ALLOW_HASH_ONLY='1'; & '$($script:InstallScript)'" *> $null
         $LASTEXITCODE | Should -Not -Be 0
@@ -56,24 +56,24 @@ Describe 'install.ps1 integrity gate' {
 
 Describe 'install.ps1 signature gate' {
     It 'can still verify under Windows PowerShell 5.1 (no ArgumentList there)' {
-        # `ArgumentList` есть только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
-        # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README;
-        # без запасного пути установка падала бы на шаге проверки подписи.
+        # `ArgumentList` exists only in .NET Core (PowerShell 7). Windows PowerShell 5.1 is
+        # the stock Windows shell and exactly the one people run the README one-liner in;
+        # without the fallback path the install would fail at the signature-verification step.
         $src = Get-Content -Raw -LiteralPath $script:InstallScript
         $src | Should -Match "PSObject\.Properties\.Name -contains 'ArgumentList'"
         $src | Should -Match '\$psi\.Arguments ='
     }
 
-    # Хеш всегда валиден (это покрыто выше); варьируем ТОЛЬКО подпись. `ssh-keygen` подменяем
-    # мок-шимом в PATH: результат verify задаём его кодом выхода (0=валидна, 1=битая). Реальный
-    # ключ/подпись не нужны — проверяем оркестровку fail-closed, а не саму криптографию ssh.
+    # The hash is always valid (covered above); we vary ONLY the signature. `ssh-keygen` is replaced
+    # with a mock shim in PATH: the verify result is set by its exit code (0=valid, 1=broken). No real
+    # key/signature needed — we test the fail-closed orchestration, not ssh cryptography itself.
     BeforeAll {
         $script:InstallScript = Join-Path $PSScriptRoot '..\install.ps1'
 
-        # Кладёт мок-ssh-keygen с заданным кодом выхода в $ShimDir; Windows-CI — .cmd, иначе — bash-шим.
-        # Шим, СОХРАНЯЮЩИЙ полученный stdin в файл (путь — в PT_TEST_STDIN_CAPTURE): проверяем
-        # не «позвали верификатор», а ЧТО в него уехало. Сам шим — pwsh-скрипт (одинаковый на
-        # всех платформах), обёрнутый в .cmd/sh, потому что PATH ищет исполняемый файл, не .ps1.
+        # Drops a mock ssh-keygen with a given exit code into $ShimDir; Windows CI — .cmd, otherwise a bash shim.
+        # A shim that SAVES the received stdin to a file (path in PT_TEST_STDIN_CAPTURE): we verify
+        # not "the verifier was called" but WHAT was sent into it. The shim itself is a pwsh script
+        # (identical on all platforms) wrapped in .cmd/sh, because PATH looks for an executable, not a .ps1.
         function New-SshKeygenCaptureShim {
             $capture = Join-Path $script:ShimDir 'capture.ps1'
             Set-Content -LiteralPath $capture -Encoding ascii -Value @'
@@ -81,8 +81,8 @@ $fs = [IO.File]::Create($env:PT_TEST_STDIN_CAPTURE)
 try { [Console]::OpenStandardInput().CopyTo($fs) } finally { $fs.Close() }
 exit 0
 '@
-            # $env:OS, не $IsWindows: последняя определена только в PowerShell 6+, под Windows
-            # PowerShell 5.1 она $null — и тест уходил в Unix-ветку прямо на Windows.
+            # $env:OS, not $IsWindows: the latter is defined only in PowerShell 6+; under Windows
+            # PowerShell 5.1 it is $null — and the test took the Unix branch right on Windows.
             if ($env:OS -eq 'Windows_NT') {
                 Set-Content -LiteralPath (Join-Path $script:ShimDir 'ssh-keygen.cmd') -Encoding ASCII `
                     -Value "@echo off`r`npwsh -NoProfile -File `"$capture`"`r`nexit /b %ERRORLEVEL%`r`n"
@@ -93,9 +93,9 @@ exit 0
             }
         }
 
-        # Болтливый шим: сыплет в stdout/stderr заведомо больше буфера трубы и выходит с 0.
-        # Если установщик перенаправил потоки и не вычитывает их, верификатор встанет на записи,
-        # а `WaitForExit` будет ждать его вечно — установка молча зависнет.
+        # Noisy shim: floods stdout/stderr with deliberately more than the pipe buffer and exits 0.
+        # If the installer redirected the streams and doesn't drain them, the verifier blocks on write
+        # and `WaitForExit` waits for it forever — the install hangs silently.
         function New-SshKeygenNoisyShim {
             $noisy = Join-Path $script:ShimDir 'noisy.ps1'
             Set-Content -LiteralPath $noisy -Encoding ascii -Value @'
@@ -125,12 +125,12 @@ exit 0
             }
         }
 
-        # Создаёт .sig-заглушку в релизе (содержимое неважно — verify мокается шимом).
+        # Creates a .sig placeholder in the release (content irrelevant — verify is mocked by the shim).
         function New-SigFile {
             Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS.sig') -Value 'dummy-signature' -NoNewline
         }
 
-        # Запуск установщика с prepended $ShimDir в PATH (мок-ssh-keygen находится первым).
+        # Run the installer with $ShimDir prepended to PATH (the mock ssh-keygen is found first).
         function Invoke-Installer([string]$ExtraEnv = '') {
             $withShim = "`$env:PATH='$($script:ShimDir)' + [IO.Path]::PathSeparator + `$env:PATH; "
             & pwsh -NoProfile -Command "$withShim`$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; $ExtraEnv & '$($script:InstallScript)'" *> $null
@@ -147,7 +147,7 @@ exit 0
         New-Item -ItemType Directory -Path $script:ShimDir  -Force | Out-Null
         New-Item -ItemType Directory -Path $script:EmptyDir -Force | Out-Null
 
-        # Корректная нагрузка + SHA256SUMS (хеш сходится).
+        # Correct payload + SHA256SUMS (the hash matches).
         $payload = "Write-Output 'payload-ok'`n"
         $sf = Join-Path $script:Release 'panic.ps1'
         Set-Content -LiteralPath $sf -Value $payload -NoNewline
@@ -185,11 +185,11 @@ exit 0
     }
 
     It 'hands the verifier the signed bytes unchanged (CRLF survives, nothing appended)' {
-        # Регрессия, которая уже случалась в экосистеме: SHA256SUMS уходил в ssh-keygen через
-        # конвейер PowerShell, а тот перекодирует текст (BOM, CRLF) и дописывает перевод строки.
-        # Подпись валидна, но верификатор видит ДРУГИЕ байты → «incorrect signature» → fail-closed
-        # рубит установку с НАСТОЯЩЕГО релиза. Файл здесь намеренно с CRLF: так его отдаёт
-        # любой генератор, запущенный на Windows.
+        # A regression that has already happened in this ecosystem: SHA256SUMS went to ssh-keygen
+        # through the PowerShell pipeline, which re-encodes text (BOM, CRLF) and appends a newline.
+        # The signature is valid, but the verifier sees DIFFERENT bytes → "incorrect signature" →
+        # fail-closed kills an install from a GENUINE release. The file here deliberately has CRLF:
+        # that is what any generator run on Windows produces.
         $sums = Join-Path $script:Release 'SHA256SUMS'
         $hash = (Get-FileHash -Path (Join-Path $script:Release 'panic.ps1') -Algorithm SHA256).Hash.ToLower()
         [IO.File]::WriteAllBytes($sums, [Text.Encoding]::ASCII.GetBytes("$hash  panic.ps1`r`n"))
@@ -213,7 +213,7 @@ exit 0
     }
 
     It 'fails closed when the signature file is missing' {
-        New-SshKeygenShim 0   # verifier есть, но .sig нет
+        New-SshKeygenShim 0   # verifier present, but no .sig
         Invoke-Installer
         $LASTEXITCODE | Should -Not -Be 0
         (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeFalse
@@ -227,7 +227,7 @@ exit 0
     }
 
     It 'fails closed when ssh-keygen is unavailable' {
-        # PATH без ssh-keygen (пустой каталог) → verifier не найден → отказ.
+        # PATH without ssh-keygen (empty directory) → verifier not found → refuse.
         New-SigFile
         & pwsh -NoProfile -Command "`$env:PATH='$($script:EmptyDir)'; `$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; & '$($script:InstallScript)'" *> $null
         $LASTEXITCODE | Should -Not -Be 0

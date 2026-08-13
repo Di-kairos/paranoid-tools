@@ -1,11 +1,12 @@
-# Тесты passphrase-слоя (-p): секрет шифруется native openssl'ом (AES-256-CBC/PBKDF2) ДО
-# Shamir-разбиения, так что собранный порог долей всё равно требует passphrase. Ядро split/
-# combine не затронуто. Env SEEDSPLIT_PASSPHRASE — для тестов/автоматизации (вместо /dev/tty).
-# Требует openssl — без него режим недоступен, тесты пропускаются (skip).
+# Tests for the passphrase layer (-p): the secret is encrypted with native openssl
+# (AES-256-CBC/PBKDF2) BEFORE the Shamir split, so a reconstructed threshold of shares still
+# requires the passphrase. The split/combine core is untouched. Env SEEDSPLIT_PASSPHRASE is for
+# tests/automation (instead of /dev/tty). Requires openssl — without it the mode is unavailable
+# and the tests are skipped.
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../seedsplit"
-  STUBS="${BATS_TEST_DIRNAME}/stubs"   # uname→Darwin: require_macos зелёный на Linux-CI
+  STUBS="${BATS_TEST_DIRNAME}/stubs"   # uname→Darwin: require_macos stays green on Linux CI
   export PATH="$STUBS:$PATH"
 }
 
@@ -35,8 +36,8 @@ _need_openssl() { command -v openssl >/dev/null 2>&1 || skip "openssl not on PAT
   secret="topsecretvalue"
   shares="$(printf '%s' "$secret" | SEEDSPLIT_PASSPHRASE=pw bash "$SCRIPT" split -p -n 3 -t 2)"
   sel="$(printf '%s\n' "$shares" | sed -n '1p;2p')"
-  # восстановленные байты ДО расшифровки = стандартный openssl-контейнер (magic "Salted__"),
-  # а НЕ открытый секрет
+  # the reconstructed bytes BEFORE decryption = a standard openssl container (magic "Salted__"),
+  # NOT the plaintext secret
   sh="$(printf '%s\n' "$sel" | bash -c "ST_NO_MAIN=1 source '$SCRIPT' 2>/dev/null; _recover_secret_hex \"\$(cat)\"")"
   [[ "${sh:0:16}" == "53616c7465645f5f" ]]
 }
@@ -55,8 +56,9 @@ _need_openssl() { command -v openssl >/dev/null 2>&1 || skip "openssl not on PAT
 }
 
 @test "split aborts with no output if the round-trip self-check fails (MED)" {
-  # Подменяем сборку на заведомо неверную → split обязан поймать mismatch и прерваться до печати.
-  # Без self-check cmd_split не звал бы _recover_secret_hex → доли напечатались бы (тест бы упал).
+  # Replace reconstruction with a deliberately wrong one → split must catch the mismatch and abort
+  # before printing. Without the self-check cmd_split would never call _recover_secret_hex → the
+  # shares would get printed (and the test would fail).
   run bash -c "ST_NO_MAIN=1 source '$SCRIPT' 2>/dev/null
     _recover_secret_hex() { printf 'deadbeef'; }
     printf '%s' 'seedcafe' | cmd_split -n 3 -t 2"
@@ -65,7 +67,7 @@ _need_openssl() { command -v openssl >/dev/null 2>&1 || skip "openssl not on PAT
 }
 
 @test "passphrase is never fed via a disk-backed here-string (no <<< spill, P1-5)" {
-  # bash `<<<` материализует строку во ВРЕМЕННЫЙ ФАЙЛ на диске → passphrase может быть
-  # вычитан из $TMPDIR/карвингом. Passphrase обязан идти через pipe (process substitution).
+  # bash `<<<` materializes the string in a TEMP FILE on disk → the passphrase could be
+  # read out of $TMPDIR/by carving. The passphrase must go through a pipe (process substitution).
   ! grep -qE '3<<<' "$SCRIPT"
 }

@@ -1,5 +1,5 @@
-# Тесты panic --hard (pack 3: прибить cloud-демоны + почистить Recent items).
-# Стабы через PATH (pkill) + PANIC_CGSESSION + PANIC_SFL_DIR — детерминированно и на Linux-CI.
+# Tests for panic --hard (pack 3: kill cloud daemons + clear Recent items).
+# Stubs via PATH (pkill) + PANIC_CGSESSION + PANIC_SFL_DIR — deterministic even on Linux CI.
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../panic"
@@ -10,7 +10,7 @@ setup() {
   export PANIC_SFL_DIR="$TMP/sfl"
   export PATH="$STUBS:$PATH"
   export ST_ASSUME_YES=1
-  export STUB_MOUNTS=""    # без образов — фокус на --hard
+  export STUB_MOUNTS=""    # no images — focus on --hard
   unset ST_LANG
   mkdir -p "$PANIC_SFL_DIR"
   : > "$PANIC_SFL_DIR/com.apple.LSSharedFileList.RecentDocuments.sfl3"
@@ -36,14 +36,14 @@ run_now() {
 @test "now --hard clears recent-items shared file lists" {
   run_now --hard
   [ "$status" -eq 0 ]
-  [ -z "$(ls -A "$PANIC_SFL_DIR" 2>/dev/null)" ]   # sfl-файлы удалены
+  [ -z "$(ls -A "$PANIC_SFL_DIR" 2>/dev/null)" ]   # sfl files removed
 }
 
 @test "now WITHOUT --hard does not kill daemons or clear recents" {
   run_now
   [ "$status" -eq 0 ]
   ! grep -q "pkill" "$VW_STUB_LOG"
-  [ -n "$(ls -A "$PANIC_SFL_DIR" 2>/dev/null)" ]    # recent items целы
+  [ -n "$(ls -A "$PANIC_SFL_DIR" 2>/dev/null)" ]    # recent items intact
 }
 
 @test "now --hard still performs base actions (clipboard, lock)" {

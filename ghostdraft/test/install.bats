@@ -1,11 +1,11 @@
-# Тесты целостности/подписи install.sh: бинарь ставится только при совпадении SHA256;
-# fail-closed на подмену, отсутствие .sig и отсутствие ssh-keygen (AUDIT_2026-08-03 P1-1).
-# Все тесты идут через минимальный fakebin-PATH с фейковым uname=Darwin:
-# CI гоняет bats на ubuntu, а install.sh имеет честный Darwin-guard.
+# Integrity/signature tests for install.sh: the binary is installed only when SHA256 matches;
+# fail-closed on tampering, on a missing .sig, and on a missing ssh-keygen (AUDIT_2026-08-03 P1-1).
+# All tests run through a minimal fakebin PATH with a fake uname=Darwin:
+# CI runs bats on ubuntu, while install.sh has an honest Darwin guard.
 setup() {
   INSTALL="${BATS_TEST_DIRNAME}/../install.sh"
   WORK="$(mktemp -d)"
-  FIX="${WORK}/release"        # «релиз»: ghostdraft + SHA256SUMS
+  FIX="${WORK}/release"        # the "release": ghostdraft + SHA256SUMS
   DEST="${WORK}/bin/ghostdraft"
   mkdir -p "$FIX" "${WORK}/bin"
   printf '#!/usr/bin/env bash\necho payload-ok\n' > "${FIX}/ghostdraft"
@@ -16,8 +16,8 @@ teardown() {
   rm -rf "$WORK"
 }
 
-# Минимальный fakebin: ровно те внешние бинари, что нужны install.sh, + fake uname=Darwin.
-# $1 = with-keygen | without-keygen — управляет наличием ssh-keygen.
+# Minimal fakebin: exactly the external binaries install.sh needs, plus a fake uname=Darwin.
+# $1 = with-keygen | without-keygen — controls whether ssh-keygen is present.
 _make_fakebin() {
   local mode="$1" bins="${WORK}/fakebin" b p
   mkdir -p "$bins"
@@ -34,7 +34,7 @@ _make_fakebin() {
 }
 
 @test "install.sh installs binary when checksum matches" {
-  # ALLOW_UNSIGNED_LEGACY=1 — тест проверяет только checksum, не подпись.
+  # ALLOW_UNSIGNED_LEGACY=1 — this test checks only the checksum, not the signature.
   BINS="$(_make_fakebin with-keygen)"
   run env PATH="$BINS" GHOSTDRAFT_BASE_URL="file://${FIX}" GHOSTDRAFT_DEST="$DEST" ALLOW_UNSIGNED_LEGACY=1 bash "$INSTALL"
   [ "$status" -eq 0 ]
@@ -59,7 +59,7 @@ _make_fakebin() {
 }
 
 @test "install.sh fails closed when ssh-keygen is missing (no silent hash-only)" {
-  # Молчаливая деградация до hash-only маскировала бы подмену (P1-1, паритет с umbrella).
+  # Silent degradation to hash-only would mask tampering (P1-1, parity with umbrella).
   BINS="$(_make_fakebin without-keygen)"
   run env PATH="$BINS" GHOSTDRAFT_BASE_URL="file://${FIX}" GHOSTDRAFT_DEST="$DEST" bash "$INSTALL"
   [ "$status" -ne 0 ]
@@ -75,9 +75,9 @@ _make_fakebin() {
 }
 
 @test "install.sh installs next to an existing umbrella copy instead of making a second one" {
-  # Умбрелла ставит всё в ~/.local/bin; этот установщик по умолчанию — в /usr/local/bin.
-  # Две копии одного тула = обновление, которое молча не доезжает: какая запустится, решает
-  # порядок в PATH. Если копия из умбреллы уже есть — ставим поверх неё, а не рядом.
+  # The umbrella installs everything into ~/.local/bin; this installer defaults to /usr/local/bin.
+  # Two copies of one tool = an update that silently never arrives: PATH order decides which one
+  # runs. If the umbrella copy already exists — install over it, not next to it.
   BINS="$(_make_fakebin with-keygen)"
   FAKEHOME="${WORK}/home"
   mkdir -p "${FAKEHOME}/.local/bin"

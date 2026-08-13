@@ -53,8 +53,8 @@ setup() {
 }
 
 @test "check says 'unknown' (not OFF) when FileVault status can't be determined" {
-  # Рассинхрон из trial-отчёта: дашборд показывал «неизвестно», а check — «ВЫКЛЮЧЕН».
-  # Теперь check тоже tri-state: неопределённый fdesetup → unknown, консервативно, не ложный OFF.
+  # Mismatch from the trial report: the dashboard showed "unknown" while check said "OFF".
+  # Now check is tri-state too: indeterminate fdesetup → unknown, conservative, no false OFF.
   run env PATH="${BATS_TEST_DIRNAME}/mocks-fvunknown:$PATH" bash "$SCRIPT" check
   [ "$status" -eq 0 ]
   [[ "$output" == *"unknown"* ]]
@@ -203,9 +203,9 @@ setup() {
   rm -rf "$tmp"
 }
 
-# --- P0-1: securetrash должен уважать ST_VAULT_PATH / ST_VAULT_VOLUME ---
-# Иначе GUI/TUI показывают один сейф (через ST_VAULT_*), а destructive-операции
-# бьют по захардкоженному дефолту.
+# --- P0-1: securetrash must respect ST_VAULT_PATH / ST_VAULT_VOLUME ---
+# Otherwise the GUI/TUI show one vault (via ST_VAULT_*) while destructive operations
+# hit the hardcoded default.
 
 @test "ST_VAULT_PATH overrides the container path" {
   run env ST_VAULT_PATH="/tmp/custom-vault.sparsebundle" \
@@ -224,7 +224,7 @@ setup() {
 @test "vault destroy targets the container from ST_VAULT_PATH, not the default" {
   tmp="$(mktemp -d)"
   mkdir -p "$tmp/custom-vault.sparsebundle/bands"; echo x > "$tmp/custom-vault.sparsebundle/Info.plist"
-  # дефолтный контейнер тоже существует — он НЕ должен пострадать
+  # the default container also exists — it must NOT be harmed
   mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
   run env HOME="$tmp" ST_ASSUME_YES=1 ST_VAULT_PATH="$tmp/custom-vault.sparsebundle" \
     PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
@@ -235,8 +235,8 @@ setup() {
   rm -rf "$tmp"
 }
 
-# --- P2-2: reset должен валидировать размер ДО destroy ---
-# Иначе опечатка в размере уничтожает старый сейф, а create падает → пользователь без сейфа.
+# --- P2-2: reset must validate the size BEFORE destroy ---
+# Otherwise a typo in the size destroys the old vault and create fails → user left without a vault.
 
 @test "vault reset with an invalid size refuses and keeps the old container" {
   tmp="$(mktemp -d)"
@@ -246,14 +246,14 @@ setup() {
     PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" vault reset "not-a-size"
   [ "$status" -ne 0 ]
-  # старый контейнер и его содержимое НЕ тронуты (destroy не выполнялся)
+  # the old container and its contents are NOT touched (destroy never ran)
   [ -e "$tmp/SecureVault.sparsebundle/bands/marker" ]
   rm -rf "$tmp"
 }
 
 @test "vault reset with size 0 refuses and keeps the old container" {
-  # 0 проходит формат-regex, но create на нём падает → сейф был бы уничтожен зря
-  # (Codex review AUDIT_2026-08-03 P0-1; паритет с ps1).
+  # 0 passes the format regex, but create fails on it → the vault would be destroyed for nothing
+  # (Codex review AUDIT_2026-08-03 P0-1; parity with ps1).
   tmp="$(mktemp -d)"
   mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
   echo OLD > "$tmp/SecureVault.sparsebundle/bands/marker"
@@ -266,8 +266,8 @@ setup() {
 }
 
 @test "a half-created vault is cleaned up when hdiutil create fails (P3 trap hygiene)" {
-  # Обрыв create оставлял каталог .sparsebundle, который не открывается: следующий create
-  # отвечал «сейф уже есть», а destroy предлагал «уничтожить всё» — при пустом контейнере.
+  # An interrupted create used to leave a .sparsebundle directory that would not open: the next
+  # create answered "vault already exists" and destroy offered to "destroy everything" — over an empty container.
   tmp="$(mktemp -d)"
   run env HOME="$tmp" ST_MOCK_CREATE_PARTIAL=1 ST_ASSUME_YES=1 ST_VAULT_PASS=test1234 \
     PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" bash "$SCRIPT" vault create 1g
@@ -340,10 +340,10 @@ setup() {
   rm -rf "$tmp"
 }
 
-# --- reset: между «старого сейфа уже нет» и «новый готов» не должно быть окна ---
-# Раньше reset делал destroy → create подряд: падение create (нет места, отказ hdiutil,
-# Ctrl-C на промпте пароля) оставляло пользователя вообще без сейфа. Теперь старый
-# контейнер отставляется в .old и крипто-шредится только после успешного create.
+# --- reset: there must be no window between "old vault is gone" and "new one is ready" ---
+# reset used to run destroy → create back to back: a create failure (no space, hdiutil refusal,
+# Ctrl-C at the password prompt) left the user with no vault at all. Now the old container
+# is set aside as .old and crypto-shredded only after a successful create.
 
 @test "vault reset restores the old container when create fails" {
   tmp="$(mktemp -d)"
@@ -353,10 +353,10 @@ setup() {
     PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" vault reset
   [ "$status" -ne 0 ]
-  # старый сейф вернулся на место вместе с содержимым, хвоста .old нет
+  # the old vault is back in place with its contents, no .old leftover
   [ -e "$tmp/SecureVault.sparsebundle/bands/marker" ]
   [ ! -e "$tmp/SecureVault.sparsebundle.old" ]
-  # и пользователю сказано, что откат произошёл
+  # and the user is told the rollback happened
   [[ "$output" == *"rolled back"* ]] || [[ "$output" == *"откачен"* ]]
   rm -rf "$tmp"
 }
@@ -369,17 +369,17 @@ setup() {
     PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" vault reset
   [ "$status" -eq 0 ]
-  # новый контейнер реально на месте и имеет форму sparsebundle
+  # the new container is really in place and has the sparsebundle shape
   [ -d "$tmp/SecureVault.sparsebundle" ]
   [ -e "$tmp/SecureVault.sparsebundle/Info.plist" ]
-  # старое содержимое не пережило reset ни на месте, ни в .old
+  # the old contents did not survive the reset, neither in place nor in .old
   [ ! -e "$tmp/SecureVault.sparsebundle.old" ]
   [ ! -e "$tmp/SecureVault.sparsebundle/bands/marker" ]
   rm -rf "$tmp"
 }
 
-# Уцелевший .old — это данные пользователя (прерванный reset или его ручной бэкап).
-# Снести его молча = потерять единственную копию. reset обязан отказаться.
+# A surviving .old is the user's data (an interrupted reset or their manual backup).
+# Removing it silently = losing the only copy. reset must refuse.
 @test "vault reset refuses when a .old container is already there and keeps it" {
   tmp="$(mktemp -d)"
   mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
@@ -388,7 +388,7 @@ setup() {
     PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" vault reset
   [ "$status" -ne 0 ]
-  # обе копии целы, ничего не создавалось
+  # both copies are intact, nothing was created
   [ -e "$tmp/SecureVault.sparsebundle.old/bands/junk" ]
   [ -e "$tmp/SecureVault.sparsebundle/bands" ]
   [ ! -f "$tmp/hdiutil_calls.log" ] || ! grep -q "create" "$tmp/hdiutil_calls.log"
@@ -406,9 +406,9 @@ setup() {
 }
 
 @test "vault create reports failure instead of claiming success" {
-  # Утверждаем только то, что гарантирует код: ненулевой выход и явное сообщение.
-  # Уборку частичного контейнера после падения hdiutil securetrash НЕ делает —
-  # заявлять это тестом (мок падает до записи) значило бы проверять мок, а не код.
+  # Assert only what the code guarantees: non-zero exit and an explicit message.
+  # securetrash does NOT clean up a partial container after an hdiutil failure —
+  # claiming that in a test (the mock fails before writing) would test the mock, not the code.
   tmp="$(mktemp -d)"
   run env HOME="$tmp" ST_VAULT_PASS=test1234 ST_MOCK_CREATE_FAIL=1 \
     PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
@@ -418,9 +418,9 @@ setup() {
   rm -rf "$tmp"
 }
 
-# --- снимки: главный канал, по которому «стёртый» файл выживает ---
-# shred и crypto-shred про снимки ничего не знают, поэтому инструмент обязан
-# сказать о них сам — пользователь иначе считает, что удалил файл насовсем.
+# --- snapshots: the main channel through which a "shredded" file survives ---
+# shred and crypto-shred know nothing about snapshots, so the tool must speak up
+# about them itself — otherwise the user believes the file is gone for good.
 
 @test "check reports Time Machine snapshots when they exist" {
   run env ST_MOCK_SNAPSHOTS=3 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
@@ -433,13 +433,13 @@ setup() {
   run env ST_MOCK_SNAPSHOTS=0 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" check
   [ "$status" -eq 0 ]
-  # в моке всегда есть com.apple.os.update-* — он не должен считаться снимком TM
+  # the mock always includes com.apple.os.update-* — it must not count as a TM snapshot
   [[ "$output" == *"none right now"* ]] || [[ "$output" == *"снимков APFS сейчас нет"* ]]
 }
 
 @test "check counts third-party snapshots too, not just Time Machine ones" {
-  # CCC/Arq держат ровно такую же полную копию — allowlist по com.apple.TimeMachine.*
-  # выдал бы бодрое «снимков нет» там, где копия есть.
+  # CCC/Arq hold exactly the same full copy — an allowlist on com.apple.TimeMachine.*
+  # would cheerfully report "no snapshots" where a copy exists.
   run env ST_MOCK_SNAPSHOTS=0 ST_MOCK_SNAPSHOTS_CCC=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" check
   [ "$status" -eq 0 ]
@@ -462,7 +462,7 @@ setup() {
   rm -rf "$tmp"
 }
 
-# --- destroy-old: штатный способ убрать контейнер, отставленный прерванным reset ---
+# --- destroy-old: the standard way to remove a container set aside by an interrupted reset ---
 
 @test "vault destroy-old crypto-shreds the set-aside container" {
   tmp="$(mktemp -d)"
@@ -472,7 +472,7 @@ setup() {
     bash "$SCRIPT" vault destroy-old
   [ "$status" -eq 0 ]
   [ ! -e "$tmp/SecureVault.sparsebundle.old" ]
-  # активный сейф не тронут — это разные цели
+  # the active vault is untouched — these are different targets
   [ -e "$tmp/SecureVault.sparsebundle/Info.plist" ]
   rm -rf "$tmp"
 }
@@ -506,7 +506,7 @@ setup() {
     PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" vault destroy-old
   [ "$status" -ne 0 ]
-  # живой расшифрованный том не уничтожаем — контейнер на месте
+  # do not destroy a live decrypted volume — the container stays in place
   [ -e "$tmp/SecureVault.sparsebundle.old/Info.plist" ]
   rm -rf "$tmp"
 }
@@ -518,7 +518,7 @@ setup() {
   run env HOME="$tmp" PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
     bash "$SCRIPT" vault status
   [[ "$output" == *"destroy-old"* ]]
-  # и как забрать данные обратно
+  # and how to get the data back
   [[ "$output" == *"hdiutil attach"* ]]
   rm -rf "$tmp"
 }
@@ -590,7 +590,7 @@ setup() {
     bash "$SCRIPT" vault open
   [ "$status" -eq 0 ]
   grep -q "mountpoint" "$tmp/hdiutil_calls.log"
-  # По умолчанию том виден в Finder → НЕ -nobrowse (иначе закрыл окно = забыл смонтированным).
+  # By default the volume is visible in Finder → NOT -nobrowse (otherwise closing the window = forgetting it mounted).
   ! grep -q "nobrowse" "$tmp/hdiutil_calls.log"
   rm -rf "$tmp"
 }

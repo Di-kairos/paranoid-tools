@@ -1,7 +1,7 @@
-# Тесты vaultwatch (pack 3a: вендоринг + hook-installer).
+# vaultwatch tests (pack 3a: vendoring + hook installer).
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../vaultwatch"
-  STUBS="${BATS_TEST_DIRNAME}/stubs"   # uname→Darwin и пр., чтобы тесты шли и на Linux-CI
+  STUBS="${BATS_TEST_DIRNAME}/stubs"   # uname→Darwin etc., so the tests also run on Linux CI
 }
 
 @test "version prints semver" {
@@ -12,7 +12,7 @@ setup() {
 }
 
 @test "--yes is accepted anywhere in the args and does not become a command" {
-  # Контракт securetrash: флаг вырезается, остальные аргументы сохраняют порядок.
+  # securetrash contract: the flag is stripped, the remaining arguments keep their order.
   run bash "$SCRIPT" --yes version
   [ "$status" -eq 0 ]
   [[ "$output" == *"vaultwatch"* ]]
@@ -107,9 +107,9 @@ setup() {
   chmod +x "$hooks/post-open"
   run env ST_HOOK_DIR="$hooks" bash "$SCRIPT" install-hooks
   [ "$status" -eq 0 ]
-  grep -q "custom" "$hooks/post-open"          # чужой хук цел
+  grep -q "custom" "$hooks/post-open"          # foreign hook intact
   ! grep -q "managed-by: vaultwatch" "$hooks/post-open"
-  grep -q "managed-by: vaultwatch" "$hooks/post-close"   # свой поставлен
+  grep -q "managed-by: vaultwatch" "$hooks/post-close"   # our own installed
   rm -rf "$tmp"
 }
 
@@ -120,16 +120,16 @@ setup() {
   printf '#!/usr/bin/env bash\necho custom\n' > "$hooks/post-close"              # foreign
   run env ST_HOOK_DIR="$hooks" bash "$SCRIPT" uninstall-hooks
   [ "$status" -eq 0 ]
-  [ ! -e "$hooks/post-open" ]                   # managed удалён
-  grep -q "custom" "$hooks/post-close"          # чужой цел
+  [ ! -e "$hooks/post-open" ]                   # managed removed
+  grep -q "custom" "$hooks/post-close"          # foreign intact
   rm -rf "$tmp"
 }
 
 @test "installed post-open hook forwards the mountpoint to start" {
   tmp="$(mktemp -d)"; hooks="$tmp/hooks"
   env ST_HOOK_DIR="$hooks" bash "$SCRIPT" install-hooks
-  # Хук дёргает `vaultwatch start <mount>`. Несуществующий путь → start падает
-  # (mount not found, exit 1) с этим путём в сообщении — доказывает проброс аргумента.
+  # The hook invokes `vaultwatch start <mount>`. A nonexistent path → start fails
+  # (mount not found, exit 1) with that path in the message — proving the argument is forwarded.
   run env PATH="$STUBS:$PATH" bash "$hooks/post-open" /Volumes/NoSuchVault
   [ "$status" -ne 0 ]
   [[ "$output" == *"/Volumes/NoSuchVault"* ]]
@@ -141,7 +141,7 @@ setup() {
   env ST_HOOK_DIR="$hooks" bash "$SCRIPT" install-hooks
   run env PATH="$STUBS:$PATH" bash "$hooks/post-open" "/Volumes/Secret Vault"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"/Volumes/Secret Vault"* ]]   # пробелы в пути сохранены сквозь хук
+  [[ "$output" == *"/Volumes/Secret Vault"* ]]   # spaces in the path survive through the hook
   rm -rf "$tmp"
 }
 
@@ -156,8 +156,8 @@ setup() {
   work="$(mktemp -d)"; mkdir -p "$work/tools"
   cp "${BATS_TEST_DIRNAME}/../vaultwatch" "$work/vaultwatch"
   cp "${BATS_TEST_DIRNAME}/../tools/vendor-common.sh" "$work/tools/"
-  # Мутируем строку ВНУТРИ вшитого блока → --check должен поймать дрейф (exit 1).
-  # Portable (без sed -i: BSD/GNU расходятся): sed в файл → mv.
+  # Mutate a line INSIDE the vendored block → --check must catch the drift (exit 1).
+  # Portable (no sed -i: BSD/GNU diverge): sed into a file → mv.
   sed 's/_ST_COMMON_LOADED=1/_ST_COMMON_LOADED=999/' "$work/vaultwatch" > "$work/vaultwatch.mut"
   mv "$work/vaultwatch.mut" "$work/vaultwatch"
   run bash "$work/tools/vendor-common.sh" --check

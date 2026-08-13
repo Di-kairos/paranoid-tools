@@ -1,8 +1,8 @@
-# Тесты install.sh — установщик экосистемы.
-# Ставит сеть/релизы в стороне: проверяются только локализация и её инварианты.
-# Смысл: security-критичные ошибки установщика (провал подписи, отсутствие
-# верификатора) обязаны читаться тем, кто ставит. Раньше install.sh говорил
-# только по-русски, то есть для EN-пользователя отказ был без объяснения.
+# Tests for install.sh — the ecosystem installer.
+# Network/releases are left aside: only the localization and its invariants are checked.
+# The point: security-critical installer errors (signature failure, missing
+# verifier) must be readable by whoever installs. install.sh used to speak
+# Russian only, i.e. for an EN user the refusal came with no explanation.
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../install.sh"
@@ -10,13 +10,13 @@ setup() {
   BINS="$(_make_fakebin)"
 }
 
-# Минимальный fakebin с fake `uname=Darwin`: install.sh отшивает не-macOS первой же
-# строкой, а CI гоняет тесты на ubuntu — без подмены все прогоны падали бы на выходе 1.
+# A minimal fakebin with a fake `uname=Darwin`: install.sh rejects non-macOS on its very
+# first line, and CI runs the tests on ubuntu — without the fake every run would die with exit 1.
 _make_fakebin() {
   local bins="${TMP}/fakebin" b p
   mkdir -p "$bins"
-  # uname в список НЕ входит намеренно: симлинк на системный бинарь заставил бы
-  # запись фейка идти по ссылке в /usr/bin/uname (permission denied на CI).
+  # uname is deliberately NOT in the list: a symlink to the system binary would make
+  # writing the fake follow the link into /usr/bin/uname (permission denied on CI).
   for b in bash sh env curl shasum mktemp dirname install chmod rm mkdir cat sed grep awk head; do
     p="$(command -v "$b" 2>/dev/null)" || continue
     ln -sf "$p" "${bins}/${b}" 2>/dev/null || true
@@ -76,26 +76,26 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "no Russian literals left outside the t() table" {
-  # Всё, что печатается пользователю, должно идти через t(); тело t() пропускаем.
-  # Ловим и двойные, и одинарные кавычки: иначе printf 'Ошибка' проскочил бы.
+  # Everything printed to the user must go through t(); the body of t() is skipped.
+  # Catch both double and single quotes: otherwise a single-quoted Russian printf would slip through.
   body="$(awk '/^t\(\) \{/,/^\}/ {next} {print}' "$SCRIPT")"
   ! printf '%s' "$body" | grep -qE "(echo|printf) [\"'][^\"']*[А-Яа-я]"
 }
 
 @test "every t() branch ends its line (a missing newline glues the next output on)" {
-  # printf без \n склеил бы сообщение с последующим выводом — так уже терялся формат
-  # английской диагностики о падении дочернего установщика.
+  # printf without \n would glue the message to the following output — that is how the
+  # English diagnostics about a failing child installer already lost their formatting once.
   ! grep -E "^\s+(en|ru):[a-z_]+\)\s+printf" "$SCRIPT" | grep -vq '\\n'
 }
 
 @test "security-critical messages are non-empty in both locales" {
-  # Берём ТОЛЬКО функцию t() — sourcing запустил бы установку целиком.
+  # Take ONLY the t() function — sourcing would run the whole install.
   fn="$(sed -n '/^t() {/,/^}/p' "$SCRIPT")"
   for loc in en ru; do
     for key in sig_bad sig_missing no_verifier no_verifier_warn sum_mismatch tool_fail dl_fail; do
       out="$(LOCALE="$loc" bash -c "$fn"$'\n'"LOCALE=$loc; t $key seedsplit https://example/x")"
       [ -n "$out" ]
-      # ключ не должен просочиться в вывод вместо текста (fallback-ветка)
+      # the key must not leak into the output instead of the text (fallback branch)
       [ "$out" != "$key" ]
     done
   done

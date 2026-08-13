@@ -1,6 +1,6 @@
-# Тесты --ttl авто-выхода (pack 3c): парсинг длительности, планирование в state,
-# и _ttl_fire (lsof-чек → hdiutil detach / honest warn). Системные команды —
-# стабы через PATH, поэтому тесты идут и на Linux-CI без macOS-тулзов.
+# Tests for --ttl auto-close (pack 3c): duration parsing, scheduling into state,
+# and _ttl_fire (lsof check → hdiutil detach / honest warn). System commands are
+# PATH stubs, so the tests also run on Linux CI without macOS tools.
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../vaultwatch"
@@ -13,9 +13,9 @@ setup() {
   export VW_STUB_LOG="$TMP/calls.log"
   export PATH="$STUBS:$PATH"
   export ST_ASSUME_YES=1
-  export VW_NO_SPAWN=1   # по умолчанию не грузить launchd-таймер (юнит-тесты состояния)
+  export VW_NO_SPAWN=1   # by default do not load the launchd timer (state unit tests)
   unset ST_LANG
-  # «Том на месте» = он есть в таблице монтирования, а не «каталог существует».
+  # "Volume is present" = it is in the mount table, not "the directory exists".
   export STUB_MOUNTS="$TMP/mounts"
   printf '/dev/disk9s1 on %s (apfs, local, nodev, nosuid, journaled, nobrowse)\n' "$MOUNT" >"$STUB_MOUNTS"
 }
@@ -82,7 +82,7 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   STUB_LSOF_BUSY=0 run_vw _ttl_fire "$MOUNT"
   [ "$status" -eq 0 ]
   grep -qF -- "detach $MOUNT" "$VW_STUB_LOG"
-  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*  # сессия держит долг по индексации
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*  # session holds the indexing debt
 }
 
 @test "ttl fire does NOT detach a busy vault without force" {
@@ -90,7 +90,7 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   STUB_LSOF_BUSY=1 run_vw _ttl_fire "$MOUNT"
   [ "$status" -eq 0 ]
   ! grep -q "detach" "$VW_STUB_LOG"
-  [ -n "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]   # сессия цела (честно: не смогли закрыть)
+  [ -n "$(ls -A "$VW_STATE_DIR" 2>/dev/null)" ]   # session intact (honest: could not close)
   [[ "$output" == *"open files"* ]] || [[ "$output" == *"открыты файлы"* ]]
 }
 
@@ -108,13 +108,13 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
   ! grep -q "detach" "$VW_STUB_LOG"
 }
 
-# --- launchd-таймер (pack 3d): schedule / cancel ---
+# --- launchd timer (pack 3d): schedule / cancel ---
 
 @test "start --ttl writes and bootstraps a LaunchAgent (real schedule path)" {
   VW_NO_SPAWN=0 run_vw start --ttl 30m "$MOUNT"
   [ "$status" -eq 0 ]
-  ls "$VW_LAUNCH_DIR"/com.vaultwatch.ttl.*.plist >/dev/null 2>&1   # plist записан
-  grep -q "bootstrap" "$VW_STUB_LOG"                               # launchctl загрузил
+  ls "$VW_LAUNCH_DIR"/com.vaultwatch.ttl.*.plist >/dev/null 2>&1   # plist written
+  grep -q "bootstrap" "$VW_STUB_LOG"                               # launchctl loaded it
   run cat "$VW_STATE_DIR"/*
   [[ "$output" == *"ttl_label=com.vaultwatch.ttl."* ]]
 }
@@ -130,11 +130,11 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
 
 @test "stop removes the scheduled LaunchAgent" {
   VW_NO_SPAWN=0 bash "$SCRIPT" start --ttl 30m "$MOUNT" >/dev/null
-  ls "$VW_LAUNCH_DIR"/com.vaultwatch.ttl.*.plist >/dev/null 2>&1   # есть до stop
+  ls "$VW_LAUNCH_DIR"/com.vaultwatch.ttl.*.plist >/dev/null 2>&1   # present before stop
   run_vw stop "$MOUNT"
   [ "$status" -eq 0 ]
-  ! ls "$VW_LAUNCH_DIR"/com.vaultwatch.ttl.*.plist >/dev/null 2>&1 # plist снят
-  grep -q "bootout" "$VW_STUB_LOG"                                 # launchctl выгрузил
+  ! ls "$VW_LAUNCH_DIR"/com.vaultwatch.ttl.*.plist >/dev/null 2>&1 # plist removed
+  grep -q "bootout" "$VW_STUB_LOG"                                 # launchctl unloaded it
 }
 
 @test "ttl fire removes its own LaunchAgent after detach" {
@@ -145,17 +145,17 @@ run_vw() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" "$@"; }
 }
 
 @test "ttl fire does not call a successful detach a failure over a leftover directory" {
-  # detach сработал, том ушёл из таблицы, но каталог остался. Проверка «каталог есть»
-  # объявляла бы «dismount не удался, сейф может быть открыт» — и это была бы ложь.
+  # detach worked, the volume left the table, but the directory remained. A "directory exists"
+  # check would declare "dismount failed, the vault may be open" — and that would be a lie.
   bash "$SCRIPT" start --ttl 30m "$MOUNT" >/dev/null
   STUB_LSOF_BUSY=0 STUB_DETACH_LEAVES_DIR=1 run_vw _ttl_fire "$MOUNT"
   [ "$status" -eq 0 ]
-  [ -d "$MOUNT" ]                                  # каталог на месте
-  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*  # долг по индексации сохранён, не потерян
+  [ -d "$MOUNT" ]                                  # directory still there
+  grep -q '^pending_restore=1$' "$VW_STATE_DIR"/*  # indexing debt kept, not lost
 }
 
 @test "ttl fire keeps session state when the mount table cannot be read" {
-  # «Не знаем» после detach трактуем как «может быть открыт»: сессию не чистим.
+  # "Don't know" after detach is treated as "may be open": do not clear the session.
   bash "$SCRIPT" start --ttl 30m "$MOUNT" >/dev/null
   STUB_LSOF_BUSY=0 STUB_MOUNT_FAIL=1 run_vw _ttl_fire "$MOUNT"
   [ "$status" -ne 0 ]

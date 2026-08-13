@@ -1,8 +1,8 @@
-﻿# Pester 5 — логика panic.ps1 (Windows-порт). Дот-сорс под ST_NO_MAIN=1: определяет
-# функции, не запуская диспетчер. panic — это сплошные side-effect'ы (lock/dismount/kill),
-# поэтому каждый системный примитив обёрнут в свою функцию и МОКАЕТСЯ: тест проверяет
-# оркестровку (что и сколько раз вызвано, счётчики, --hard-гейт), не трогая реальные
-# BitLocker/VeraCrypt/экран. CLI-уровень (версия, exit-коды) — через свежий pwsh.
+﻿# Pester 5 — panic.ps1 logic (Windows port). Dot-sourced under ST_NO_MAIN=1: defines
+# the functions without running the dispatcher. panic is pure side effects (lock/dismount/kill),
+# so every system primitive is wrapped in its own function and MOCKED: the tests verify
+# the orchestration (what got called and how many times, counters, the --hard gate) without
+# touching real BitLocker/VeraCrypt/screen. The CLI level (version, exit codes) — via a fresh pwsh.
 
 BeforeAll {
     $env:ST_NO_MAIN = '1'
@@ -17,7 +17,7 @@ AfterAll {
 
 Describe 'panic now — orchestration' {
     BeforeEach {
-        # Два разблокированных BitLocker-тома + один VeraCrypt → ожидаем счётчик 3.
+        # Two unlocked BitLocker volumes + one VeraCrypt → expect a counter of 3.
         Mock Get-PnBitLockerUnlocked { @('D:', 'E:') }
         Mock Get-PnVeraCryptMounted  { @('F:') }
         Mock Invoke-PnLockBitLocker     { }
@@ -67,7 +67,7 @@ Describe 'panic now — orchestration' {
 
     It 'a failed BitLocker lock does not abort the run (best-effort)' {
         Mock Invoke-PnLockBitLocker { throw 'access denied' }
-        # Не должно бросать наружу; clipboard+screen всё равно отрабатывают.
+        # Must not throw outward; clipboard+screen still run.
         { Invoke-PnNow -ArgList @() } | Should -Not -Throw
         Should -Invoke Invoke-PnClearClipboard -Times 1 -Exactly
         Should -Invoke Invoke-PnLockScreen -Times 1 -Exactly
@@ -79,9 +79,9 @@ Describe 'panic now — orchestration' {
     }
 
     It 'does NOT claim a locked screen when the lock fails — and warns instead' {
-        # Зеркало bash-регрессии: LockWorkStation упал → не врём «locked», а громко warn.
-        # warn идёт в stderr через [Console]::Error (не ловится $out), поэтому мокаем
-        # Write-PnWarn и проверяем сам факт честного предупреждения с текстом lock_fail.
+        # Mirror of the bash regression: LockWorkStation failed → don't lie "locked", warn loudly.
+        # warn goes to stderr via [Console]::Error (not captured by $out), so we mock
+        # Write-PnWarn and verify the honest warning itself, with the lock_fail text.
         Mock Invoke-PnLockScreen { $false }
         Mock Write-PnWarn { }
         $out = Invoke-PnNow -ArgList @()
@@ -98,7 +98,7 @@ Describe 'panic status — read-only preflight' {
         Mock Test-PnBitLockerOn       { $true }
         Mock Get-PnRunningCloudDaemons { @('OneDrive') }
         $out = (Invoke-PnStatus) -join "`n"
-        $out | Should -Match '2'           # счётчик томов
+        $out | Should -Match '2'           # volume counter
         $out | Should -Match 'D:'
         $out | Should -Match 'F:'
         $out | Should -Match 'OneDrive'
@@ -138,7 +138,7 @@ Describe 'i18n' {
 
 Describe 'CLI surface (child pwsh)' {
     It 'prints the version' {
-        # Version-agnostic: не хардкодим номер, чтобы bump версии не ронял тест.
+        # Version-agnostic: don't hardcode the number so a version bump doesn't break the test.
         $out = & pwsh -NoProfile -File $script:ScriptPath version
         ($out -join "`n") | Should -Match 'panic \d+\.\d+\.\d+'
     }
@@ -147,9 +147,9 @@ Describe 'CLI surface (child pwsh)' {
         $LASTEXITCODE | Should -Not -Be 0
     }
     It 'names the missing hotkey instead of calling it an unknown command' {
-        # README документирует `panic hotkey`, а Windows-порт его не несёт. «Unknown command»
-        # тут читается как сломанная установка; пользователь должен получить причину и рабочий
-        # обходной путь средствами самой ОС.
+        # The README documents `panic hotkey`, but the Windows port doesn't ship it. "Unknown command"
+        # here reads like a broken install; the user should get the reason and a working
+        # workaround using the OS itself.
         $err = (& pwsh -NoProfile -File $script:ScriptPath hotkey 2>&1 | Out-String)
         $LASTEXITCODE | Should -Not -Be 0
         $err | Should -Not -Match 'Unknown command'

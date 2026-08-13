@@ -1,18 +1,18 @@
-# Тесты ghostdraft (pack 1: scaffold — вендоринг + skeleton + dispatcher).
+# Tests for ghostdraft (pack 1: scaffold — vendoring + skeleton + dispatcher).
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../ghostdraft"
-  # uname-стаб (-> Darwin) выводит на PATH: cmd_new зовёт require_macos, иначе
-  # тесты падали бы на Linux-CI. macOS-примитивы (hdiutil/diskutil) тесты не трогают.
+  # A uname stub (-> Darwin) goes on PATH: cmd_new calls require_macos, otherwise
+  # the tests would fail on Linux CI. The tests never touch macOS primitives (hdiutil/diskutil).
   STUBS="${BATS_TEST_DIRNAME}/stubs"
   export PATH="$STUBS:$PATH"
-  # bats-раннер не TTY; редактор в тестах замокан (не интерактивный), поэтому обходим
-  # интерактивный-терминал guard из cmd_new. Тест этого guard'а снимает переменную явно.
+  # The bats runner is not a TTY; the editor is mocked in tests (non-interactive), so we bypass
+  # the interactive-terminal guard in cmd_new. The test for that guard unsets the variable explicitly.
   export GD_ASSUME_TTY=1
 }
 
 @test "new refuses in a non-interactive terminal instead of hanging the editor" {
   work="$(mktemp -d)"; bin="$work/bin"; mkdir -p "$bin"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$bin/vim"; chmod +x "$bin/vim"   # стаб, чтобы RED не завис на настоящем vim
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$bin/vim"; chmod +x "$bin/vim"   # stub so RED doesn't hang on real vim
   run env -u EDITOR -u GD_ASSUME_TTY PATH="$bin:$STUBS:$PATH" GHOSTDRAFT_DIR="$work/d" bash "$SCRIPT" new </dev/null
   [ "$status" -ne 0 ]
   [[ "$output" == *"interactive terminal"* ]] || [[ "$output" == *"интерактивный"* ]]
@@ -52,7 +52,7 @@ setup() {
 }
 
 @test "--yes is accepted anywhere in the args and does not become a command" {
-  # Контракт securetrash: флаг вырезается, остальные аргументы сохраняют порядок.
+  # The securetrash contract: the flag is stripped, remaining args keep their order.
   run bash "$SCRIPT" --yes version
   [ "$status" -eq 0 ]
   [[ "$output" == *"ghostdraft"* ]]
@@ -128,16 +128,16 @@ setup() {
   [[ "$output" == *"синхронен"* ]] || [[ "$output" == *"sync"* ]]
 }
 
-# Фейковый редактор: пишет известный маркер в переданный файл и запоминает путь.
-# Через него тестируем жизненный цикл `new` headless (без TTY, без реального RAM-диска).
+# Fake editor: writes a known marker into the given file and records the path.
+# Via it we test the `new` lifecycle headless (no TTY, no real RAM disk).
 _fake_editor() {
   local ed="$1"
   cat > "$ed" <<'SH'
 #!/usr/bin/env bash
 printf 'DRAFT-CONTENT' > "$1"
 printf '%s\n' "$1" > "${GD_EDITED_PATH:?}"
-# права: GNU (Linux-CI) stat -c сначала; BSD (macOS) -c падает -> fallback -f.
-  # Обратный порядок ломался: GNU `stat -f` НЕ падает (--file-system), даёт мусор.
+# permissions: GNU (Linux CI) stat -c first; BSD (macOS) -c fails -> fallback -f.
+  # The reverse order broke: GNU `stat -f` does NOT fail (--file-system), it yields garbage.
 { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; } > "${GD_EDITED_MODE:?}"
 SH
   chmod +x "$ed"
@@ -154,8 +154,8 @@ SH
 }
 
 @test "$EDITOR with a space in its path still opens (not split into words)" {
-  # На macOS путь с пробелом — норма (`/Applications/Visual Studio Code.app/…/code`).
-  # Побитый на слова $EDITOR не запускался вовсе: черновик открыть было нечем.
+  # On macOS a path with a space is normal (`/Applications/Visual Studio Code.app/…/code`).
+  # An $EDITOR split into words never launched at all: nothing could open the draft.
   work="$(mktemp -d)"; mkdir -p "$work/my editors"; ed="$work/my editors/ed"
   _fake_editor "$ed"
   export GD_EDITED_PATH="$work/edited" GD_EDITED_MODE="$work/mode"
@@ -189,7 +189,7 @@ SH
 
 @test "new defaults the fallback editor to 'vim -i NONE' when EDITOR is unset" {
   work="$(mktemp -d)"; bin="$work/bin"; mkdir -p "$bin"
-  # Стаб vim: пишет контент в последний аргумент (черновик), логирует свои аргументы.
+  # vim stub: writes content into the last argument (the draft), logs its arguments.
   cat > "$bin/vim" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" > "$VIM_ARGS"
@@ -218,9 +218,9 @@ SH
   run env -u EDITOR PATH="$bin:$PATH" GHOSTDRAFT_DIR="$work/d" bash "$SCRIPT" new
   [ "$status" -eq 0 ]
   run cat "$VIM_ARGS"
-  # Выход обязан работать ИЗ ЛЮБОГО РЕЖИМА: `ZZ`/`ZQ` живут только в normal, из режима
-  # вставки они просто печатаются в текст, и редактор выглядит зависшим; F-клавиши
-  # перехватывает терминал (Warp). Поэтому Ctrl-аккорд + маппинг в normal И insert.
+  # Exit must work FROM ANY MODE: `ZZ`/`ZQ` live only in normal mode; from insert
+  # mode they just get typed into the text and the editor looks hung; F-keys are
+  # intercepted by the terminal (Warp). Hence a Ctrl chord + mapping in normal AND insert.
   [[ "$output" == *"laststatus=2"* ]]
   [[ "$output" == *"statusline="* ]]
   [[ "$output" == *"Ctrl-D"* ]]
@@ -229,23 +229,23 @@ SH
   [[ "$output" == *"inoremap <silent> <C-d> <Esc>:wq<CR>"* ]]
   [[ "$output" == *"nnoremap <silent> <C-x> :q!<CR>"* ]]
   [[ "$output" == *"inoremap <silent> <C-x> <Esc>:q!<CR>"* ]]
-  # Промах по `ZQ` включал запись макроса (`recording @q`) — редактор переставал отвечать
-  # на привычное, и это выглядело как зависание. Записи макросов в блокноте быть не должно.
+  # A missed `ZQ` started macro recording (`recording @q`) — the editor stopped responding
+  # to the familiar keys and it looked like a hang. No macro recording in a notepad.
   [[ "$output" == *"nnoremap q <Nop>"* ]]
-  # Старые пути не сломаны — кто их знает, не теряет ничего.
+  # The old paths are not broken — whoever knows them loses nothing.
   [[ "$output" == *"ZZ"* ]]
   [[ "$output" == *"ZQ"* ]]
   [[ "$output" == *"nnoremap <F2> :wq<CR>"* ]]
   [[ "$output" == *"<F3> :q!<CR>"* ]]
-  # Блокнот обязан открываться ГОТОВЫМ К ПЕЧАТИ. vim стартует в normal-режиме, где буквы —
-  # это команды: живой пользователь печатал, текст не появлялся, внизу висел огрызок
-  # недобранной команды. Плюс `-N`: без ~/.vimrc vim уходит в compatible, где Backspace
-  # и стрелки в insert ведут себя не так, как ждёт не-vim-пользователь.
+  # The notepad must open READY TO TYPE. vim starts in normal mode where letters are
+  # commands: a real user typed, no text appeared, and a half-entered command stub hung
+  # at the bottom. Plus `-N`: without ~/.vimrc vim goes compatible, where Backspace
+  # and arrows in insert don't behave the way a non-vim user expects.
   [[ "$output" == *"startinsert"* ]]
   [[ "$output" == *"-N"* ]]
   [[ "$output" == *"backspace=indent,eol,start"* ]]
-  # vim принимает МАКСИМУМ 10 `-c`; на одиннадцатом он отказывается стартовать целиком,
-  # то есть блокнот не открывается вовсе. Стаб-vim этого не покажет — сторожим счётом.
+  # vim accepts AT MOST 10 `-c`; on the eleventh it refuses to start entirely,
+  # i.e. the notepad doesn't open at all. The vim stub won't show this — guard by counting.
   n_c="$(printf '%s\n' $output | grep -c -- '^-c$')"
   [ "$n_c" -le 10 ]
   rm -rf "$work"
@@ -287,7 +287,7 @@ SH
 
 @test "new cleans vim swap/undo and nano backup of the draft" {
   work="$(mktemp -d)"; dir="$work/draftdir"
-  # редактор создаёт побочные editor-следы рядом с черновиком
+  # the editor creates side artifacts next to the draft
   cat > "$work/ed" <<'SH'
 #!/usr/bin/env bash
 printf 'DRAFT-CONTENT' > "$1"
@@ -307,9 +307,9 @@ SH
   rm -rf "$work"
 }
 
-# Регрессия: _pick_draft_dir несёт ram-dev третьим полем через stdout (не через
-# глобал в $(...)). Раньше RAM-диск утекал без detach из-за subshell. Контракт:
-# вывод = "<dir>\t<kind>\t<ram_dev>" (ram_dev пуст для override/vault).
+# Regression: _pick_draft_dir carries ram-dev as the third field via stdout (not via
+# a global inside $(...)). Previously the RAM disk leaked without detach because of the
+# subshell. Contract: output = "<dir>\t<kind>\t<ram_dev>" (ram_dev empty for override/vault).
 @test "_pick_draft_dir emits the ram-dev field (no-subshell-leak contract)" {
   work="$(mktemp -d)"
   out="$(source "$SCRIPT"; GHOSTDRAFT_DIR="$work" _pick_draft_dir)"
@@ -319,8 +319,8 @@ SH
   rm -rf "$work"
 }
 
-# Регрессия: имя тома RAM-диска уникально (suffix из /dev/urandom). Раньше фикс.
-# /Volumes/ghostdraft-ram → коллизия двух инстансов и промах detach по имени.
+# Regression: the RAM-disk volume name is unique per call (suffix from /dev/urandom). It used
+# to be fixed: /Volumes/ghostdraft-ram → two instances collide and detach-by-name misses.
 @test "_ram_volname is unique per call and carries the prefix" {
   a="$(source "$SCRIPT"; _ram_volname)"
   b="$(source "$SCRIPT"; _ram_volname)"
@@ -337,8 +337,8 @@ SH
   ed="$work/ed"; _fake_editor "$ed"
   export GD_EDITED_PATH="$work/edited" GD_EDITED_MODE="$work/mode"
   export CLIP_LOG="$work/clip.log" CLIP_STATE="$work/clip.state"; : > "$CLIP_LOG"
-  # CLIP_SECS=1: авто-очистка лишь дописывает пустоту в append-log — assertion ниже
-  # (grep DRAFT-CONTENT) race-safe; держим коротко, чтобы не плодить фоновые sleep.
+  # CLIP_SECS=1: auto-clear only appends emptiness to the append-log — the assertion below
+  # (grep DRAFT-CONTENT) is race-safe; keep it short to avoid piling up background sleeps.
   run env PATH="$bin:$PATH" GHOSTDRAFT_DIR="$work/d" GHOSTDRAFT_CLIP_SECS=1 \
     ST_ASSUME_YES=1 EDITOR="$ed" bash "$SCRIPT" new --clipboard
   [ "$status" -eq 0 ]
@@ -410,7 +410,7 @@ SH
   ( cd "$work" && printf 'top-secret' | bash "$SCRIPT" pipe >/dev/null )
   after="$(find "$work" -type f | wc -l)"
   [ "$before" -eq "$after" ]
-  # содержимое не утекло во временные файлы рабочей папки
+  # the content did not leak into temp files in the working directory
   run bash -c "grep -rl 'top-secret' '$work' 2>/dev/null"
   [ -z "$output" ]
   rm -rf "$work"
@@ -428,9 +428,9 @@ SH
   rm -rf "$work"
 }
 
-# Структурный P3: «том примонтирован» спрашиваем у канонического _volume_mounted из
-# вендоренного common.sh. Каталог, оставшийся от прошлого монтирования, — не сейф:
-# черновик в него уехал бы на обычный диск, ровно против назначения инструмента.
+# Structural P3: "is the volume mounted" is asked of the canonical _volume_mounted from
+# the vendored common.sh. A directory left over from a past mount is not a vault:
+# a draft written into it would land on the regular disk, the exact opposite of the tool's purpose.
 @test "_is_mounted_writable refuses a writable directory that is not a mounted volume" {
   work="$(mktemp -d)"; bin="$work/bin"; mkdir -p "$bin" "$work/Volumes/SecretVault"
   printf '#!/usr/bin/env bash\necho "/dev/disk1s5 on / (apfs, local)"\n' > "$bin/mount"
@@ -450,12 +450,12 @@ SH
 }
 
 @test "real vim: with these flags typed text actually lands in the file" {
-  # Стаб-редактор не может показать, В КАКОМ РЕЖИМЕ откроется настоящий vim — а именно на
-  # этом застрял живой пользователь. Проигрываем клавиши в настоящий vim теми же флагами:
-  # печатаем текст и жмём Ctrl-D. Без `startinsert` файл остался бы пустым.
+  # A stub editor can't show WHICH MODE real vim opens in — and that is exactly where
+  # a real user got stuck. Replay keys into real vim with the same flags:
+  # type text and press Ctrl-D. Without `startinsert` the file would stay empty.
   command -v vim >/dev/null 2>&1 || skip "vim not installed"
   work="$(mktemp -d)"
-  printf 'secret note\004' > "$work/keys"      # текст + Ctrl-D
+  printf 'secret note\004' > "$work/keys"      # text + Ctrl-D
   : > "$work/draft"
   TERM=dumb vim -N -i NONE \
     -c 'execute "inoremap <silent> <C-d> <Esc>:wq<CR>"' \

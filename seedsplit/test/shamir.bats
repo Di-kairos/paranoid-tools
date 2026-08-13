@@ -1,16 +1,16 @@
-# Тесты ядра Shamir над GF(256): split/combine/verify, формат SSS3 (+ совместимость с SSS2).
-# Спека корректности: round-trip всех подмножеств порога; отказ при <T долей;
-# таксономия отказов (порча CRC / разные сплиты set-id / расходящийся T / целостность
-# 16-байтного tag); бинарные секреты; границы N/T; KAT-векторы (GF + замороженный набор).
+# Tests for the Shamir core over GF(256): split/combine/verify, the SSS3 format (+ SSS2 compatibility).
+# Correctness spec: round-trip of every threshold subset; refusal with <T shares;
+# failure taxonomy (CRC corruption / set-id from different splits / diverging T / integrity
+# of the 16-byte tag); binary secrets; N/T boundaries; KAT vectors (GF + a frozen set).
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../seedsplit"
   STUBS="${BATS_TEST_DIRNAME}/stubs"
   export PATH="$STUBS:$PATH"
   export ST_ASSUME_YES=1
-  export ST_LOCALE=en   # детерминируем локаль рантайм-сообщений (en — дефолт тула)
+  export ST_LOCALE=en   # pin the runtime-message locale (en is the tool's default)
 }
 
-# --- помощник: разбить секрет, вернуть доли (по строке на долю) ---
+# --- helper: split a secret, return the shares (one line per share) ---
 _split() { # $1=secret $2=N $3=T
   printf '%s' "$1" | bash "$SCRIPT" split -n "$2" -t "$3"
 }
@@ -75,12 +75,12 @@ _split() { # $1=secret $2=N $3=T
   shares="$(_split "$secret" 3 2)"
   first="$(printf '%s\n' "$shares" | sed -n '1p')"
   second="$(printf '%s\n' "$shares" | sed -n '2p')"
-  # Поля SSS3: SSS3-setid-T-x-Y-par-chk. Портим сразу много байт Y — больше, чем чинит parity,
-  # поэтому доля обязана быть отвергнута, а не «починена».
+  # SSS3 fields: SSS3-setid-T-x-Y-par-chk. Corrupt many bytes of Y at once — more than parity
+  # can repair, so the share must be rejected, not "fixed".
   sid="$(cut -d- -f2 <<<"$first")"; T="$(cut -d- -f3 <<<"$first")"
   x="$(cut -d- -f4 <<<"$first")"; Y="$(cut -d- -f5 <<<"$first")"
   par="$(cut -d- -f6 <<<"$first")"; chk="$(cut -d- -f7 <<<"$first")"
-  # Восемь испорченных hex-пар — вчетверо больше, чем чинит parity.
+  # Eight corrupted hex pairs — four times more than parity can repair.
   badY="ffffffffffffffff${Y:16}"
   corrupt="SSS3-${sid}-${T}-${x}-${badY}-${par}-${chk}"
   run bash -c "printf '%s\n%s\n' '$corrupt' '$second' | bash '$SCRIPT' combine"
@@ -102,7 +102,7 @@ _split() { # $1=secret $2=N $3=T
   shares="$(_split "tee" 3 2)"
   s1="$(printf '%s\n' "$shares" | sed -n '1p')"
   s2="$(printf '%s\n' "$shares" | sed -n '2p')"
-  # Подменяем у s2 заявленный T=2 -> 9 и пересчитываем per-share chk (чтобы доля «прошла»).
+  # Swap s2's declared T=2 -> 9 and recompute the per-share chk (so the share "passes").
   sid="$(cut -d- -f2 <<<"$s2")"; x="$(cut -d- -f4 <<<"$s2")"; Y="$(cut -d- -f5 <<<"$s2")"
   body="SSS2-${sid}-9-${x}-${Y}"
   chk="$(printf '%s' "$body" | shasum -a 256 | cut -c1-4)"
@@ -116,8 +116,8 @@ _split() { # $1=secret $2=N $3=T
   shares="$(_split "$secret" 3 2)"
   s1="$(printf '%s\n' "$shares" | sed -n '1p')"
   s2="$(printf '%s\n' "$shares" | sed -n '2p')"
-  # Портим Y у s1 на один nibble И пересчитываем per-share chk → доля сама «валидна»,
-  # но восстановленный payload не сойдётся с 16-байтным tag.
+  # Corrupt one nibble of s1's Y AND recompute the per-share chk → the share itself is "valid",
+  # but the reconstructed payload won't match the 16-byte tag.
   sid="$(cut -d- -f2 <<<"$s1")"; T="$(cut -d- -f3 <<<"$s1")"; x="$(cut -d- -f4 <<<"$s1")"; Y="$(cut -d- -f5 <<<"$s1")"
   c="${Y:0:1}"; if [ "$c" = "0" ]; then nc="1"; else nc="0"; fi
   body="SSS2-${sid}-${T}-${x}-${nc}${Y:1}"
@@ -205,12 +205,12 @@ _split() { # $1=secret $2=N $3=T
   [ "$out" = "$secret" ]
 }
 
-# --- Known-answer tests (страховка от регрессии при будущем рефакторинге) ---
+# --- Known-answer tests (insurance against regression in future refactoring) ---
 
 @test "KAT: GF(256) multiply matches FIPS-197 vectors" {
-  # 0x57·0x13=0xfe(254), 0x57·0x83=0xc1(193), 0x01·0xab=0xab(171) — эталон AES (FIPS-197 §4.2).
-  # Робастно к версии bash: single-quoted body (без вложенного экранирования), SCRIPT через $1,
-  # 'set +eu' нейтрализует строгий режим sourced-скрипта, индексы литеральные (не через $N).
+  # 0x57·0x13=0xfe(254), 0x57·0x83=0xc1(193), 0x01·0xab=0xab(171) — the AES reference (FIPS-197 §4.2).
+  # Robust across bash versions: single-quoted body (no nested escaping), SCRIPT via $1,
+  # 'set +eu' neutralizes the sourced script's strict mode, indices are literal (not via $N).
   run bash -c 'source "$1"; set +eu; _gf_init
     echo $(( GF_EXP[(GF_LOG[87]+GF_LOG[19])%255] )) \
          $(( GF_EXP[(GF_LOG[87]+GF_LOG[131])%255] )) \
@@ -228,10 +228,10 @@ _split() { # $1=secret $2=N $3=T
   [ "$(printf '%s\n%s\n' "$s2" "$s3" | bash "$SCRIPT" combine)" = "KAT-seedsplit-v030" ]
 }
 
-# --- SSS3: RS-коррекция опечаток в переписанной с бумаги доле ---
+# --- SSS3: RS correction of typos in a share copied back from paper ---
 
-# Собрать долю старого формата SSS2 из свежей SSS3 (снять parity, пересчитать chk4) —
-# ровно то, что печатали релизы до 0.5.0. Так проверяется обратная совместимость combine.
+# Build an old-format SSS2 share from a fresh SSS3 one (strip parity, recompute chk4) —
+# exactly what releases before 0.5.0 printed. This is how combine's backward compatibility is tested.
 _sss3_to_sss2() {
   local line="$1" sid T x yh
   [[ "$line" =~ ^SSS3-([0-9a-f]{8})-([0-9]+)-([0-9]+)-([0-9a-f]+)-([0-9a-f]+)-([0-9a-f]{4})$ ]] || return 1
@@ -241,7 +241,7 @@ _sss3_to_sss2() {
   printf '%s-%s' "$body" "${chk:0:4}"
 }
 
-# Испортить один hex-символ строки в позиции $2 (гарантированно на другой).
+# Corrupt one hex character of the line at position $2 (guaranteed to a different one).
 _typo_at() {
   local line="$1" pos="$2" ch alt
   ch="${line:pos:1}"
@@ -265,7 +265,7 @@ _typo_at() {
   [ "$status" -eq 0 ]
   [ "$output" != "" ]
   [[ "$output" == *"$secret"* ]]
-  [[ "$output" == *"corrected"* ]] || [[ "$output" == *"исправлено"* ]]   # починку не скрываем
+  [[ "$output" == *"corrected"* ]] || [[ "$output" == *"исправлено"* ]]   # the repair is not hidden
 }
 
 @test "two mistyped characters in different bytes are still corrected" {
@@ -279,7 +279,7 @@ _typo_at() {
 }
 
 @test "beyond two damaged bytes combine refuses — it never guesses a secret" {
-  # Самое важное свойство: код чинит или отказывает, но НЕ отдаёт молча другой секрет.
+  # The most important property: the code repairs or refuses, but NEVER silently returns a different secret.
   secret='legal winner thank year wave'
   shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
   s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
@@ -312,8 +312,8 @@ _typo_at() {
 }
 
 @test "parity is deterministic — known-answer for a fixed payload (bash↔ps1 parity anchor)" {
-  # Тот же вектор проверяется в Pester: доли, нарезанные на macOS, обязаны собираться
-  # на Windows и наоборот, значит и parity обязана считаться байт-в-байт одинаково.
+  # The same vector is checked in Pester: shares split on macOS must combine
+  # on Windows and vice versa, so parity must be computed byte-for-byte identically.
   run bash -c "source '$SCRIPT'; _rs_parity_hex '55000c6c6567616c2077696e6e6572deadbeefcafe00112233445566778899aa'"
   [ "$status" -eq 0 ]
   [ "$output" = "36e2117b" ]
@@ -326,11 +326,11 @@ _typo_at() {
   bad="$(_typo_at "$s1" 30)"
   run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' verify"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"$secret"* ]]   # verify не печатает секрет
+  [[ "$output" != *"$secret"* ]]   # verify does not print the secret
 }
 
-# KAT формата SSS3: набор заморожен (нарезан bash-версией 0.5.0). Тот же вектор проверяется
-# в Pester — так гарантируется, что доли, нарезанные на macOS, соберутся на Windows и наоборот.
+# SSS3 format KAT: the set is frozen (split by bash version 0.5.0). The same vector is checked
+# in Pester — this guarantees shares split on macOS will combine on Windows and vice versa.
 @test "KAT: frozen SSS3 share-set reconstructs the known secret" {
   s1="SSS3-de3006a6-2-1-8078e43fb71f926eabbe001af8802beabe7bbc4b9e6cd7b48d92f566d4214fc5e1e7a3683487e4640e35077b-a6effc9d-ebc2"
   s2="SSS3-de3006a6-2-2-e4f0f8eed6a89c6efcdcac5477aae77bf296de35bbb820dca4a95e50d93393c16b24ad6868acc44668047d71-4118ad84-4213"
@@ -349,13 +349,13 @@ _typo_at() {
 }
 
 @test "multi-chunk payload: parity covers every chunk and repairs the second one" {
-  # Полезная нагрузка >251 байта → parity из двух блоков. Проверяем и round-trip, и то,
-  # что чинится опечатка ВО ВТОРОМ чанке (первый чанк при этом чистый).
+  # Payload >251 bytes → parity of two blocks. We check both the round-trip and that
+  # a typo IN THE SECOND chunk is repaired (with the first chunk left clean).
   secret="$(head -c 300 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 600)"
   shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
   s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
   IFS=- read -r pfx sid T x yh par chk <<<"$s1"
-  # 619 байт нагрузки → 3 чанка по 251 → 12 байт parity = 24 hex-символа.
+  # 619 bytes of payload → 3 chunks of 251 → 12 bytes of parity = 24 hex characters.
   [ "${#par}" -eq 24 ]
   out="$(printf '%s\n%s\n' "$s1" "$s2" | bash "$SCRIPT" combine)"
   [ "$out" = "$secret" ]
@@ -367,13 +367,13 @@ _typo_at() {
 }
 
 @test "a typo landing on a field separator is refused, not silently mangled" {
-  # RS кроет тело доли, но не структуру строки: съеденный/подменённый дефис = нечитаемая доля.
-  # Так и задокументировано; проверяем, что мы это честно говорим, а не гадаем.
+  # RS covers the share body, not the line structure: a swallowed/substituted hyphen = unreadable share.
+  # That is documented as such; we check that we say so honestly instead of guessing.
   secret='legal winner thank year wave'
   shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
   s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
   IFS=- read -r pfx sid T x yh par chk <<<"$s1"
-  sep=$(( ${#pfx} + 1 + ${#sid} + 1 + ${#T} + 1 + ${#x} + 1 + ${#yh} ))   # дефис перед parity
+  sep=$(( ${#pfx} + 1 + ${#sid} + 1 + ${#T} + 1 + ${#x} + 1 + ${#yh} ))   # the hyphen before parity
   bad="${s1:0:sep}a${s1:sep+1}"
   run bash -c "printf '%s\n%s\n' '$bad' '$s2' | bash '$SCRIPT' combine"
   [ "$status" -ne 0 ]
@@ -381,8 +381,8 @@ _typo_at() {
 }
 
 @test "a typo inside the parity field is repaired too (Codex review)" {
-  # Раньше combine чинил тело, но сверял chk4 со всё ещё испорченным parity — и починка
-  # не засчитывалась. Теперь исправленный parity возвращается вместе с телом.
+  # Previously combine repaired the body but checked chk4 against the still-corrupted parity —
+  # and the repair didn't count. Now the corrected parity is returned along with the body.
   secret='legal winner thank year wave'
   shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
   s1="$(printf '%s\n' "$shares" | sed -n 1p)"; s2="$(printf '%s\n' "$shares" | sed -n 2p)"
@@ -407,8 +407,8 @@ _typo_at() {
 }
 
 @test "the repair notice is printed only after the payload tag verifies" {
-  # «Починил» имеет смысл говорить лишь когда набор реально собрался: иначе пользователь
-  # читал бы «исправлено» у долей, которые следом честно отвергнуты.
+  # Saying "repaired" only makes sense when the set actually reconstructed: otherwise the user
+  # would read "corrected" on shares that are honestly rejected right after.
   secret='legal winner thank year wave'
   shares="$(printf '%s' "$secret" | bash "$SCRIPT" split -n 3 -t 2)"
   s1="$(printf '%s\n' "$shares" | sed -n 1p)"

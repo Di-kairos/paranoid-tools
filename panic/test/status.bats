@@ -1,4 +1,4 @@
-# Тесты panic status (read-only preflight): образы, буфер, FileVault, cloud-демоны.
+# Tests for panic status (read-only preflight): images, clipboard, FileVault, cloud daemons.
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../panic"
@@ -46,12 +46,12 @@ run_status() { run env PATH="$STUBS:$PATH" bash "$SCRIPT" status "$@"; }
 }
 
 @test "status survives a failing pbpaste (best-effort clipboard, no exit 1)" {
-  # headless/sandbox: pbpaste падает под set -euo pipefail — read-only статус НЕ должен
-  # обрываться на буфере и выходить с кодом 1, а честно сказать «неизвестно» и продолжить.
+  # headless/sandbox: pbpaste fails under set -euo pipefail — the read-only status must NOT
+  # abort on the clipboard and exit with code 1; it should honestly say "unknown" and continue.
   STUB_PBPASTE_FAIL=1 run_status
   [ "$status" -eq 0 ]
   [[ "$output" == *"unknown"* ]] || [[ "$output" == *"неизвестно"* ]]
-  [[ "$output" == *"FileVault"* ]]   # дошёл до проверок ПОСЛЕ буфера, не оборвался
+  [[ "$output" == *"FileVault"* ]]   # reached the checks AFTER the clipboard, did not abort
 }
 
 @test "status reports FileVault ON" {

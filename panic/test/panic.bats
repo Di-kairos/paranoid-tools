@@ -1,4 +1,4 @@
-# Тесты panic (pack 1: scaffold — вендоринг + skeleton + dispatcher).
+# Tests for panic (pack 1: scaffold — vendoring + skeleton + dispatcher).
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../panic"
 }
@@ -70,15 +70,15 @@ setup() {
   [[ "$output" == *"синхронен"* ]] || [[ "$output" == *"sync"* ]]
 }
 
-# Ядро `now` тестируется в now.bats СО СТАБАМИ — без них `panic now` выполнил бы
-# реальную панику (detach образов + lock) на хосте. Здесь только scaffold/dispatcher.
+# The `now` core is tested in now.bats WITH STUBS — without them `panic now` would run
+# a real panic (detach images + lock) on the host. Here only scaffold/dispatcher.
 
 @test "vendor --check detects drift in the vendored block" {
   work="$(mktemp -d)"; mkdir -p "$work/tools"
   cp "${BATS_TEST_DIRNAME}/../panic" "$work/panic"
   cp "${BATS_TEST_DIRNAME}/../tools/vendor-common.sh" "$work/tools/"
-  # Мутируем строку ВНУТРИ вшитого блока → --check должен поймать дрейф (exit 1).
-  # Portable (без sed -i: BSD/GNU расходятся): sed в файл → mv.
+  # Mutate a line INSIDE the vendored block → --check must catch the drift (exit 1).
+  # Portable (no sed -i: BSD/GNU diverge): sed into a file → mv.
   sed 's/_ST_COMMON_LOADED=1/_ST_COMMON_LOADED=999/' "$work/panic" > "$work/panic.mut"
   mv "$work/panic.mut" "$work/panic"
   run bash "$work/tools/vendor-common.sh" --check

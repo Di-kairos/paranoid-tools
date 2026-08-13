@@ -1,23 +1,23 @@
-﻿# Pester 5 тесты install.ps1: ставит securetrash.ps1 только при совпадении SHA256
-# И валидной ed25519-подписи; fail-closed отказывается при подмене/отсутствии суммы,
-# отсутствии/невалидности подписи или отсутствии верификатора (ssh-keygen).
+﻿# Pester 5 tests for install.ps1: installs securetrash.ps1 only when the SHA256 matches
+# AND the ed25519 signature is valid; refuses fail-closed on tampering/missing checksum,
+# a missing/invalid signature, or a missing verifier (ssh-keygen).
 #
-# ssh-keygen подменяется фейком в отдельном каталоге на PATH (кросс-процессный мок,
-# как в bats): установщик запускается дочерним pwsh, поэтому Pester-Mock не подходит.
+# ssh-keygen is replaced by a fake in a separate PATH directory (a cross-process mock,
+# like in bats): the installer runs in a child pwsh, so Pester Mock does not apply.
 
 BeforeAll {
     $script:Installer = Join-Path $PSScriptRoot '..\install.ps1'
-    # Абсолютный путь к pwsh — чтобы звать установщик при урезанном PATH.
+    # Absolute path to pwsh — so the installer can be invoked with a trimmed PATH.
     $script:PwshExe = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
 
-    # Кладёт фейковый ssh-keygen с заданным кодом выхода в каталог $Dir.
-    # Windows: файл без расширения — не Application для Get-Command (PATHEXT), поэтому
-    # sh-фейк установщик не находил вовсе и happy-path падал fail-closed'ом (красный
-    # ci с v0.4.11). Кладём .cmd — честно исполняемый фейк для обеих веток verify.
+    # Puts a fake ssh-keygen with the given exit code into directory $Dir.
+    # Windows: a file with no extension is not an Application for Get-Command (PATHEXT), so
+    # the installer never found the sh fake and the happy path failed closed (red
+    # CI since v0.4.11). We drop a .cmd — an honestly executable fake for both verify branches.
     function New-FakeSshKeygen {
         param([Parameter(Mandatory)][string]$Dir, [Parameter(Mandatory)][int]$ExitCode)
         New-Item -ItemType Directory -Path $Dir -Force | Out-Null
-        # $env:OS, не $IsWindows: последний не определён в Windows PowerShell 5.1.
+        # $env:OS, not $IsWindows: the latter is undefined in Windows PowerShell 5.1.
         if ($env:OS -eq 'Windows_NT') {
             Set-Content -LiteralPath (Join-Path $Dir 'ssh-keygen.cmd') -Value "@exit /b $ExitCode"
         } else {
@@ -30,19 +30,19 @@ BeforeAll {
 
 Describe 'install.ps1 integrity + signature' {
     It 'can still verify under Windows PowerShell 5.1 (no ArgumentList there)' {
-        # `ArgumentList` есть только в .NET Core (PowerShell 7). Windows PowerShell 5.1 —
-        # штатный шелл Windows и ровно тот, в котором выполняют однострочник из README;
-        # без запасного пути установка падала бы на шаге проверки подписи.
+        # `ArgumentList` exists only in .NET Core (PowerShell 7). Windows PowerShell 5.1 is
+        # the stock Windows shell and exactly the one where the README one-liner is run;
+        # without the fallback path the install would fail at the signature verification step.
         $src = Get-Content -Raw -LiteralPath $script:Installer
         $src | Should -Match "PSObject\.Properties\.Name -contains 'ArgumentList'"
         $src | Should -Match '\$psi\.Arguments ='
     }
 
     It 'never pipes the signed data into the verifier (bytes must reach it unchanged)' {
-        # Конвейер PowerShell перекодирует текст (BOM, CRLF) и дописывает перевод строки, поэтому
-        # верификатор увидел бы НЕ те байты, что подписаны: валидная подпись читается как
-        # «incorrect signature», и fail-closed рубит установку с настоящего релиза. Так уже
-        # ломался seedsplit. Канон — сырой поток файла в stdin через ProcessStartInfo.
+        # The PowerShell pipeline re-encodes text (BOM, CRLF) and appends a newline, so
+        # the verifier would see bytes DIFFERENT from what was signed: a valid signature reads as
+        # "incorrect signature", and fail-closed kills installs from a genuine release. seedsplit
+        # already broke this way. The canon is the raw file stream into stdin via ProcessStartInfo.
         $src = Get-Content -Raw -LiteralPath $script:Installer
         $src | Should -Match 'ProcessStartInfo'
         $src | Should -Not -Match '(?m)Get-Content[^\r\n]*\|\s*&'
@@ -53,17 +53,17 @@ Describe 'install.ps1 integrity + signature' {
         $script:Work    = Join-Path ([System.IO.Path]::GetTempPath()) ("st_inst_" + [Guid]::NewGuid().ToString('N'))
         $script:Release = Join-Path $script:Work 'release'
         $script:Dest    = Join-Path $script:Work 'install'
-        $script:Bin     = Join-Path $script:Work 'bin'   # каталог с фейковым ssh-keygen
+        $script:Bin     = Join-Path $script:Work 'bin'   # directory with the fake ssh-keygen
         New-Item -ItemType Directory -Path $script:Release -Force | Out-Null
         New-Item -ItemType Directory -Path $script:Bin -Force | Out-Null
 
-        # Полезная нагрузка-заглушка + корректный SHA256SUMS.
+        # Stub payload + a correct SHA256SUMS.
         $payload = "Write-Host 'payload-ok'`n"
         $scriptFile = Join-Path $script:Release 'securetrash.ps1'
         Set-Content -Path $scriptFile -Value $payload -NoNewline
         $hash = (Get-FileHash -Path $scriptFile -Algorithm SHA256).Hash.ToLower()
         Set-Content -Path (Join-Path $script:Release 'SHA256SUMS') -Value "$hash  securetrash.ps1"
-        # .sig-заглушка: реальная криптопроверка мокается ssh-keygen'ом.
+        # Stub .sig: the real crypto check is mocked by ssh-keygen.
         Set-Content -Path (Join-Path $script:Release 'SHA256SUMS.sig') -Value "dummy-signature"
 
         $script:OrigPath = $env:PATH
@@ -87,7 +87,7 @@ Describe 'install.ps1 integrity + signature' {
     }
 
     It 'fails closed on checksum mismatch' {
-        # Подменяем нагрузку ПОСЛЕ генерации SHA256SUMS — хеш не сходится (до подписи не доходит).
+        # Replace the payload AFTER SHA256SUMS is generated — the hash mismatches (never reaches the signature).
         Set-Content -Path (Join-Path $script:Release 'securetrash.ps1') -Value "Write-Host 'TAMPERED'`n" -NoNewline
         New-FakeSshKeygen -Dir $script:Bin -ExitCode 0
         $env:PATH = $script:Bin
@@ -123,7 +123,7 @@ Describe 'install.ps1 integrity + signature' {
     }
 
     It 'fails closed when the verifier (ssh-keygen) is missing' {
-        # $script:Bin пуст — ssh-keygen недоступен на урезанном PATH.
+        # $script:Bin is empty — ssh-keygen is unavailable on the trimmed PATH.
         $env:PATH = $script:Bin
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
@@ -131,7 +131,7 @@ Describe 'install.ps1 integrity + signature' {
     }
 
     It 'PT_ALLOW_HASH_ONLY=1 allows install when verifier is missing (loud escape)' {
-        $env:PATH = $script:Bin              # ssh-keygen отсутствует
+        $env:PATH = $script:Bin              # ssh-keygen is absent
         $env:PT_ALLOW_HASH_ONLY = '1'
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
