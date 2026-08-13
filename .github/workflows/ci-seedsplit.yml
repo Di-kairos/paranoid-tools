@@ -1,44 +1,40 @@
-name: ci
-on: [push, pull_request]
+name: ci-seedsplit
+# Монорепо: гоняется только при изменениях внутри seedsplit/ (paths-фильтр).
+# Перенесён из seedsplit-репо при миграции; все run-шаги работают из каталога тула.
+on:
+  push:
+    paths: ['seedsplit/**']
+  pull_request:
+    paths: ['seedsplit/**']
+defaults:
+  run:
+    working-directory: seedsplit
 jobs:
-  # Бесплатный Linux-job: lint на каждый push (macOS-минуты не тратятся).
-  lint:
+  test:
+    # Linux-раннер: бесплатные минуты. seedsplit — чистая логика (shellcheck +
+    # vendor-check + bats); macOS-примитивы стабятся PATH-стабами в тестах.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - name: Lint
-        run: shellcheck securetrash install.sh lib/common.sh
-
-  # macOS-job: bats-тесты завязаны на require_macos/hdiutil/shasum, plus реальный
-  # vault-smoke. Требует валидного способа оплаты (платные macOS-раннеры).
-  test:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
       - name: Install tools
-        run: brew install bats-core shellcheck
+        run: sudo apt-get update && sudo apt-get install -y bats shellcheck
+      - name: Lint
+        run: shellcheck seedsplit install.sh tools/vendor-common.sh
+      - name: Vendored common is in sync with pinned securetrash
+        run: ./tools/vendor-common.sh --check
       - name: Unit tests
         run: bats test/
-      - name: Vault smoke test (real hdiutil)
-        run: |
-          export ST_VAULT_PASS=ci-test-pass ST_ASSUME_YES=1
-          ./securetrash vault create 10m
-          ./securetrash vault open
-          echo secret > /Volumes/SecretVault/s.txt
-          ./securetrash vault close
-          ./securetrash vault destroy
-          test ! -e "$HOME/SecureVault.sparsebundle"
 
   windows:
+    # Windows-порт (PowerShell, BETA): чистая логика Shamir/GF — Pester на windows-latest.
+    # Включает KAT-кросс-совместимость долей с macOS-сборкой (один формат SSS2).
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Pester 5
         shell: pwsh
         run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
-      - name: Pester (logic tests, mocked Windows cmdlets)
+      - name: Pester (seedsplit.ps1 logic + installer integrity gate)
         shell: pwsh
         run: |
           $r = Invoke-Pester windows/test -Output Detailed -PassThru
@@ -84,5 +80,5 @@ jobs:
       - name: Smoke — the tool actually answers under 5.1
         shell: powershell
         run: |
-          .\windows\securetrash.ps1 version
-          .\windows\securetrash.ps1 --help
+          .\windows\seedsplit.ps1 version
+          .\windows\seedsplit.ps1 --help

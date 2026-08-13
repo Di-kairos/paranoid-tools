@@ -1,5 +1,22 @@
 name: ci
-on: [push, pull_request]
+# Умбрелла-часть монорепо: лаунчер, GUI, установщик. Изменения внутри тул-каталогов
+# гоняются своими workflow (ci-<tool>.yml с paths-фильтром) — здесь они игнорируются,
+# чтобы не жечь macOS-минуты на каждый тул-коммит.
+on:
+  push:
+    paths-ignore:
+      - 'securetrash/**'
+      - 'vaultwatch/**'
+      - 'panic/**'
+      - 'ghostdraft/**'
+      - 'seedsplit/**'
+  pull_request:
+    paths-ignore:
+      - 'securetrash/**'
+      - 'vaultwatch/**'
+      - 'panic/**'
+      - 'ghostdraft/**'
+      - 'seedsplit/**'
 jobs:
   launcher:
     # macOS/Linux лаунчер `paranoid` — чистый Bash: shellcheck + bats (тулы стабятся на PATH).

@@ -12,8 +12,10 @@ set -euo pipefail
 
 PIN="221f2c7fbed10a220b832aab9264e6665581b514"
 COMMON_SHA256="348afdd5d924230b4eea6e495b6b21bd78fc851ac5795108078abf7dc5d4e6a0"
-SRC_URL="https://raw.githubusercontent.com/Di-kairos/securetrash/${PIN}/lib/common.sh"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Монорепо: источник — соседний каталог securetrash в этом же репозитории.
+# PIN остаётся меткой версии в маркерах, SHA256 по-прежнему сторожит байты.
+SRC_FILE="${ROOT}/../securetrash/lib/common.sh"
 TARGET="${ROOT}/seedsplit"
 BEGIN="# === BEGIN vendored common (pin: ${PIN}) ==="
 END="# === END vendored common ==="
@@ -29,11 +31,11 @@ _assert_markers() {
   fi
 }
 
-# Скачать common.sh в файл (точные байты) и верифицировать SHA256. Падение
-# сети/хеша → exit 3 (НЕ «дрейф»: CI должен отличать сбой загрузки от рассинхрона).
+# Взять common.sh из монорепо (точные байты) и верифицировать SHA256. Отсутствие
+# файла/хеш-провал → exit 3 (НЕ «дрейф»: CI должен отличать сбой источника от рассинхрона).
 _fetch_common_to() {
   local out="$1" actual
-  curl -fsSL "$SRC_URL" -o "$out" || { echo "vendor: сеть недоступна, не удалось получить $SRC_URL" >&2; exit 3; }
+  cp "$SRC_FILE" "$out" 2>/dev/null || { echo "vendor: не найден источник $SRC_FILE" >&2; exit 3; }
   [[ -s "$out" ]] || { echo "vendor: пустой источник" >&2; exit 3; }
   actual="$(shasum -a 256 "$out" | awk '{print $1}')"
   if [[ "$actual" != "$COMMON_SHA256" ]]; then

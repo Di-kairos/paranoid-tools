@@ -1,31 +1,53 @@
-name: ci
-on: [push, pull_request]
+name: ci-securetrash
+# Монорепо: гоняется только при изменениях внутри securetrash/ (paths-фильтр).
+# Перенесён из securetrash-репо при миграции; все run-шаги работают из каталога тула.
+on:
+  push:
+    paths: ['securetrash/**']
+  pull_request:
+    paths: ['securetrash/**']
+defaults:
+  run:
+    working-directory: securetrash
 jobs:
-  test:
-    # Linux-раннер: бесплатные минуты. panic scaffold — чистая логика
-    # (shellcheck + vendor-check + bats); macOS-примитивы стабятся в тестах.
+  # Бесплатный Linux-job: lint на каждый push (macOS-минуты не тратятся).
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install tools
-        run: sudo apt-get update && sudo apt-get install -y bats shellcheck
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Lint
-        run: shellcheck panic tools/vendor-common.sh
-      - name: Vendored common is in sync with pinned securetrash
-        run: ./tools/vendor-common.sh --check
+        run: shellcheck securetrash install.sh lib/common.sh
+
+  # macOS-job: bats-тесты завязаны на require_macos/hdiutil/shasum, plus реальный
+  # vault-smoke. Требует валидного способа оплаты (платные macOS-раннеры).
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: brew install bats-core shellcheck
       - name: Unit tests
         run: bats test/
+      - name: Vault smoke test (real hdiutil)
+        run: |
+          export ST_VAULT_PASS=ci-test-pass ST_ASSUME_YES=1
+          ./securetrash vault create 10m
+          ./securetrash vault open
+          echo secret > /Volumes/SecretVault/s.txt
+          ./securetrash vault close
+          ./securetrash vault destroy
+          test ! -e "$HOME/SecureVault.sparsebundle"
 
   windows:
-    # Windows-порт (PowerShell, BETA): panic — сплошные side-effect'ы, поэтому Pester
-    # проверяет оркестровку (lock/dismount/clear/--hard-гейт) с замоканными примитивами.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Pester 5
         shell: pwsh
         run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
-      - name: Pester (panic.ps1 orchestration + installer integrity gate)
+      - name: Pester (logic tests, mocked Windows cmdlets)
         shell: pwsh
         run: |
           $r = Invoke-Pester windows/test -Output Detailed -PassThru
@@ -71,5 +93,5 @@ jobs:
       - name: Smoke — the tool actually answers under 5.1
         shell: powershell
         run: |
-          .\windows\panic.ps1 version
-          .\windows\panic.ps1 --help
+          .\windows\securetrash.ps1 version
+          .\windows\securetrash.ps1 --help

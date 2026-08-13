@@ -1,0 +1,77 @@
+name: release
+# Монорепо-релизы: push тега `<tool>-vX.Y.Z` собирает SHA256SUMS по файлам этого
+# тула, подписывает их Ed25519-ключом экосистемы и публикует GitHub Release.
+# Ассеты — плоские имена (как в пер-тул релизах до миграции): релиз привязан к
+# тегу, поэтому `install.sh`/`SHA256SUMS` разных тулов не коллидируют.
+#
+# Требует секрет RELEASE_SIGNING_KEY (тот же ed25519-ключ, что был в пяти
+# пер-тул репозиториях; publkey запиннут в install.sh и SECURITY.md).
+# Без ключа выпуск ПРЕРЫВАЕТСЯ — неподписанных релизов не бывает.
+on:
+  push:
+    tags:
+      - 'securetrash-v*'
+      - 'vaultwatch-v*'
+      - 'panic-v*'
+      - 'ghostdraft-v*'
+      - 'seedsplit-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive tool name from the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          TOOL="${TAG%-v*}"
+          case "$TOOL" in
+            securetrash|vaultwatch|panic|ghostdraft|seedsplit) ;;
+            *) echo "Unknown tool prefix in tag '$TAG'" >&2; exit 1 ;;
+          esac
+          echo "TOOL=$TOOL" >> "$GITHUB_ENV"
+
+      - name: Stage release assets (flat basenames)
+        run: |
+          mkdir -p dist
+          cp "$TOOL/$TOOL" "$TOOL/install.sh" dist/
+          cp "$TOOL/windows/$TOOL.ps1" "$TOOL/windows/install.ps1" dist/
+
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: sha256sum "$TOOL" install.sh "$TOOL.ps1" install.ps1 > SHA256SUMS
+
+      - name: Sign SHA256SUMS
+        working-directory: dist
+        env:
+          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          # Подпись — поверх целостности (аутентичность). Ключ выделенный ed25519,
+          # без passphrase (защита — доступ к GH Secrets); namespace 'file' как у
+          # ssh-keygen -Y verify. Нет ключа → нет релиза.
+          if [ -z "${SIGNING_KEY:-}" ]; then
+            echo "RELEASE_SIGNING_KEY не задан — прерываю выпуск (подпись обязательна)." >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$SIGNING_KEY" > signing_key
+          ssh-keygen -Y sign -f signing_key -n file SHA256SUMS
+          rm -f signing_key
+          echo "Подписал SHA256SUMS → SHA256SUMS.sig"
+
+      - name: Create GitHub Release with verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --generate-notes \
+            "dist/$TOOL" dist/install.sh "dist/$TOOL.ps1" dist/install.ps1 \
+            dist/SHA256SUMS dist/SHA256SUMS.sig
