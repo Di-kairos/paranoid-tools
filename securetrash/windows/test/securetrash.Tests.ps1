@@ -898,7 +898,9 @@ Describe 'vault reset (destroy + recreate, crypto-shred guarantee)' {
         $script:vaultStates.Enqueue('mounted'); $script:vaultStates.Enqueue('unmounted')
         Mock Get-StVaultState { if ($script:vaultStates.Count -gt 0) { $script:vaultStates.Dequeue() } else { 'unmounted' } }
         Invoke-StVault -VaultArgs @('reset') 6>&1 | Out-Null
-        Should -Invoke Dismount-StVault -Times 1 -Exactly
+        # Twice, and both are wanted: the old container is detached before it is shredded, and
+        # the freshly created one is detached so reset ends with a CLOSED vault, like macOS.
+        Should -Invoke Dismount-StVault -Times 2 -Exactly
         Should -Invoke Remove-StVaultContainer -Times 1 -Exactly
         Should -Invoke New-StBitLockerVault -Times 1 -Exactly
     }
