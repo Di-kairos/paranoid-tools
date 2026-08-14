@@ -291,6 +291,10 @@ _release_feed() {
 # PARANOID_UPDATE_FEED file (`tool=vX.Y.Z` lines); otherwise the monorepo's
 # releases.atom is scanned for the newest <tool>-vX.Y.Z entry — one feed fetch
 # covers all five tools (entries are newest-first).
+# ponytail: the feed is a window of the latest releases, and five tools share it — a tool
+# whose release has scrolled out of that window reads here as "no update", never as an error.
+# The honest fix is a per-tool API query, which costs an unauthenticated rate limit and a
+# request per tool; take it only if a real user ever misses an update because of this.
 _fetch_latest_tag() {
   local tool="$1" tag
   if [[ -n "${PARANOID_UPDATE_FEED:-}" ]]; then

@@ -8,6 +8,8 @@
 #   bash smoke-test.sh
 #
 # Tool source: PATH first (if installed via install.sh), otherwise this repository.
+# PT_SMOKE_REPO=1 forces the working copy — that is what you want before cutting a tag,
+# where the installed build is exactly the thing you are not testing.
 # There are NO destructive operations on your files: shred/vault work only in the temporary
 # sandbox, the vault is mounted at /Volumes/SecretVault and destroyed right away (if the mount
 # point is taken by your real vault, that block is skipped so nothing gets touched).
@@ -16,8 +18,13 @@ set -uo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PASS=0; FAIL=0; SKIP=0
 
-# Run a tool: from PATH if installed, otherwise from the repository.
-tool() { local t="$1"; shift; if command -v "$t" >/dev/null 2>&1; then "$t" "$@"; else bash "${ROOT}/${t}/${t}" "$@"; fi; }
+# Run a tool: from PATH if installed, otherwise from the repository (PT_SMOKE_REPO=1 → always
+# from the repository).
+tool() {
+  local t="$1"; shift
+  if [[ "${PT_SMOKE_REPO:-0}" != "1" ]] && command -v "$t" >/dev/null 2>&1; then "$t" "$@"
+  else bash "${ROOT}/${t}/${t}" "$@"; fi
+}
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }

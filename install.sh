@@ -2,8 +2,9 @@
 # Installer for the WHOLE Paranoid Tools ecosystem — "one command, everything's there".
 #
 # Installs 5 tools (securetrash, vaultwatch, panic, ghostdraft, seedsplit)
-# + the interactive `paranoid` launcher into ~/.local/bin. Two modes, selected
-# automatically by whether local tool sources are present nearby:
+# + the interactive `paranoid` launcher into ~/.local/bin. Two modes — PUBLIC by
+# default, MAINTAINER only on an explicit PT_DEV=1 (see mode 2 on why it is not
+# picked automatically any more):
 #
 #   1. PUBLIC (default, any clone). Each tool is pulled from its SIGNED
 #      release using the verify-then-run scheme: the Ed25519 signature over
