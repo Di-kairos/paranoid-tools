@@ -191,7 +191,7 @@ Describe 'install.ps1 signature gate' {
             "`$env:SEEDSPLIT_SKIP_PATH='1'; & '$($script:InstallScript)'") 2>&1 | Out-String
 
         (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeFalse
-        $out | Should -Match 'Подпись релиза НЕ прошла проверку'
+        $out | Should -Match 'signature FAILED verification'
     }
 
     It 'does not hang when the verifier is noisy (redirected streams must be drained)' {
