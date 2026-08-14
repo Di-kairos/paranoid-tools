@@ -486,7 +486,12 @@ format fs=ntfs quick label=SecretVault
 assign letter=$DriveLetter
 "@
     Invoke-StDiskpart -Script $script
-    Enable-BitLocker -MountPoint "$($DriveLetter):" -PasswordProtector -Password $Password -EncryptionMethod Aes256 -ErrorAction Stop | Out-Null
+    # -UsedSpaceOnly on a volume formatted seconds ago: there is no pre-existing plaintext to
+    # leave behind, and full-volume encryption of a large container would otherwise run for
+    # minutes in the background — with the vault sitting unlocked all that time. Everything
+    # written later is encrypted as it lands.
+    Enable-BitLocker -MountPoint "$($DriveLetter):" -PasswordProtector -Password $Password `
+        -EncryptionMethod Aes256 -UsedSpaceOnly -ErrorAction Stop | Out-Null
 }
 
 # Run diskpart with a script (wrapper for Mock). We check the exit code (#3).
@@ -1076,6 +1081,12 @@ function Invoke-StVaultCreateNow {
         }
         Set-StPrivateAcl -Path $vaultPath               # #15: ACL on the container
         Write-StVaultBackend -VaultPath $vaultPath -Backend 'bitlocker'  # #10
+        # diskpart leaves the vhdx attached and BitLocker hands it back unlocked, so create used
+        # to end with an open vault nobody asked to open — walk away and the secrets sit exposed.
+        # macOS never had this: `hdiutil create` does not attach. A vault is opened by `vault
+        # open`, deliberately and with the password. Best-effort: a detach that fails leaves the
+        # volume mounted, which `status` now reports truthfully.
+        try { Dismount-StVault -Path $vaultPath } catch { }
         Write-StInfo (T 'vault_created' $vaultPath $Size)
         Write-StWarn (T 'vault_preventive')
     } elseif (Get-StVeraCryptPath) {
@@ -1312,10 +1323,13 @@ function Invoke-StVault {
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container' $vaultPath); Stop-StCommand }
             $state = Get-StVaultState -Path $vaultPath
             # 'unknown' (no Storage module, Get-DiskImage failed) is NOT the same as "closed".
-            # Saying "CLOSED" without having been able to check means lying in the reassuring direction.
-            # The divergence from bash is deliberate: hdiutil has no such failure mode.
+            # Saying "CLOSED" without having been able to check means lying in the reassuring
+            # direction. The exit code says the same thing as the text, so a script that only
+            # checks `$?` is not told "closed" either — bash does the same since its own
+            # unknown branch landed.
             if ($state -eq 'unknown') {
                 Write-StWarn (T 'vault_status_unknown' $vaultPath)
+                Stop-StCommand
             } elseif ($state -eq 'mounted') {
                 # The real volume, not a guess: the letter is picked dynamically at open.
                 $mount = Get-StMountedVaultRoot -Path $vaultPath

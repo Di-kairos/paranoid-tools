@@ -516,9 +516,17 @@ Describe 'vault status — bash parity (P2-8)' {
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock Get-StVaultState { 'unknown' }
 
+        Mock Stop-StCommand { }   # the wording is what this test is about; the exit code has its own
         $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('status') }
         $out | Should -Match 'NOT be determined'
         $out | Should -Not -Match 'is CLOSED \(not mounted\)'   # a false "closed" is exactly what must not appear here
+    }
+
+    It 'an undetermined state also exits non-zero, so a script is not told "closed" either' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'unknown' }
+
+        { Invoke-StVault -VaultArgs @('status') 6>$null 3>$null } | Should -Throw
     }
 
     It 'fails with a non-zero exit when there is no container at all' {
@@ -634,6 +642,17 @@ Describe 'vault: attached is not open, and a failed create leaves nothing behind
 
         $out = ''
         try { $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('open') } } catch [StExit] { $out = $_.TargetObject }
+        Should -Invoke Dismount-StVault -Times 1 -Exactly
+    }
+
+    # macOS parity: `hdiutil create` does not attach, so a freshly created vault is closed there.
+    # On Windows diskpart leaves the vhdx attached and BitLocker returns it unlocked.
+    It 'a successful create leaves the vault CLOSED, not sitting open' {
+        Mock Test-Path { $false } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock New-StBitLockerVault { }
+        Mock Dismount-StVault { }
+
+        Invoke-StVault -VaultArgs @('create', '200m') 6>&1 3>&1 | Out-Null
         Should -Invoke Dismount-StVault -Times 1 -Exactly
     }
 
