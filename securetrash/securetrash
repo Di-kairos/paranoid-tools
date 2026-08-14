@@ -239,6 +239,9 @@ EOF
     en:vault_status_closed) printf 'Container exists but is CLOSED (not mounted): %s' "$1" ;;
     ru:vault_status_closed) printf 'Контейнер существует, но ЗАКРЫТ (не смонтирован): %s' "$1" ;;
 
+    en:vault_status_unknown) printf 'Container exists, but its state could NOT be determined (hdiutil did not answer or its output did not parse): %s. Do not assume it is closed.' "$1" ;;
+    ru:vault_status_unknown) printf 'Контейнер есть, но состояние определить НЕ удалось (hdiutil не ответил или его вывод не разобрался): %s. Не считай его закрытым.' "$1" ;;
+
     en:vault_usage)      echo "vault: provide create|open|close|reset|destroy|status|destroy-old" ;;
     ru:vault_usage)      echo "vault: укажи create|open|close|reset|destroy|status|destroy-old" ;;
     en:vault_reset_confirm) printf 'RESET the vault — destroy %s and EVERYTHING inside, then create a fresh empty one?' "$1" ;;
@@ -781,11 +784,15 @@ cmd_vault() {
       ;;
     status)
       if [[ ! -e "$VAULT_PATH" ]]; then err "$(t vault_no_container "$VAULT_PATH")"; exit 1; fi
-      if [[ -n "$(_vault_dev)" ]]; then
-        info "$(t vault_status_open "$VAULT_VOLUME")"
-      else
-        info "$(t vault_status_closed "$VAULT_PATH")"
-      fi
+      # Three states, not two: _vault_dev flattens 'unknown' into an empty string, which used to
+      # print CLOSED — a reassuring answer we had not earned. Parity with the Windows port, which
+      # has always kept the state tri-valued here.
+      local vstate; vstate="$(_vault_state)"
+      case "$vstate" in
+        mounted*) info "$(t vault_status_open "$VAULT_VOLUME")" ;;
+        unmounted) info "$(t vault_status_closed "$VAULT_PATH")" ;;
+        *)        warn "$(t vault_status_unknown "$VAULT_PATH")"; exit 1 ;;
+      esac
       ;;
     destroy)
       _vault_assert_destroyable

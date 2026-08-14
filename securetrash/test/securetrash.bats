@@ -560,6 +560,20 @@ setup() {
   rm -rf "$tmp"
 }
 
+@test "vault status says the state is unknown instead of a reassuring CLOSED" {
+  # hdiutil unavailable: the state is genuinely undetermined. Calling that "CLOSED" is a lie in
+  # the comforting direction — the Windows port has always kept these three states apart.
+  tmp="$(mktemp -d)"; touch "$tmp/SecureVault.sparsebundle"
+  run env HOME="$tmp" ST_MOCK_INFO_FAIL=1 \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault status
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"NOT be determined"* ]] || [[ "$output" == *"определить НЕ удалось"* ]]
+  [[ "$output" != *"CLOSED"* ]]
+  [[ "$output" != *"ЗАКРЫТ"* ]]
+  rm -rf "$tmp"
+}
+
 @test "vault open on an already-mounted image does not attach again" {
   tmp="$(mktemp -d)"; touch "$tmp/SecureVault.sparsebundle"
   run env HOME="$tmp" ST_MOCK_VAULT_ATTACHED=1 ST_VAULT_PASS=test1234 \
