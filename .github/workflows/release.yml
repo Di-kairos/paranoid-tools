@@ -37,7 +37,10 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Pinned by commit, not by the mutable `v4` tag: this is the one job that holds the
+      # signing key, so whoever can move that tag could sign on our behalf. The CI workflows
+      # keep `@v4` — there the maintenance cost of a pin outweighs what it buys.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Validate the tag and derive the tool name
         env:
@@ -73,6 +76,16 @@ jobs:
             || { echo "install.sh (umbrella): version map does not name $TOOL $VER" >&2; bad=1; }
           grep -Fq "$TOOL:$VER" verify-releases.sh \
             || { echo "verify-releases.sh: pin is not $TOOL:$VER" >&2; bad=1; }
+          # The docs carry the install one-liners people copy-paste. A README left on the
+          # previous version sends them to a 404 (or quietly installs the older release)
+          # while everything here looks green — the same drift that produced three
+          # mismatches during the migration.
+          for f in "$TOOL/README.md" "$TOOL/README.ru.md" "$TOOL/SECURITY.md" "$TOOL/windows/README.md"; do
+            [ -f "$f" ] || continue
+            stale="$(grep -oE "releases/download/$TOOL-v[0-9]+\.[0-9]+\.[0-9]+" "$f" \
+                       | grep -vFx "releases/download/$TOOL-v$VER" | sort -u | tr '\n' ' ')"
+            [ -z "$stale" ] || { echo "$f still points at: $stale (the tag is $VER)" >&2; bad=1; }
+          done
           [ "$bad" -eq 0 ] || exit 1
 
       - name: Refuse to ship installers that still point at the archived repos
@@ -112,6 +125,51 @@ jobs:
             python3 test/differential/diff_test.py
           fi
 
+      - name: The tool's own CI must be green at this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The Windows matrix (pwsh 7 + Windows PowerShell 5.1) does not fit into this
+          # job time-wise and lives in ci-<tool>.yml. Until now "check that it is green
+          # before tagging" was a line in a comment above — a tag pushed onto a red commit
+          # still produced a signed release. Now the release asks GitHub instead.
+          #
+          # The run being looked for is the one from the branch push: a tag push does not
+          # re-trigger ci-<tool>.yml (a tag adds no changed files, so the paths filter never
+          # matches). If the tagged commit never ran the workflow, dispatch it on that commit
+          # by hand (workflow_dispatch) and re-push the tag.
+          for attempt in $(seq 1 40); do
+            runs="$(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/ci-$TOOL.yml/runs?head_sha=$GITHUB_SHA&per_page=100" \
+              --jq '.workflow_runs[] | "\(.status)/\(.conclusion)"')"
+            if [ -z "$runs" ]; then
+              echo "No ci-$TOOL.yml run for commit $GITHUB_SHA — refusing to sign untested code." >&2
+              echo "Dispatch ci-$TOOL.yml on this commit, wait for green, then re-push the tag." >&2
+              exit 1
+            fi
+            # A re-run mutates its own run object, so a commit fixed by a re-run reads as
+            # success here; a failure only stays visible while it is the run's conclusion.
+            pending=0
+            green=0
+            while IFS= read -r run; do
+              case "$run" in
+                completed/success) green=1 ;;
+                completed/*) ;;
+                *) pending=1 ;;
+              esac
+            done <<< "$runs"
+            if [ "$pending" -eq 0 ]; then
+              [ "$green" -eq 1 ] && { echo "ci-$TOOL.yml is green at $GITHUB_SHA."; exit 0; }
+              echo "ci-$TOOL.yml is not green at $GITHUB_SHA:" >&2
+              echo "$runs" >&2
+              exit 1
+            fi
+            echo "ci-$TOOL.yml is still running at $GITHUB_SHA — waiting (attempt $attempt/40)…"
+            sleep 30
+          done
+          echo "ci-$TOOL.yml did not finish within 20 minutes — releasing without its verdict is not an option." >&2
+          exit 1
+
       - name: Stage release assets (flat basenames)
         run: |
           mkdir -p dist
@@ -141,14 +199,54 @@ jobs:
           ssh-keygen -Y sign -f signing_key -n file SHA256SUMS
           echo "Signed SHA256SUMS → SHA256SUMS.sig"
 
-      - name: Create GitHub Release with verified assets
+      - name: Upload the release as a DRAFT
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          # Notes: `--generate-notes` alone measures from the previous release of ANY tool in
+          # the monorepo, so panic's notes would list securetrash's commits. Start from the
+          # previous tag of the SAME tool instead. A tool's first monorepo release has no such
+          # tag (the older ones stayed in the archived repo) — then point at its CHANGELOG.
+          prev="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName \
+                    --jq "[.[].tagName | select(startswith(\"$TOOL-v\"))] | first // empty")"
+          if [ -n "$prev" ]; then
+            notes=(--generate-notes --notes-start-tag "$prev")
+          else
+            notes=(--notes "First release of \`$TOOL\` from the monorepo — see [$TOOL/CHANGELOG.md](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/$TOOL/CHANGELOG.md).")
+          fi
+          # Draft, because what was signed here and what GitHub serves are two different things
+          # until proven otherwise: a truncated upload keeps the name and loses the hash. The
+          # next step downloads the release back and checks it the way a user's installer will.
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
-            --generate-notes \
+            --draft \
+            "${notes[@]}" \
             "dist/$TOOL" dist/install.sh "dist/$TOOL.ps1" dist/install.ps1 \
             dist/SHA256SUMS dist/SHA256SUMS.sig
+
+      - name: Verify what GitHub actually stored, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p verify
+          cd verify
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
+          # Verified against the pubkey baked into the installer the user is about to run, not
+          # against the secret that just signed: a key rotated in Secrets but not in install.sh
+          # fails here instead of at every user's terminal.
+          pubkey="$(grep -m1 '^RELEASE_SIGNING_PUBKEY=' "../$TOOL/install.sh" | cut -d'"' -f2)"
+          principal="$(grep -m1 '^SIGN_PRINCIPAL=' "../$TOOL/install.sh" | cut -d'"' -f2)"
+          if [ -z "$pubkey" ] || [ -z "$principal" ]; then
+            echo "Could not read the pinned pubkey/principal out of $TOOL/install.sh." >&2
+            exit 1
+          fi
+          printf '%s namespaces="file" %s\n' "$principal" "$pubkey" > allowed_signers
+          ssh-keygen -Y verify -f allowed_signers -I "$principal" -n file -s SHA256SUMS.sig < SHA256SUMS
+          sha256sum -c SHA256SUMS
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "Published $TAG."
+          # A failure above leaves the release as a draft: invisible to the public, and the
+          # tag can be re-cut after the cause is fixed (delete the draft first).
