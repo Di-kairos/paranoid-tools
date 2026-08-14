@@ -6,6 +6,10 @@ on:
     paths: ['securetrash/**', '.github/workflows/ci-securetrash.yml']
   pull_request:
     paths: ['securetrash/**', '.github/workflows/ci-securetrash.yml']
+  # Manual run: the release gate wants a green run at the exact tagged commit, and a
+  # tag push does not re-trigger this workflow (a tag adds no changed files, so the
+  # paths filter never matches). Dispatch it on that commit by hand instead.
+  workflow_dispatch:
 defaults:
   run:
     working-directory: securetrash
@@ -46,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Pester 5
         shell: pwsh
-        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -RequiredVersion 5.9.1
       - name: Pester (logic tests, mocked Windows cmdlets)
         shell: pwsh
         run: |
@@ -79,7 +83,7 @@ jobs:
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Install-PackageProvider -Name NuGet -Force -Scope CurrentUser | Out-Null
-          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -RequiredVersion 5.9.1
       - name: Pester under Windows PowerShell 5.1
         shell: powershell
         run: |

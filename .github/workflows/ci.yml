@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Pester 5
         shell: pwsh
-        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -RequiredVersion 5.9.1
       - name: Pester (paranoid.ps1 launcher + GUI tray)
         shell: pwsh
         run: |
@@ -86,7 +86,7 @@ jobs:
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Install-PackageProvider -Name NuGet -Force -Scope CurrentUser | Out-Null
-          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -RequiredVersion 5.9.1
       - name: Pester under Windows PowerShell 5.1
         shell: powershell
         run: |

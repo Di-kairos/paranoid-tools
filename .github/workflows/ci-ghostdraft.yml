@@ -7,6 +7,10 @@ on:
     paths: ['ghostdraft/**', 'securetrash/lib/common.sh', '.github/workflows/ci-ghostdraft.yml']
   pull_request:
     paths: ['ghostdraft/**', 'securetrash/lib/common.sh', '.github/workflows/ci-ghostdraft.yml']
+  # Manual run: the release gate wants a green run at the exact tagged commit, and a
+  # tag push does not re-trigger this workflow (a tag adds no changed files, so the
+  # paths filter never matches). Dispatch it on that commit by hand instead.
+  workflow_dispatch:
 defaults:
   run:
     working-directory: ghostdraft
@@ -35,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Pester 5
         shell: pwsh
-        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -RequiredVersion 5.9.1
       - name: Pester (ghostdraft.ps1 orchestration + installer integrity gate)
         shell: pwsh
         run: |
@@ -68,7 +72,7 @@ jobs:
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Install-PackageProvider -Name NuGet -Force -Scope CurrentUser | Out-Null
-          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -RequiredVersion 5.9.1
       - name: Pester under Windows PowerShell 5.1
         shell: powershell
         run: |
