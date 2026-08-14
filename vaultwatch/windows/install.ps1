@@ -123,10 +123,10 @@ function Assert-VwSignature {
     $verifier = Get-VwVerifier
     if (-not $verifier) {
         if ($allowHashOnly) {
-            Write-Warning 'ssh-keygen недоступен — подпись релиза НЕ проверена (только целостность SHA256). PT_ALLOW_HASH_ONLY=1.'
+            Write-Warning 'ssh-keygen unavailable — the release signature was NOT verified (SHA256 integrity only). PT_ALLOW_HASH_ONLY=1.'
             return
         }
-        throw 'ssh-keygen недоступен — подпись релиза не проверить. Установи OpenSSH или (только целостность) переустанови с PT_ALLOW_HASH_ONLY=1. Установка прервана.'
+        throw 'ssh-keygen unavailable — the release signature cannot be checked. Install OpenSSH, or reinstall with PT_ALLOW_HASH_ONLY=1 (integrity only). Installation aborted.'
     }
 
     # 2) Pull the .sig; its absence = fail-closed (bypass — PT_ALLOW_HASH_ONLY=1).
@@ -137,23 +137,23 @@ function Assert-VwSignature {
     }
     if (-not (Test-Path -LiteralPath $sigFile)) {
         if ($allowHashOnly) {
-            Write-Warning 'Подпись релиза (SHA256SUMS.sig) отсутствует — продолжаю по целостности (PT_ALLOW_HASH_ONLY=1, только для старых релизов).'
+            Write-Warning 'The release signature (SHA256SUMS.sig) is missing — continuing on integrity alone (PT_ALLOW_HASH_ONLY=1, for old releases only).'
             return
         }
-        throw 'Подпись релиза (SHA256SUMS.sig) отсутствует — установка прервана. Неподписанный/старый релиз: PT_ALLOW_HASH_ONLY=1 (только целостность).'
+        throw 'The release signature (SHA256SUMS.sig) is missing — installation aborted. Unsigned/old release: PT_ALLOW_HASH_ONLY=1 (integrity only).'
     }
 
     # 3) allowed_signers with the EMBEDDED pubkey (same format as in install.sh), then verify.
     $allowed = Join-Path $Tmp 'allowed_signers'
     Set-Content -LiteralPath $allowed -Encoding ASCII `
         -Value ('{0} namespaces="file" {1}' -f $script:SignPrincipal, $script:ReleaseSigningPubkey)
-    Write-Host 'Проверяю подпись релиза...'
+    Write-Host 'Verifying the release signature...'
     $rc = Invoke-VwVerifier -AllowedSigners $allowed -Principal $script:SignPrincipal -SigFile $sigFile -SumsFile $sumsFile
     if ($rc -eq 0) {
-        Write-Host 'Подпись релиза верна (аутентичность подтверждена).'
+        Write-Host 'Release signature OK (authenticity confirmed).'
     } else {
         # Bad signature — hard refusal with NO bypass (as in install.sh): an active sign of tampering.
-        throw 'Подпись релиза НЕ прошла проверку — установка прервана (возможна подмена).'
+        throw 'The release signature FAILED verification — installation aborted (possible tampering).'
     }
 }
 
@@ -182,13 +182,13 @@ try {
         }
     }
     if (-not $expected) {
-        Write-Error 'SHA256SUMS не содержит записи для vaultwatch.ps1 — установка прервана.'
+        Write-Error 'SHA256SUMS has no entry for vaultwatch.ps1 — installation aborted.'
         exit 1
     }
 
     $actual = (Get-FileHash -Path $tmpScript -Algorithm SHA256).Hash.ToLower()
     if ($actual -ne $expected) {
-        Write-Error "Контрольная сумма НЕ совпала (возможна подмена) — установка прервана.`nexpected: $expected`nactual:   $actual"
+        Write-Error "Checksum MISMATCH (possible tampering) — installation aborted.`nexpected: $expected`nactual:   $actual"
         exit 1
     }
     Write-Host 'Checksum OK.'

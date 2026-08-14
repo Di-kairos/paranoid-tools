@@ -82,13 +82,13 @@ try {
         }
     }
     if (-not $expected) {
-        Write-Error 'SHA256SUMS не содержит записи для panic.ps1 — установка прервана.'
+        Write-Error 'SHA256SUMS has no entry for panic.ps1 — installation aborted.'
         exit 1
     }
 
     $actual = (Get-FileHash -Path $tmpScript -Algorithm SHA256).Hash.ToLower()
     if ($actual -ne $expected) {
-        Write-Error "Контрольная сумма НЕ совпала (возможна подмена) — установка прервана.`nexpected: $expected`nactual:   $actual"
+        Write-Error "Checksum MISMATCH (possible tampering) — installation aborted.`nexpected: $expected`nactual:   $actual"
         exit 1
     }
     Write-Host 'Checksum OK.'
@@ -104,9 +104,9 @@ try {
     $sshKeygen = Get-Command ssh-keygen -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $sshKeygen) {
         if ($env:PT_ALLOW_HASH_ONLY -eq '1') {
-            Write-Warning 'ssh-keygen недоступен — подпись релиза НЕ проверена (PT_ALLOW_HASH_ONLY=1, только целостность по SHA256).'
+            Write-Warning 'ssh-keygen unavailable — the release signature was NOT verified (PT_ALLOW_HASH_ONLY=1, SHA256 integrity only).'
         } else {
-            Write-Error 'ssh-keygen недоступен — подпись релиза не проверить, установка прервана. Установи OpenSSH-клиент или задай PT_ALLOW_HASH_ONLY=1 (только целостность). См. SECURITY.md.'
+            Write-Error 'ssh-keygen unavailable — the release signature cannot be checked, installation aborted. Install the OpenSSH client or set PT_ALLOW_HASH_ONLY=1 (integrity only). See SECURITY.md.'
             exit 1
         }
     } else {
@@ -115,9 +115,9 @@ try {
         try { Get-ReleaseFile -Name 'SHA256SUMS.sig' -OutFile $tmpSig; $haveSig = Test-Path $tmpSig } catch { $haveSig = $false }
         if (-not $haveSig) {
             if ($env:PT_ALLOW_HASH_ONLY -eq '1') {
-                Write-Warning 'Подпись релиза (SHA256SUMS.sig) недоступна — продолжаю (PT_ALLOW_HASH_ONLY=1, только целостность).'
+                Write-Warning 'The release signature (SHA256SUMS.sig) is unavailable — continuing (PT_ALLOW_HASH_ONLY=1, integrity only).'
             } else {
-                Write-Error 'Подпись релиза отсутствует — установка прервана. Для установки только по хешу: PT_ALLOW_HASH_ONLY=1. См. SECURITY.md.'
+                Write-Error 'The release signature is missing — installation aborted. To install on the hash alone: PT_ALLOW_HASH_ONLY=1. See SECURITY.md.'
                 exit 1
             }
         } else {
@@ -164,7 +164,7 @@ try {
             if ($proc.ExitCode -eq 0) {
                 Write-Host 'Signature OK (authenticity verified).'
             } else {
-                Write-Error 'Подпись релиза НЕ прошла проверку — установка прервана (возможна подмена).'
+                Write-Error 'The release signature FAILED verification — installation aborted (possible tampering).'
                 exit 1
             }
         }

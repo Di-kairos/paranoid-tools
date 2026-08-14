@@ -85,13 +85,13 @@ try {
         }
     }
     if (-not $expected) {
-        Write-Error 'SHA256SUMS не содержит записи для ghostdraft.ps1 — установка прервана.'
+        Write-Error 'SHA256SUMS has no entry for ghostdraft.ps1 — installation aborted.'
         exit 1
     }
 
     $actual = (Get-FileHash -Path $tmpScript -Algorithm SHA256).Hash.ToLower()
     if ($actual -ne $expected) {
-        Write-Error "Контрольная сумма НЕ совпала (возможна подмена) — установка прервана.`nexpected: $expected`nactual:   $actual"
+        Write-Error "Checksum MISMATCH (possible tampering) — installation aborted.`nexpected: $expected`nactual:   $actual"
         exit 1
     }
     Write-Host 'Checksum OK.'
@@ -104,7 +104,7 @@ try {
     # Replacing the trusted key is test-only and LOUD: silently trusting someone else's key
     # would devalue the whole signature check (the other 4 tools have no such variable at all).
     $ReleaseSigningPubkey = if ($env:GHOSTDRAFT_TEST_SIGNING_PUBKEY) {
-        Write-Warning 'GHOSTDRAFT_TEST_SIGNING_PUBKEY задан: подпись проверяется ЧУЖИМ ключом, а не ключом релизов ghostdraft. Это режим тестов — в обычной установке так быть не должно.'
+        Write-Warning 'GHOSTDRAFT_TEST_SIGNING_PUBKEY is set: the signature is checked against a FOREIGN key, not the ghostdraft release key. This is test mode — it must never happen in a normal install.'
         $env:GHOSTDRAFT_TEST_SIGNING_PUBKEY
     } else {
         'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
@@ -117,9 +117,9 @@ try {
     if (-not $Keygen) {
         # ssh-keygen is unavailable → nothing to verify the signature with.
         if ($HashOnly) {
-            Write-Warning 'ssh-keygen недоступен — подпись релиза НЕ проверена (PT_ALLOW_HASH_ONLY=1, только целостность по SHA256).'
+            Write-Warning 'ssh-keygen unavailable — the release signature was NOT verified (PT_ALLOW_HASH_ONLY=1, SHA256 integrity only).'
         } else {
-            Write-Error 'ssh-keygen недоступен — не могу проверить подпись релиза. Установи OpenSSH (Add-WindowsCapability OpenSSH.Client) или, для старого/неподписанного релиза, запусти с PT_ALLOW_HASH_ONLY=1 (только целостность).'
+            Write-Error 'ssh-keygen unavailable — the release signature cannot be checked. Install OpenSSH (Add-WindowsCapability OpenSSH.Client) or, for an old/unsigned release, run with PT_ALLOW_HASH_ONLY=1 (integrity only).'
             exit 1
         }
     } else {
@@ -134,9 +134,9 @@ try {
         if (-not $haveSig) {
             # The release has no .sig.
             if ($HashOnly) {
-                Write-Warning 'Подпись релиза (SHA256SUMS.sig) отсутствует — продолжаю (PT_ALLOW_HASH_ONLY=1, только целостность по SHA256).'
+                Write-Warning 'The release signature (SHA256SUMS.sig) is missing — continuing (PT_ALLOW_HASH_ONLY=1, SHA256 integrity only).'
             } else {
-                Write-Error 'Подпись релиза (SHA256SUMS.sig) отсутствует — установка прервана. Релизы подписаны; для старого/неподписанного релиза: PT_ALLOW_HASH_ONLY=1.'
+                Write-Error 'The release signature (SHA256SUMS.sig) is missing — installation aborted. Releases are signed; for an old/unsigned release: PT_ALLOW_HASH_ONLY=1.'
                 exit 1
             }
         } else {
@@ -183,7 +183,7 @@ try {
                 Write-Host 'Signature OK (authenticity verified).'
             } else {
                 # A bad signature is fatal ALWAYS; PT_ALLOW_HASH_ONLY does not bypass it.
-                Write-Error 'Подпись релиза НЕ прошла проверку — установка прервана (возможна подмена).'
+                Write-Error 'The release signature FAILED verification — installation aborted (possible tampering).'
                 exit 1
             }
         }
