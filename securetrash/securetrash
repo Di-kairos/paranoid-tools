@@ -162,6 +162,15 @@ EOF
     en:vault_pass)       echo "Container password: " ;;
     ru:vault_pass)       echo "Пароль контейнера: " ;;
 
+    en:vault_pass_again) echo "Repeat the password: " ;;
+    ru:vault_pass_again) echo "Повтори пароль: " ;;
+
+    en:vault_pass_short) printf 'Password is too short: minimum %s characters. The vault has no reset — a weak password is the whole attack surface (see THREAT-MODEL.md). Prefer 5-6 diceware words.' "$1" ;;
+    ru:vault_pass_short) printf 'Пароль слишком короткий: минимум %s символов. У сейфа нет сброса, и слабый пароль — это вся поверхность атаки (см. THREAT-MODEL.md). Лучше 5-6 слов diceware.' "$1" ;;
+
+    en:vault_pass_mismatch) echo "The passwords do not match — nothing was created. A typo here would lock the vault forever: there is no reset." ;;
+    ru:vault_pass_mismatch) echo "Пароли не совпали — ничего не создано. Опечатка здесь заперла бы сейф навсегда: сброса нет." ;;
+
     en:vault_exists)     printf 'Container already exists: %s' "$1" ;;
     ru:vault_exists)     printf 'Контейнер уже существует: %s' "$1" ;;
 
@@ -338,6 +347,11 @@ TRASH_DIR="${HOME}/SecureTrash"
 # point at a non-standard vault — otherwise status/open/reset/destroy would silently work
 # on the default while the UI shows a custom one (see AUDIT_2026-07-03 P0-1). Defaults match the launcher.
 VAULT_PATH="${ST_VAULT_PATH:-${HOME}/SecureVault.sparsebundle}"
+
+# Minimum length of a NEW container password. Not a strength meter — a floor against
+# slips (a stray Enter, a four-letter "temporary" password) on the one operation that
+# cannot be undone. Real resistance is entropy, not length: see THREAT-MODEL.md.
+VAULT_PASS_MIN="${ST_VAULT_PASS_MIN:-12}"
 VAULT_VOLUME="${ST_VAULT_VOLUME:-/Volumes/SecretVault}"
 
 # Vault lifecycle hook directory. Through these, Paranoid Tools ecosystem
@@ -580,6 +594,21 @@ _vault_pass() {
   read -r -s -p "$(t vault_pass)" p; echo >&2; printf '%s' "$p"
 }
 
+# Read a NEW container password: twice, with a length floor. Separate from _vault_pass
+# on purpose — on attach a typo merely fails to mount, on create it locks the vault
+# forever (there is no reset, by design). Password to stdout, prompts to stderr.
+# ST_VAULT_PASS keeps its bypass: it is the non-interactive test hook (CI, Pester,
+# smoke-test), there is nothing to confirm against and no user to protect there.
+_vault_pass_new() {
+  if [[ -n "${ST_VAULT_PASS:-}" ]]; then printf '%s' "$ST_VAULT_PASS"; return; fi
+  local p1 p2
+  read -r -s -p "$(t vault_pass)" p1; echo >&2
+  if (( ${#p1} < VAULT_PASS_MIN )); then err "$(t vault_pass_short "$VAULT_PASS_MIN")"; return 1; fi
+  read -r -s -p "$(t vault_pass_again)" p2; echo >&2
+  if [[ "$p1" != "$p2" ]]; then err "$(t vault_pass_mismatch)"; return 1; fi
+  printf '%s' "$p1"
+}
+
 # Find the whole-disk dev-node (/dev/diskN) of the image bound to VAULT_PATH specifically.
 # We parse `hdiutil info -plist` via PlistBuddy: more reliable than guessing by mount
 # point (the volume name may collide into "SecretVault 1"). Empty if the
@@ -682,9 +711,14 @@ _vault_reset_rollback() {
 
 # Attempt to create the container. Returns hdiutil's exit code, does NOT exit the script:
 # the caller (reset) must get the chance to roll back the set-aside old vault.
+# Exit code 2 is reserved: the password was refused (too short / mismatch). The caller
+# must not add "could not create the container" on top — _vault_pass_new already said why.
 _vault_create_try() {
-  local size="${1:-1g}"
-  _vault_pass | hdiutil create -size "$size" -type SPARSEBUNDLE -fs APFS \
+  local size="${1:-1g}" pass
+  # Read BEFORE the pipeline: inside it a rejected password could not stop hdiutil
+  # from running. A refusal here is a create failure — reset then rolls the old vault back.
+  pass="$(_vault_pass_new)" || return 2
+  printf '%s' "$pass" | hdiutil create -size "$size" -type SPARSEBUNDLE -fs APFS \
     -encryption AES-256 -stdinpass -volname SecretVault "$VAULT_PATH"
 }
 
@@ -697,9 +731,11 @@ _vault_create_now() {
   # but it occupies the vault's place, and the next create refuses with "vault already exists".
   # We remove only that.
   local existed=0; [[ -e "$VAULT_PATH" ]] && existed=1
-  if ! _vault_create_try "$size"; then
+  # rc captured separately: inside `if ! cmd` the then-branch sees $? of the negation, not of cmd.
+  local rc=0; _vault_create_try "$size" || rc=$?
+  if (( rc != 0 )); then
     if (( ! existed )) && [[ -e "$VAULT_PATH" ]]; then rm -rf "${VAULT_PATH:?}"; fi
-    err "$(t vault_create_fail "$VAULT_PATH")"
+    (( rc == 2 )) || err "$(t vault_create_fail "$VAULT_PATH")"
     exit 1
   fi
   info "$(t vault_created "$VAULT_PATH" "$size")"
@@ -826,8 +862,9 @@ cmd_vault() {
       trap '_vault_reset_rollback' EXIT
       trap '_vault_reset_rollback; exit 130' INT TERM HUP QUIT
       mv -- "$VAULT_PATH" "$aside" || { err "$(t vault_create_fail "$VAULT_PATH")"; exit 1; }
-      if ! _vault_create_try "$reset_size"; then
-        err "$(t vault_create_fail "$VAULT_PATH")"
+      local create_rc=0; _vault_create_try "$reset_size" || create_rc=$?
+      if (( create_rc != 0 )); then
+        (( create_rc == 2 )) || err "$(t vault_create_fail "$VAULT_PATH")"
         exit 1                    # the EXIT trap will do the rollback
       fi
       ST_RESET_ASIDE=""           # the new vault is in place — nothing left to roll back

@@ -168,6 +168,48 @@ setup() {
   rm -rf "$tmp"
 }
 
+@test "vault create rejects a password below the minimum" {
+  tmp="$(mktemp -d)"
+  run env HOME="$tmp" PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault create <<< $'short\n'
+  [ "$status" -ne 0 ]
+  [ ! -e "$tmp/SecureVault.sparsebundle" ]
+  # hdiutil must not have been reached at all
+  [ ! -f "$tmp/hdiutil_calls.log" ]
+  rm -rf "$tmp"
+}
+
+@test "vault create rejects mismatched confirmation" {
+  tmp="$(mktemp -d)"
+  run env HOME="$tmp" PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault create <<< $'correct-horse-battery\ncorrect-horse-batteru\n'
+  [ "$status" -ne 0 ]
+  [ ! -e "$tmp/SecureVault.sparsebundle" ]
+  [ ! -f "$tmp/hdiutil_calls.log" ]
+  rm -rf "$tmp"
+}
+
+@test "vault create accepts a confirmed password of sufficient length" {
+  tmp="$(mktemp -d)"
+  run env HOME="$tmp" PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault create <<< $'correct-horse-battery\ncorrect-horse-battery\n'
+  [ "$status" -eq 0 ]
+  grep -q "create" "$tmp/hdiutil_calls.log"
+  rm -rf "$tmp"
+}
+
+@test "vault reset rolls the old container back when the password is refused" {
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"
+  run env HOME="$tmp" ST_ASSUME_YES=1 PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault reset <<< $'short\n'
+  [ "$status" -ne 0 ]
+  # the old vault is back in its place, nothing was left set aside
+  [ -e "$tmp/SecureVault.sparsebundle/Info.plist" ]
+  [ ! -e "$tmp/SecureVault.sparsebundle.old" ]
+  rm -rf "$tmp"
+}
+
 @test "vault destroy requires confirmation and removes container" {
   tmp="$(mktemp -d)"
   mkdir -p "$tmp/SecureVault.sparsebundle/bands"; echo x > "$tmp/SecureVault.sparsebundle/Info.plist"

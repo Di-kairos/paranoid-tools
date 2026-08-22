@@ -169,6 +169,12 @@ Flags:
 
     'en:vault_pass'         = 'Container password'
     'ru:vault_pass'         = 'Пароль контейнера'
+    'en:vault_pass_again'   = 'Repeat the password'
+    'ru:vault_pass_again'   = 'Повтори пароль'
+    'en:vault_pass_short'   = 'Password is too short: minimum {0} characters. The vault has no reset — a weak password is the whole attack surface (see THREAT-MODEL.md). Prefer 5-6 diceware words.'
+    'ru:vault_pass_short'   = 'Пароль слишком короткий: минимум {0} символов. У сейфа нет сброса, и слабый пароль — это вся поверхность атаки (см. THREAT-MODEL.md). Лучше 5-6 слов diceware.'
+    'en:vault_pass_mismatch' = 'The passwords do not match — nothing was created. A typo here would lock the vault forever: there is no reset.'
+    'ru:vault_pass_mismatch' = 'Пароли не совпали — ничего не создано. Опечатка здесь заперла бы сейф навсегда: сброса нет.'
 
     'en:vault_exists'       = 'Container already exists: {0}'
     'ru:vault_exists'       = 'Контейнер уже существует: {0}'
@@ -1039,6 +1045,39 @@ function Get-StVaultPasswordSecure {
     return (Read-Host -AsSecureString $Prompt)
 }
 
+# Minimum length of a NEW container password. Not a strength meter — a floor against slips
+# on the one operation that cannot be undone. Real resistance is entropy: see THREAT-MODEL.md.
+$script:StVaultPassMin = if ($env:ST_VAULT_PASS_MIN) { [int]$env:ST_VAULT_PASS_MIN } else { 12 }
+
+# Read a NEW container password: twice, with a length floor. Separate from
+# Get-StVaultPasswordSecure on purpose — on unlock a typo merely fails to mount, on create
+# it locks the vault forever (there is no reset, by design). Both halves stay SecureString;
+# the comparison unwraps them into unmanaged BSTRs that are zeroed in finally (#13).
+# ST_VAULT_PASS keeps its bypass: it is the test-only hook, there is nothing to confirm against.
+function Get-StVaultPasswordNewSecure {
+    if ($env:ST_VAULT_PASS) {
+        return (ConvertTo-SecureString -String $env:ST_VAULT_PASS -AsPlainText -Force)
+    }
+    $first = Read-Host -AsSecureString (T 'vault_pass')
+    if ($first.Length -lt $script:StVaultPassMin) {
+        Write-StErr (T 'vault_pass_short' $script:StVaultPassMin); Stop-StCommand
+    }
+    $again = Read-Host -AsSecureString (T 'vault_pass_again')
+    $b1 = [IntPtr]::Zero; $b2 = [IntPtr]::Zero
+    try {
+        $b1 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($first)
+        $b2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($again)
+        $p1 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b1)
+        $p2 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b2)
+        $same = ($p1 -ceq $p2)
+    } finally {
+        if ($b1 -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b1) }
+        if ($b2 -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b2) }
+    }
+    if (-not $same) { Write-StErr (T 'vault_pass_mismatch'); Stop-StCommand }
+    return $first
+}
+
 # --- shared low-level operations (reused by create/destroy/reset) ---
 # Create the container. WITHOUT an existence check — the caller does it (create checks;
 # reset calls after destroy, when the container is known to be gone). Size is in MB for diskpart.
@@ -1058,7 +1097,8 @@ function Invoke-StVaultCreateNow {
         # created, attached and formatted the vhdx. Checked here, before anything exists on disk.
         if ($mb -lt 64) { Write-StErr (T 'vault_size_too_small' $mb); Stop-StCommand }
         # Native: VHDX + Enable-BitLocker. The password is SecureString end-to-end (#13).
-        $sec = Get-StVaultPasswordSecure
+        # New container → confirmed twice with a length floor (a typo here has no reset).
+        $sec = Get-StVaultPasswordNewSecure
         $letter = Get-StFreeDriveLetter                 # #3: a free letter, not a hardcoded 'V'
         Assert-StValidDriveLetter -DriveLetter $letter
         try {

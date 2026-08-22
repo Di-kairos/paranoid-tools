@@ -375,6 +375,55 @@ Invoke-Main -Argv @('vault','create')
     }
 }
 
+Describe 'new vault password: length floor + confirmation' {
+
+    BeforeEach {
+        Remove-Item Env:\ST_VAULT_PASS -ErrorAction SilentlyContinue
+        $script:ST_LOCALE = 'en'
+    }
+
+    It 'refuses a password below the minimum (StExit thrown, no second prompt)' {
+        Mock Read-Host { ConvertTo-SecureString -String 'short' -AsPlainText -Force }
+        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+        Should -Invoke Read-Host -Times 1 -Exactly
+    }
+
+    It 'refuses a mismatched confirmation' {
+        $script:calls = 0
+        Mock Read-Host {
+            $script:calls++
+            $v = if ($script:calls -eq 1) { 'correct-horse-battery' } else { 'correct-horse-batteru' }
+            ConvertTo-SecureString -String $v -AsPlainText -Force
+        }
+        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+    }
+
+    It 'accepts a confirmed password of sufficient length' {
+        Mock Read-Host { ConvertTo-SecureString -String 'correct-horse-battery' -AsPlainText -Force }
+        $sec = Get-StVaultPasswordNewSecure
+        $sec | Should -BeOfType [System.Security.SecureString]
+        $sec.Length | Should -Be 21
+    }
+
+    It 'comparison is case-sensitive' {
+        $script:calls = 0
+        Mock Read-Host {
+            $script:calls++
+            $v = if ($script:calls -eq 1) { 'correct-horse-battery' } else { 'Correct-horse-battery' }
+            ConvertTo-SecureString -String $v -AsPlainText -Force
+        }
+        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+    }
+
+    It 'ST_VAULT_PASS bypasses both prompts (test-only hook)' {
+        $env:ST_VAULT_PASS = 'x'
+        Mock Read-Host { throw 'must not prompt' }
+        (Get-StVaultPasswordNewSecure).Length | Should -Be 1
+        Should -Invoke Read-Host -Times 0 -Exactly
+        Remove-Item Env:\ST_VAULT_PASS -ErrorAction SilentlyContinue
+    }
+}
+
 Describe 'VeraCrypt never receives a password on argv (#2)' {
 
     It 'New-StVeraCryptVault no longer exists (automated VeraCrypt removed)' {
