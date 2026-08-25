@@ -205,31 +205,40 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
             [Environment]::GetEnvironmentVariable('Path','User')
 ```
 
-**3. Install a tool.** All five live in this repository — clone once, install the ones
-you want. Example for `securetrash` (swap the directory for `vaultwatch`, `panic`,
-`ghostdraft`, or `seedsplit`):
+**3. Install the tools.** All five live in this repository — clone once, then one command
+installs all of them plus the `paranoid` launcher, the same way `install.sh` does on macOS:
 
 ```powershell
 cd $HOME            # clone into your own profile, not C:\WINDOWS\system32
 git clone https://github.com/Di-kairos/paranoid-tools
+cd paranoid-tools
+pwsh -File windows/install.ps1
+```
+
+The umbrella installs nothing by itself: it runs each tool's own `windows/install.ps1`,
+and that one downloads the signed release and **verifies its Ed25519 signature and
+checksum before installing anything** (and refuses to install if either fails). What the
+umbrella adds is one shared directory — `%LOCALAPPDATA%\Programs\ParanoidTools`
+(override with `PT_INSTALL_DIR`) — and a single PATH entry instead of five. A tool that
+refuses to install is reported and the run exits non-zero; `PT_ALLOW_PARTIAL=1` accepts a
+partial install.
+
+Want just one tool? Install it on its own — the per-tool installer puts it into
+`%LOCALAPPDATA%\Programs\<tool>` and edits PATH itself:
+
+```powershell
 cd paranoid-tools/securetrash
 pwsh -File windows/install.ps1
 ```
 
-`install.ps1` downloads the signed release, **verifies its Ed25519 signature and checksum
-before installing anything** (and refuses to install if either fails), copies the tool
-into `%LOCALAPPDATA%\Programs\securetrash`, and adds it to your PATH automatically.
-
 **4. Use it.** Open a **new** PowerShell window (so the PATH change takes effect), then
-call the tool by name:
+call the tools by name:
 
 ```powershell
+paranoid            # the interactive launcher
 securetrash version
 securetrash --help
 ```
-
-Repeat step 3 for each tool. The `paranoid` menu-launcher also has a Windows version:
-from the clone root, run `pwsh -File windows/paranoid.ps1`.
 
 > **Beta.** The Windows ports are logic-tested in CI but not yet broadly validated on
 > real hardware — try them on non-critical data first before trusting them with real

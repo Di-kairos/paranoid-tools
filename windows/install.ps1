@@ -1,0 +1,135 @@
+﻿# install.ps1 — installer for the WHOLE Paranoid Tools ecosystem on Windows (BETA).
+#
+# The mirror of the top-level `install.sh` on macOS: one command installs all five tools
+# (securetrash, vaultwatch, panic, ghostdraft, seedsplit) plus the `paranoid` launcher —
+# instead of running five per-tool one-liners by hand.
+#
+# It is a WRAPPER, not a second delivery channel: every tool is installed by its own
+# `<tool>/windows/install.ps1` from this clone, and that installer is the one that pulls the
+# signed release and verifies it (SHA256 + the Ed25519 signature over SHA256SUMS, fail-closed).
+# So the verification chain is unchanged; this script only points all five at ONE directory
+# and edits PATH once instead of five times.
+#
+# Usage (from the clone root):
+#   pwsh -File windows/install.ps1
+#
+# Environment variables:
+#   PT_INSTALL_DIR — install directory for all five + the launcher.
+#                    Defaults to %LOCALAPPDATA%\Programs\ParanoidTools.
+#   PT_SKIP_PATH   — '1' skips the PATH edit (for tests).
+#   PT_ALLOW_PARTIAL — '1' lets the run finish with a zero exit code when some tools failed.
+#   Per-tool variables are passed straight through to the per-tool installers, so a version
+#   is pinned the same way as before: ST_VERSION, VAULTWATCH_VERSION, PANIC_VERSION,
+#   GHOSTDRAFT_VERSION, SEEDSPLIT_VERSION (and PT_ALLOW_HASH_ONLY, which they all read).
+#   `<TOOL>_INSTALL_DIR` and `<TOOL>_SKIP_PATH` are set BY this script and are overwritten.
+#
+# There is no `--uninstall` here (unlike install.sh on macOS): the per-tool installers have
+# none either, and on Windows removal is deleting the install directory and dropping it from
+# PATH — the directory is printed at the end.
+#
+# WARNING: BETA port, like the five tools themselves.
+
+$ErrorActionPreference = 'Stop'
+
+# $env:OS, not $IsWindows: the latter is undefined in Windows PowerShell 5.1.
+if ($env:OS -ne 'Windows_NT') {
+    Write-Error 'This installer is for Windows. On macOS use install.sh from the repository root.'
+    exit 1
+}
+
+# Each per-tool installer reads its OWN env prefix — they are not uniform (ST_, VAULTWATCH_, ...).
+$Tools = @(
+    @{ Name = 'securetrash'; Prefix = 'ST' },
+    @{ Name = 'vaultwatch';  Prefix = 'VAULTWATCH' },
+    @{ Name = 'panic';       Prefix = 'PANIC' },
+    @{ Name = 'ghostdraft';  Prefix = 'GHOSTDRAFT' },
+    @{ Name = 'seedsplit';   Prefix = 'SEEDSPLIT' }
+)
+
+# Repo root = the parent of windows/ — so the script works from any current directory.
+$Root = Split-Path -Parent $PSScriptRoot
+
+$InstallDir = if ($env:PT_INSTALL_DIR) { $env:PT_INSTALL_DIR } else {
+    Join-Path $env:LOCALAPPDATA 'Programs\ParanoidTools'
+}
+
+# The tools' own .cmd shims call `pwsh`, and the ports are supported on PowerShell 7 — so the
+# per-tool installers are run by pwsh too, even when this script was started by 5.1.
+$pwshExe = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue |
+           Select-Object -First 1
+if (-not $pwshExe) {
+    Write-Error 'PowerShell 7 (pwsh) was not found — install it first: winget install --id Microsoft.PowerShell -e'
+    exit 1
+}
+
+Write-Host 'Paranoid Tools (Windows, BETA) — installing all five + the launcher'
+Write-Host "Target directory: $InstallDir"
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+
+$installed = 0
+foreach ($tool in $Tools) {
+    $toolInstaller = Join-Path $Root (Join-Path $tool.Name 'windows\install.ps1')
+    Write-Host ''
+    Write-Host "--- $($tool.Name)"
+    if (-not (Test-Path -LiteralPath $toolInstaller)) {
+        Write-Warning "$($tool.Name): $toolInstaller is missing — skipped (is this a full clone?)."
+        continue
+    }
+    # One directory for everything and no per-tool PATH edits: the five installers would
+    # otherwise each append their own %LOCALAPPDATA%\Programs\<tool> to the user PATH.
+    Set-Item -Path "Env:\$($tool.Prefix)_INSTALL_DIR" -Value $InstallDir
+    Set-Item -Path "Env:\$($tool.Prefix)_SKIP_PATH"   -Value '1'
+    # A child process, not a dot-source: a per-tool installer refuses fail-closed with
+    # `exit 1`, and its exit code is the only honest verdict about that tool.
+    & $pwshExe.Source -NoProfile -File $toolInstaller
+    if ($LASTEXITCODE -eq 0) {
+        $installed++
+    } else {
+        Write-Warning "$($tool.Name): its installer exited with code $LASTEXITCODE — not installed (see its output above)."
+    }
+}
+
+# The launcher is versioned in this repo (it has no release of its own), so it is copied
+# from the clone next to this script — the same way install.sh installs `paranoid` on macOS.
+Write-Host ''
+$launcherSrc = Join-Path $PSScriptRoot 'paranoid.ps1'
+if (Test-Path -LiteralPath $launcherSrc) {
+    Copy-Item -LiteralPath $launcherSrc -Destination (Join-Path $InstallDir 'paranoid.ps1') -Force
+    $shim = @"
+@echo off
+pwsh -NoProfile -File "%~dp0paranoid.ps1" %*
+if errorlevel 1 exit /b %errorlevel%
+"@
+    Set-Content -Path (Join-Path $InstallDir 'paranoid.cmd') -Value $shim -Encoding ASCII
+    Write-Host "Installed: $(Join-Path $InstallDir 'paranoid.ps1') (+ paranoid.cmd shim)"
+} else {
+    Write-Warning "paranoid.ps1 is missing next to this script — the launcher was not installed."
+}
+
+# One PATH edit for the shared directory (idempotent). PT_SKIP_PATH=1 — skip.
+if ($env:PT_SKIP_PATH -ne '1') {
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (-not $userPath) { $userPath = '' }
+    $paths = $userPath.Split(';') | Where-Object { $_ -ne '' }
+    if ($paths -notcontains $InstallDir) {
+        [Environment]::SetEnvironmentVariable('Path', (($paths + $InstallDir) -join ';'), 'User')
+        Write-Host "Added to user PATH: $InstallDir"
+    } else {
+        Write-Host 'Already on user PATH.'
+    }
+}
+
+Write-Host ''
+Write-Host "Tools installed: $installed/$($Tools.Count) (+ the paranoid launcher)."
+Write-Host 'NEXT STEPS:'
+Write-Host '  1) Open a NEW terminal (so PATH refreshes).'
+Write-Host '  2) Run:  paranoid          (the interactive launcher)'
+Write-Host '     or:   securetrash check'
+Write-Host ''
+Write-Host 'NOTE: BETA port. Verify behavior on test data before trusting it with real secrets.'
+
+# A partial install is not a quiet success — same rule as install.sh (override: PT_ALLOW_PARTIAL=1).
+if ($installed -lt $Tools.Count -and $env:PT_ALLOW_PARTIAL -ne '1') {
+    Write-Error "Installation is incomplete ($installed/$($Tools.Count)) — exiting with an error. Override: `$env:PT_ALLOW_PARTIAL='1'."
+    exit 1
+}
