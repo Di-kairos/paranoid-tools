@@ -11,7 +11,8 @@
 # and edits PATH once instead of five times.
 #
 # Usage (from the clone root):
-#   pwsh -File windows/install.ps1
+#   pwsh -File windows/install.ps1              # install/update all five + the launcher
+#   pwsh -File windows/install.ps1 -Uninstall   # remove them (data and vaults are untouched)
 #
 # Environment variables:
 #   PT_INSTALL_DIR — install directory for all five + the launcher.
@@ -23,11 +24,13 @@
 #   GHOSTDRAFT_VERSION, SEEDSPLIT_VERSION (and PT_ALLOW_HASH_ONLY, which they all read).
 #   `<TOOL>_INSTALL_DIR` and `<TOOL>_SKIP_PATH` are set BY this script and are overwritten.
 #
-# There is no `--uninstall` here (unlike install.sh on macOS): the per-tool installers have
-# none either, and on Windows removal is deleting the install directory and dropping it from
-# PATH — the directory is printed at the end.
-#
 # WARNING: BETA port, like the five tools themselves.
+
+param(
+    # Removes the tools and the launcher installed by this script. Vaults, notes and any
+    # other data stay where they are — this only takes back what the installer put there.
+    [switch]$Uninstall
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -51,6 +54,58 @@ $Root = Split-Path -Parent $PSScriptRoot
 
 $InstallDir = if ($env:PT_INSTALL_DIR) { $env:PT_INSTALL_DIR } else {
     Join-Path $env:LOCALAPPDATA 'Programs\ParanoidTools'
+}
+
+if ($Uninstall) {
+    Write-Host "Removing Paranoid Tools from $InstallDir"
+    if (-not (Test-Path -LiteralPath $InstallDir)) {
+        Write-Host 'Nothing to remove: that directory does not exist.'
+        exit 0
+    }
+    $names = @()
+    foreach ($tool in $Tools) { $names += @("$($tool.Name).ps1", "$($tool.Name).cmd") }
+    $names += @('paranoid.ps1', 'paranoid.cmd')
+    $removed = 0
+    foreach ($name in $names) {
+        $path = Join-Path $InstallDir $name
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Force
+            Write-Host "  removed $name"
+            $removed++
+        }
+    }
+    # Only an empty directory is deleted: anything else in there is the user's, not ours.
+    if (-not (Get-ChildItem -LiteralPath $InstallDir -Force)) {
+        Remove-Item -LiteralPath $InstallDir -Force
+    } else {
+        Write-Warning "$InstallDir is not empty — left in place with whatever else is inside it."
+    }
+    if ($env:PT_SKIP_PATH -ne '1') {
+        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+        if ($userPath) {
+            $kept = $userPath.Split(';') | Where-Object { $_ -ne '' -and $_ -ne $InstallDir }
+            if (($kept -join ';') -ne $userPath) {
+                [Environment]::SetEnvironmentVariable('Path', ($kept -join ';'), 'User')
+                Write-Host "Removed from user PATH: $InstallDir"
+            }
+        }
+    }
+    # A per-tool install (the one-liner from a tool's README) uses its own directory, so the
+    # umbrella cannot know about it — but a leftover copy there would still answer on PATH.
+    $strays = @()
+    foreach ($tool in $Tools) {
+        if (-not $env:LOCALAPPDATA) { break }
+        $own = Join-Path $env:LOCALAPPDATA (Join-Path 'Programs' $tool.Name)
+        if ($own -ne $InstallDir -and (Test-Path -LiteralPath $own)) { $strays += $own }
+    }
+    if ($strays.Count -gt 0) {
+        Write-Host ''
+        Write-Host 'Installed separately earlier, still on disk (delete by hand if you no longer want them):'
+        foreach ($dir in $strays) { Write-Host "  $dir" }
+    }
+    Write-Host ''
+    Write-Host "Done: $removed file(s) removed. Vaults, notes and shares were NOT touched."
+    exit 0
 }
 
 # The tools' own .cmd shims call `pwsh`, and the ports are supported on PowerShell 7 — so the

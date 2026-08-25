@@ -112,6 +112,41 @@ Describe 'windows/install.ps1 (umbrella)' {
         $LASTEXITCODE | Should -Be 0
     }
 
+    It 'takes back exactly what it installed when run with -Uninstall' {
+        # Removal parity with `bash install.sh --uninstall` on macOS: without it a Windows
+        # user has to edit their own PATH by hand to get rid of the toolkit.
+        $umbrella = New-FakeClone -Root $script:Clone
+        New-Item -ItemType Directory -Path $script:Dest -Force | Out-Null
+        foreach ($name in @('securetrash', 'vaultwatch', 'panic', 'ghostdraft', 'seedsplit', 'paranoid')) {
+            Set-Content -LiteralPath (Join-Path $script:Dest "$name.ps1") -Value '# installed'
+            Set-Content -LiteralPath (Join-Path $script:Dest "$name.cmd") -Value '@echo off'
+        }
+
+        & $script:PwshExe -NoProfile -File $umbrella -Uninstall 1> $null 2> $null
+        $LASTEXITCODE | Should -Be 0
+        Test-Path -LiteralPath $script:Dest | Should -BeFalse
+    }
+
+    It 'leaves a non-empty directory (and anything of the user in it) alone on -Uninstall' {
+        $umbrella = New-FakeClone -Root $script:Clone
+        New-Item -ItemType Directory -Path $script:Dest -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Dest 'securetrash.ps1') -Value '# installed'
+        $mine = Join-Path $script:Dest 'notes.txt'
+        Set-Content -LiteralPath $mine -Value 'not ours'
+
+        & $script:PwshExe -NoProfile -File $umbrella -Uninstall 1> $null 2> $null
+        $LASTEXITCODE | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $script:Dest 'securetrash.ps1') | Should -BeFalse
+        Test-Path -LiteralPath $mine | Should -BeTrue
+    }
+
+    It 'says so and exits clean when there is nothing to uninstall' {
+        $umbrella = New-FakeClone -Root $script:Clone
+
+        & $script:PwshExe -NoProfile -File $umbrella -Uninstall 1> $null 2> $null
+        $LASTEXITCODE | Should -Be 0
+    }
+
     It 'skips a missing per-tool installer instead of dying on it' {
         # An incomplete clone (or a tool added later) must not abort the whole run.
         $umbrella = New-FakeClone -Root $script:Clone -OmitTools @('seedsplit')

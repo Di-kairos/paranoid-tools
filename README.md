@@ -28,13 +28,29 @@ leak you can't undo. No cloud, no telemetry, no promises it can't keep.
 
 ## Install
 
-One command installs all five tools plus the launcher into `~/.local/bin`:
+**macOS** — one command installs all five tools plus the launcher into `~/.local/bin`:
 
 ```bash
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools
 bash install.sh            # installs all 5 + the paranoid launcher
 ```
+
+**Windows** (beta) — PowerShell 7 and Git once, then the same single command:
+
+```powershell
+winget install --id Microsoft.PowerShell -e
+winget install --id Git.Git -e
+# close this window, open a new "PowerShell 7" from the Start menu, then:
+git clone https://github.com/Di-kairos/paranoid-tools
+cd paranoid-tools
+pwsh -File windows/install.ps1   # installs all 5 + the paranoid launcher
+```
+
+**Then, on either system:** open a **new** terminal (so `PATH` picks up the change) and
+run `paranoid` — one menu with the current state of everything and every action in it, so
+you do not have to learn five CLIs to start. Step-by-step Windows notes (PATH, one tool
+only, what to do when `git` is "not recognized") are in **[Windows](#windows)** below.
 
 Each tool is pulled from its own **signed release** with verify-then-run: the installer
 checks the Ed25519 signature over `SHA256SUMS`, then the checksum of the tool's own
@@ -168,13 +184,19 @@ CA), so it ships as source only — run it from a clone, see [gui/README.md](gui
 ### Uninstall
 
 ```bash
-bash install.sh --uninstall   # remove all tools and the launcher
+bash install.sh --uninstall                 # macOS: remove all tools and the launcher
 ```
+
+```powershell
+pwsh -File windows/install.ps1 -Uninstall   # Windows: the same, PATH entry included
+```
+
+Neither one touches your data: vaults, notes and shares stay exactly where they are.
 
 ### Windows
 
-The one-line `install.sh` above is macOS only. On Windows it's a few short steps — here's
-the whole thing from scratch. Steps **1–2 you do once**; step 3 you repeat per tool.
+The short path is at the top of [Install](#install) — this section is the same thing
+spelled out, plus the things that trip people up. Steps **1–2 you do once**.
 
 **1. Install PowerShell 7.** The supported path for install and run is PowerShell 7
 (`pwsh`); the built-in Windows PowerShell 5.1 is not officially supported. In any
