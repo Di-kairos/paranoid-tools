@@ -104,7 +104,7 @@ try {
     #   * .sig present but does NOT verify → refusal (clear sign of substitution).
     # The only bypass is $env:PT_ALLOW_HASH_ONLY='1' (loud warning,
     # only SHA256 integrity remains; authenticity is NOT confirmed).
-    $SigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
+    $SigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT'
     $SignPrincipal = 'releases@paranoid-tools'
     $hashOnly = ($env:PT_ALLOW_HASH_ONLY -eq '1')
 

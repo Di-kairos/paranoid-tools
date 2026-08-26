@@ -68,7 +68,7 @@ fi
 # Behavior: no ssh-keygen → refuse, fail-closed (bypass: ALLOW_UNSIGNED_LEGACY=1);
 # release has no .sig → hard refusal (legacy bypass via ALLOW_UNSIGNED_LEGACY=1);
 # .sig present and NOT matching → hard refusal (a clear sign of substitution).
-RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
+RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT"
 SIGN_PRINCIPAL="releases@paranoid-tools"
 # pubkey set but ssh-keygen unavailable → fail-closed: silent degradation to hash-only
 # would mask substitution; ssh-keygen ships with macOS, its absence is anomalous

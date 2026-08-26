@@ -26,7 +26,7 @@ Checksum-verified установка с релизного тега (как у s
 curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/install.sh
 curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/SHA256SUMS
 curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/SHA256SUMS.sig
-printf '%s\n' 'releases@paranoid-tools namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U' > allowed_signers
+printf '%s\n' 'releases@paranoid-tools namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I releases@paranoid-tools -n file -s SHA256SUMS.sig < SHA256SUMS &&   # подлинность: Ed25519, пришитый ключ
 shasum -a 256 -c SHA256SUMS --ignore-missing &&   # целостность: сам install.sh
 less install.sh &&                               # прочитать глазами — и только потом:

@@ -101,7 +101,7 @@ try {
     # FAIL-CLOSED: a bad signature ALWAYS aborts the install (a clear sign of tampering — no bypass).
     # A missing signature OR a missing ssh-keygen aborts the install unless PT_ALLOW_HASH_ONLY=1
     # is explicitly set — then only SHA256 integrity remains (with a loud warning).
-    $ReleaseSigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
+    $ReleaseSigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT'
     $SignPrincipal = 'releases@paranoid-tools'
     $AllowHashOnly = ($env:PT_ALLOW_HASH_ONLY -eq '1')
 

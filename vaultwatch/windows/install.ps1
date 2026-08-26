@@ -62,7 +62,7 @@ function Get-ReleaseFile {
 #   - ssh-keygen unavailable OR .sig missing → install aborted, UNLESS PT_ALLOW_HASH_ONLY=1
 #     is set (then a loud warning: only SHA256 integrity was verified);
 #   - .sig present and does NOT verify → hard refusal with NO bypass (a clear sign of tampering; as in install.sh).
-$script:ReleaseSigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
+$script:ReleaseSigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT'
 $script:SignPrincipal = 'releases@paranoid-tools'
 
 function Get-VwVerifier {

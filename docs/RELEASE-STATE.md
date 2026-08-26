@@ -64,13 +64,16 @@
   последний коммит не трогал каталог тула.
 - **`ci` (умбрелла)** зелёный на том же SHA.
 
-Осталось ровно одно, и только руками Mr.Di: положить `RELEASE_SIGNING_KEY` в secrets
-этого репозитория (`gh secret set RELEASE_SIGNING_KEY < key`; сейчас `gh secret list`
-пуст). Дальше нарезка — пять тегов на этом же коммите:
+**Гейт секрета закрыт 2026-08-26 (s41):** `RELEASE_SIGNING_KEY` лежит в secrets этого
+репозитория (новый ключ, см. «Release signing»), цепочка `ssh-keygen -Y sign` → `-Y verify`
+проверена локально против вшитого pubkey. Дальше нарезка — пять тегов:
 
 ```bash
+# теги ставятся на тот SHA, где зелёные пять ci-<tool>.yml — после ротации ключа это
+# уже не 400e107, а HEAD ветки main (правка тронула каталоги всех пяти тулов,
+# paths-фильтр поднял прогоны сам).
 for t in securetrash-v0.5.7 vaultwatch-v0.1.15 panic-v0.1.16 ghostdraft-v0.1.19 seedsplit-v0.5.6; do
-  git tag "$t" 400e107 && git push origin "$t"
+  git tag "$t" && git push origin "$t"
 done
 bash verify-releases.sh    # ждём 5/5
 ```
@@ -158,8 +161,18 @@ HEAD каждого тула = тег + `chore(formula)` + `docs`-bump верс�
 ## Release signing
 
 Все 5 тулов подписывают `SHA256SUMS` ключом `releases@paranoid-tools` (Ed25519); pubkey
-`ssh-ed25519 …scn2U` опубликован в каждом `SECURITY.md`, вшит в `install.sh` (авто-verify).
-Приватный ключ — в GH Secrets (`RELEASE_SIGNING_KEY`) + офлайн-бэкап в securetrash vault.
+`ssh-ed25519 …CZkT` опубликован в каждом `SECURITY.md`, вшит в `install.sh` (авто-verify).
+Приватный ключ — в GH Secrets (`RELEASE_SIGNING_KEY`) + офлайн-бэкап в securetrash vault
+(`/Volumes/SecretVault/releases_paranoid_tools`, без парольной фразы — release.yml работает
+без интерактива).
+
+**Ротация 2026-08-26 (s41).** Секреты в GitHub привязаны к репозиторию и не переезжают:
+`RELEASE_SIGNING_KEY` остался в пяти архивных репо, а в монорепо его не было — файл старого
+ключа (`…scn2U`) не нашёлся ни в `~/.ssh`, ни в сейфе, а прочитать секрет из GitHub нельзя.
+Выпущен новый ключ (`SHA256:rTzQ4loEpdy9/i06HtsV4wuQU8iMpprFFGuY+r4IPxk`), pubkey заменён во
+всех установщиках, `SECURITY.md`, README и `verify-releases.sh`. Старые релизы в архивных
+репо продолжают проверяться старым ключом из своих же `install.sh` — там ничего не сломалось;
+монорепо-релизов CLI на момент ротации не существовало, так что подменять нечего.
 
 ## GUI signing (macOS — закрыто 2026-08-09, s34)
 

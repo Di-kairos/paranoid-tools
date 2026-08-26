@@ -112,7 +112,7 @@ Describe 'install.ps1 signature verification (P1-2)' {
         $al = Get-Content -LiteralPath (Join-Path $script:Tmp 'allowed_signers') -Raw
         $al | Should -Match 'releases@paranoid-tools'
         $al | Should -Match 'namespaces="file"'
-        $al | Should -Match ([regex]::Escape('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'))
+        $al | Should -Match ([regex]::Escape('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT'))
     }
 
     It 'fails closed on an invalid signature (PT_ALLOW_HASH_ONLY does NOT bypass)' {

@@ -107,7 +107,7 @@ try {
         Write-Warning 'GHOSTDRAFT_TEST_SIGNING_PUBKEY is set: the signature is checked against a FOREIGN key, not the ghostdraft release key. This is test mode — it must never happen in a normal install.'
         $env:GHOSTDRAFT_TEST_SIGNING_PUBKEY
     } else {
-        'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
+        'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT'
     }
     $SignPrincipal = 'releases@paranoid-tools'
     $HashOnly = ($env:PT_ALLOW_HASH_ONLY -eq '1')

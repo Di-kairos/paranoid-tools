@@ -98,7 +98,7 @@ try {
     # over SHA256SUMS. FAIL-CLOSED: no ssh-keygen OR no .sig → refuse, except PT_ALLOW_HASH_ONLY=1
     # (loud warning, install on integrity only). Signature PRESENT but NOT matching —
     # always a hard refusal (a clear sign of substitution), no bypass.
-    $SigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U'
+    $SigningPubkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT'
     $SignPrincipal = 'releases@paranoid-tools'
 
     $sshKeygen = Get-Command ssh-keygen -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1

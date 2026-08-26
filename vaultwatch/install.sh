@@ -71,7 +71,7 @@ fi
 # Behavior: no ssh-keygen → refuse, fail-closed (bypass: ALLOW_UNSIGNED_LEGACY=1);
 # release has no .sig → hard refusal (legacy bypass via ALLOW_UNSIGNED_LEGACY=1);
 # .sig present and does NOT verify → hard refusal (a clear sign of tampering).
-RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
+RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT"
 SIGN_PRINCIPAL="releases@paranoid-tools"
 # pubkey is set but ssh-keygen unavailable → fail-closed: a silent degradation to hash-only
 # would mask tampering; on macOS ssh-keygen ships with the system, its absence is anomalous

@@ -74,7 +74,7 @@ fi
 #   * .sig present but does NOT verify → hard refusal (clear sign of substitution);
 #   * .sig missing → hard refusal (v0.4.2+ are always signed);
 #     to install older releases (pre-v0.4.2): ALLOW_UNSIGNED_LEGACY=1 bash install.sh
-RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
+RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT"
 SIGN_PRINCIPAL="releases@paranoid-tools"
 # pubkey is set but ssh-keygen is unavailable → fail-closed: silently degrading to hash-only
 # would mask a substitution; on macOS ssh-keygen ships with the system, its absence is anomalous

@@ -114,7 +114,7 @@ DEST="${PT_DEST:-$HOME/.local/bin}"
 TOOLS=(securetrash vaultwatch panic ghostdraft seedsplit)
 
 # Release signing: the ecosystem's dedicated ed25519 key (shared by all 5 tools).
-RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
+RELEASE_SIGNING_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT"
 SIGN_PRINCIPAL="releases@paranoid-tools"
 
 # Name of the DEST env variable of a given tool's install.sh (each has its own prefix).

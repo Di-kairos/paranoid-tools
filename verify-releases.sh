@@ -10,7 +10,7 @@
 # Prints ✓/✗ per tool. Run:  bash verify-releases.sh
 set -uo pipefail
 
-PUB="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICb2nz4EliRJIU0ExeF41klE/zlyo7XFY119mfzscn2U"
+PUB="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT"
 PRINCIPAL="releases@paranoid-tools"
 # All releases live in the monorepo under per-tool prefixed tags.
 BASE="https://github.com/Di-kairos/paranoid-tools/releases/download"
