@@ -103,12 +103,25 @@ jobs:
           [ "$bad" -eq 0 ] || exit 1
 
       - name: Test the tool at this exact commit (lint + bats + vendor check)
+        # This job is ubuntu-latest, but not every suite is Linux-runnable: securetrash
+        # drives real hdiutil/shasum behind require_macos, so ci-securetrash.yml runs its
+        # bats on macos-latest. Running it here anyway failed 58 of 117 tests on a commit
+        # whose own CI was green. So the local bats run is conditional on where the tool
+        # itself runs bats — read out of ci-<tool>.yml rather than hardcoded by name, so a
+        # new tool is covered without editing this workflow. When it is skipped, the suite
+        # is not skipped: "The tool's own CI must be green at this exact commit" below is
+        # mandatory and covers it on the right runner.
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq bats shellcheck
+          bats_runner="$(awk '/runs-on:/ { r = $2 } /bats test\// { print r; exit }' \
+                          ".github/workflows/ci-$TOOL.yml")"
           cd "$TOOL"
           shellcheck "$TOOL" install.sh
           [ -x tools/vendor-common.sh ] && ./tools/vendor-common.sh --check
-          bats test/
+          case "$bats_runner" in
+            ubuntu-*) bats test/ ;;
+            *) echo "Skipping bats here: $TOOL runs its suite on $bats_runner (see ci-$TOOL.yml)." ;;
+          esac
 
       - name: Crypto known-answer + differential tests (for tools that ship them)
         # Signing an artifact proves where it came from, not that it is correct. seedsplit is
