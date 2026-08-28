@@ -9,9 +9,10 @@ on:
     paths: ['seedsplit/**', 'securetrash/lib/common.sh', '.github/workflows/ci-seedsplit.yml']
   pull_request:
     paths: ['seedsplit/**', 'securetrash/lib/common.sh', '.github/workflows/ci-seedsplit.yml']
-  # Manual run: the release gate wants a green run at the exact tagged commit, and a
-  # tag push does not re-trigger this workflow (a tag adds no changed files, so the
-  # paths filter never matches). Dispatch it on that commit by hand instead.
+  # Manual run: the release gate wants a green run at the exact tagged commit. A tag
+  # push does trigger this workflow, but only when the tagged commit's own diff matches
+  # the paths filter above — tag a commit that touched nothing here (a .github/-only
+  # fix, say) and no run appears. Dispatch it on that commit by hand instead.
   workflow_dispatch:
 defaults:
   run:
