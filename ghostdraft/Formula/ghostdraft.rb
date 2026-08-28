@@ -1,12 +1,12 @@
 class Ghostdraft < Formula
   desc "Ephemeral scratch draft on macOS, kept in a RAM disk not on-disk temp"
-  homepage "https://github.com/Di-kairos/ghostdraft"
-  url "https://github.com/Di-kairos/ghostdraft/archive/refs/tags/v0.1.18.tar.gz"
-  sha256 "00698a98899715c8897eca780859b0791c977be5023fb9de543cdaa742cc0114"
+  homepage "https://github.com/Di-kairos/paranoid-tools"
+  url "https://github.com/Di-kairos/paranoid-tools/archive/refs/tags/ghostdraft-v0.1.19.tar.gz"
+  sha256 "a469cc2bf6800b2663d0acfcac6e0c9fae48fbcc5c3e976746af38455d18352b"
   license "MIT"
 
   def install
-    bin.install "ghostdraft"
+    bin.install "ghostdraft/ghostdraft"
   end
 
   test do
