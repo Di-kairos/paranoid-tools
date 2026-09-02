@@ -66,8 +66,16 @@ function T {
         'en:vw'           { return 'vaultwatch:' }  'ru:vw'           { return 'vaultwatch:' }
         'en:admin'        { return 'Admin:' }        'ru:admin'        { return 'Админ:' }
         'en:admin_yes'    { return 'yes' }           'ru:admin_yes'    { return 'да' }
-        'en:admin_no'     { return 'NO - vault actions and panic-lock will refuse (reopen PowerShell as administrator)' }
-        'ru:admin_no'     { return 'НЕТ - действия с сейфом и запирание в панике откажутся (перезапусти PowerShell от имени администратора)' }
+        'en:admin_no'     { return 'no - vault actions ask Windows for rights when you pick them (one prompt, one click)' }
+        'ru:admin_no'     { return 'нет - действия с сейфом сами запросят права у Windows (один запрос, один клик)' }
+        'en:elev_ask'     { return 'This needs administrator rights - Windows will ask now. Confirm, and the action runs in its own window; type the vault password there.' }
+        'ru:elev_ask'     { return 'Для этого нужны права администратора — Windows сейчас спросит. Подтверди, и действие выполнится в отдельном окне; пароль сейфа вводи там.' }
+        'en:elev_declined' { return 'The rights prompt was declined - nothing was done. On Windows the vault runs on diskpart and BitLocker, and those need administrator rights.' }
+        'ru:elev_declined' { return 'Запрос прав отклонён — ничего не сделано. На Windows сейф работает через diskpart и BitLocker, а им нужны права администратора.' }
+        'en:elev_back'    { return 'The elevated window has closed - the state below is re-read now.' }
+        'ru:elev_back'    { return 'Окно с правами закрыто — состояние ниже перечитано.' }
+        'en:elev_close'   { return 'Press Enter to close this window' }
+        'ru:elev_close'   { return 'Нажми Enter, чтобы закрыть это окно' }
         'en:vw_active'    { return 'active' }       'ru:vw_active'    { return 'активен' }
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
         'en:update_avail' { return 'update available:' } 'ru:update_avail' { return 'доступно обновление:' }
@@ -554,7 +562,9 @@ function Invoke-PnActPanic {
     # --hard (hide/lock + kill cloud daemons + clear recents). The guard against an accidental
     # press is that the item is explicitly marked "instant", and `panic now` itself requires an explicit verb.
     # Panic is reversible: it is hide & lock, NOT data destruction (for destruction — securetrash).
-    Invoke-PnTool 'panic' @('now', '--hard')
+    # Panic goes through the same path: without rights it cannot lock a single encrypted
+    # volume, and a kill-switch that quietly does half its job is worse than one extra click.
+    Invoke-PnToolAdmin 'panic' @('now', '--hard')
     Invoke-PnPause
 }
 # Ask for the size cap of the new vault (Windows: whole MB for diskpart). Returns the size
@@ -574,15 +584,15 @@ function Read-PnVaultSize {
 function Invoke-PnActVault {
     # Three-state: no container → create (asking for the size cap); closed → open; open → close.
     switch (Get-PnVaultState) {
-        'open'   { Invoke-PnTool 'securetrash' @('vault', 'close') }
-        'closed' { Invoke-PnTool 'securetrash' @('vault', 'open') }
+        'open'   { Invoke-PnToolAdmin 'securetrash' @('vault', 'close') }
+        'closed' { Invoke-PnToolAdmin 'securetrash' @('vault', 'open') }
         'unknown' { Write-PnScreen "  $(T 'vault_unknown_act')" }
         'none'   {
             Write-PnScreen "  $(T 'vault_setup_hint')"
             $sz = Read-PnVaultSize
             if ($null -ne $sz) {
                 $a = @('vault', 'create'); if ($sz) { $a += $sz }
-                Invoke-PnTool 'securetrash' $a
+                Invoke-PnToolAdmin 'securetrash' $a
             }
         }
     }
@@ -604,7 +614,7 @@ function Invoke-PnActDestroy {
         Write-PnScreen "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
     Write-PnScreen "  $(T 'destroy_hint')"
-    Invoke-PnTool 'securetrash' @('vault', 'destroy')
+    Invoke-PnToolAdmin 'securetrash' @('vault', 'destroy')
     Invoke-PnPause
 }
 # Emptying the vault = securetrash vault reset (crypto-shred + recreate empty). An honest
@@ -626,7 +636,7 @@ function Invoke-PnActEmpty {
     $sz = Read-PnVaultSize
     if ($null -ne $sz) {
         $a = @('vault', 'reset'); if ($sz) { $a += $sz }
-        Invoke-PnTool 'securetrash' $a
+        Invoke-PnToolAdmin 'securetrash' $a
     }
     Invoke-PnPause
 }
@@ -647,7 +657,7 @@ function Invoke-PnActWatch {
     # The guard is already active → the action works as "stop watching" (toggle). Otherwise it
     # could not be turned off from the menu (a dead end: start only, no stop).
     if ((Get-PnVaultwatchState) -eq 'active') {
-        Invoke-PnTool 'vaultwatch' @('stop', $script:VAULT_VOLUME)
+        Invoke-PnToolAdmin 'vaultwatch' @('stop', $script:VAULT_VOLUME)
         Invoke-PnPause; return
     }
     # Watching a volume we do not even know is mounted is a guard session around an empty
@@ -656,9 +666,58 @@ function Invoke-PnActWatch {
         Write-PnScreen "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
     $ttl = Read-PnLine "  $(T 'ask_ttl')"
-    if ($ttl) { Invoke-PnTool 'vaultwatch' @('start', '--ttl', $ttl, $script:VAULT_VOLUME) }
-    else { Invoke-PnTool 'vaultwatch' @('start', $script:VAULT_VOLUME) }
+    if ($ttl) { Invoke-PnToolAdmin 'vaultwatch' @('start', '--ttl', $ttl, $script:VAULT_VOLUME) }
+    else { Invoke-PnToolAdmin 'vaultwatch' @('start', $script:VAULT_VOLUME) }
     Invoke-PnPause
+}
+
+# pwsh for the elevated re-launch. The tools are supported on PowerShell 7, and the shim on
+# PATH starts it anyway — so the elevated copy must be the same one.
+function Get-PnPwshPath {
+    $cmd = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    return 'pwsh'
+}
+
+# Re-launch THIS launcher through UAC to run one tool command, and wait for it to finish.
+# $true = the prompt was accepted and the run completed; $false = declined (or it could not
+# start), and then nothing happened at all.
+#
+# Why re-launch ourselves instead of the tool directly: -File takes one known path
+# ($PSCommandPath) and plain word arguments, so nothing has to survive a second round of
+# quoting. Building a command line for cmd.exe or -Command with a %LOCALAPPDATA% path in it is
+# exactly the kind of escaping that breaks on somebody's machine and not on ours.
+# Wrapper for Mock — Pester must never open a real UAC prompt.
+function Invoke-PnToolElevated {
+    param([string]$Tool, [string[]]$ToolArgs = @())
+    $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '_elevated', $Tool) + $ToolArgs
+    try {
+        Start-Process -FilePath (Get-PnPwshPath) -Verb RunAs -Wait -ArgumentList $argv -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        # Declining the UAC prompt surfaces here as a terminating error. Not an anomaly: it is
+        # the user saying no, and the honest answer is that nothing was done.
+        return $false
+    }
+}
+
+# Run a tool that cannot work without administrator rights: straight through when this console
+# already has them, otherwise through a single UAC prompt. The alternative — telling the user
+# to close the window and reopen PowerShell by right-click — is a step nobody should have to
+# learn to open their own vault.
+function Invoke-PnToolAdmin {
+    param([string]$Tool, [string[]]$ToolArgs = @())
+    if (-not (Test-PnTool $Tool)) {
+        [Console]::Error.WriteLine((T 'install_hint' $Tool (Get-PnToolRepo $Tool)))
+        return
+    }
+    if ((Get-PnAdminState) -eq 'yes') { Invoke-PnTool -Tool $Tool -ToolArgs $ToolArgs; return }
+    Write-PnScreen "  $(T 'elev_ask')"
+    if (Invoke-PnToolElevated -Tool $Tool -ToolArgs $ToolArgs) {
+        Write-PnScreen "  $(T 'elev_back')"
+    } else {
+        [Console]::Error.WriteLine("  $(T 'elev_declined')")
+    }
 }
 
 # Does this directory look like our clone? A reparse point (symlink/junction) is refused: a
@@ -859,6 +918,17 @@ function Invoke-PnMain {
     switch ($cmd) {
         { $_ -in 'version', '-v', '--version' } { Write-Output "paranoid $PARANOID_VERSION"; return }
         { $_ -in 'help', '-h', '--help' }       { Write-Output (Get-PnUsage); return }
+        # Internal: this is the launcher re-entered through UAC by Invoke-PnToolElevated. It
+        # runs exactly one tool command and then waits, so the window does not vanish with its
+        # output — and so the vault password can be typed into it.
+        '_elevated' {
+            $tool = if ($Argv.Count -ge 2) { $Argv[1] } else { '' }
+            if (-not $tool) { [Console]::Error.WriteLine('_elevated: no tool given'); exit 1 }
+            $toolArgs = @(if ($Argv.Count -ge 3) { $Argv[2..($Argv.Count - 1)] } else { @() })
+            Invoke-PnTool -Tool $tool -ToolArgs $toolArgs
+            Read-PnLine "  $(T 'elev_close')" | Out-Null
+            return
+        }
         '' { }
         default { [Console]::Error.WriteLine("Unknown command: $cmd"); [Console]::Error.WriteLine((Get-PnUsage)); exit 1 }
     }

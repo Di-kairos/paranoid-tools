@@ -67,15 +67,14 @@ Describe 'Get-PnDashboard — read-only status text' {
         $out | Should -Match 'closed'
     }
 
-    It 'says outright when the console cannot run the vault actions (P0-2)' {
-        # The menu offers create/open/close/destroy unconditionally, and every one of them
-        # refuses without administrator rights. Learning that from the board beats learning it
-        # from a refusal after typing a password.
+    It 'says what will happen when the console has no rights (P0-2)' {
+        # The board states the fact and what follows from it. It must not threaten a refusal:
+        # picking a vault action now raises a UAC prompt instead of turning the user away.
         Mock Get-PnVaultState { 'closed' }
         Mock Get-PnAdminState { 'no' }
         $out = Get-PnDashboard
         $out | Should -Match 'Admin:'
-        $out | Should -Match 'will refuse'
+        $out | Should -Match 'ask Windows for rights'
     }
 
     It 'does not nag about rights when the console has them' {
@@ -83,7 +82,7 @@ Describe 'Get-PnDashboard — read-only status text' {
         Mock Get-PnAdminState { 'yes' }
         $out = Get-PnDashboard
         $out | Should -Match 'Admin:'
-        $out | Should -Not -Match 'will refuse'
+        $out | Should -Not -Match 'ask Windows for rights'
     }
 
     It 'marks the panic line (not installed) when panic is absent' {
@@ -303,6 +302,7 @@ Describe 'unknown vault state — the launcher names it and refuses to guess' {
         Mock Get-PnMountPoints { $null }
         Mock Invoke-PnPause { }
         Mock Invoke-PnTool  { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
     }
 
     It 'the dashboard says so instead of a green "closed"' {
@@ -378,6 +378,7 @@ Describe 'Get-PnToolRepo' {
 Describe 'dispatch — panic (choice 2)' {
     BeforeEach {
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
         Mock Test-PnTool { $true } -ParameterFilter { $Tool -eq 'panic' }
     }
@@ -420,6 +421,7 @@ Describe 'top dispatch routes groups to submenu loops (3/4/5)' {
 Describe 'vault submenu dispatch — open/close/create smart (item 1) + size' {
     BeforeEach {
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
         $script:PN_LOCALE = 'en'
     }
@@ -465,6 +467,7 @@ Describe 'vault submenu dispatch — open/close/create smart (item 1) + size' {
 Describe 'vault submenu dispatch — empty=reset (item 2)' {
     BeforeEach {
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
         $script:PN_LOCALE = 'en'
     }
@@ -504,6 +507,7 @@ Describe 'vault submenu dispatch — empty=reset (item 2)' {
 Describe 'vault submenu dispatch — destroy (item 3)' {
     BeforeEach {
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
         $script:PN_LOCALE = 'en'
     }
@@ -533,6 +537,7 @@ Describe 'vault submenu dispatch — destroy (item 3)' {
 Describe 'vault submenu dispatch — watch toggle (item 4)' {
     BeforeEach {
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
         # Via the override: Invoke-PnActWatch refreshes $script:VAULT_VOLUME = Get-PnVaultMount,
         # and Get-PnVaultMount reads ST_VAULT_VOLUME first — so the refresh does not clobber 'V:\'.
@@ -575,6 +580,7 @@ Describe 'vault submenu dispatch — watch toggle (item 4)' {
 Describe 'notepad submenu dispatch (ghostdraft)' {
     BeforeEach {
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
         $script:PN_LOCALE = 'en'
     }
@@ -609,6 +615,7 @@ Describe 'notepad submenu dispatch (ghostdraft)' {
 Describe 'secrets submenu dispatch (seedsplit) + status (top 1)' {
     BeforeEach {
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
         Mock Test-PnTool { $true }
     }
@@ -655,6 +662,7 @@ Describe 'menus reach the screen through the dispatch tree (live-hardware regres
         Mock Get-PnVaultMount { 'D:\' }
         Mock Clear-Host { }
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
     }
 
@@ -682,6 +690,7 @@ Describe 'menus reach the screen through the dispatch tree (live-hardware regres
         # `securetrash check` from item 1 was swallowed the same way: PowerShell captures a
         # child process's stdout into the caller's pipeline.
         Mock Invoke-PnTool { Write-PnScreen 'TOOL SPOKE' }
+        Mock Get-PnAdminState { 'yes' }
         $out = Get-PnScreen { Invoke-PnDispatch '1' }
         $out | Should -Match 'TOOL SPOKE'
     }
@@ -689,6 +698,83 @@ Describe 'menus reach the screen through the dispatch tree (live-hardware regres
 
 # --- Parity with the macOS launcher, which has had item 6 all along. It was missing here for
 # a real reason — there was no umbrella installer on Windows — and that reason is gone. ---
+# --- Usability call: telling someone to close the window and reopen PowerShell by right-click
+# is a step they have to learn before they can open their own vault. The vault still cannot run
+# without administrator rights — that is Windows — but asking for them is now one click. ---
+Describe 'admin-only actions ask Windows for rights instead of sending the user away' {
+
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        $script:VAULT_VOLUME = 'D:\'
+        Mock Test-PnTool { $true }
+        Mock Invoke-PnPause { }
+        Mock Invoke-PnTool { }
+        Mock Invoke-PnToolElevated { $true }
+        Mock Get-PnVaultState { 'closed' }
+        Mock Get-PnVaultMount { 'D:\' }
+        Mock Get-PnVaultwatchState { 'idle' }
+        Mock Read-PnLine { '' }
+    }
+
+    It 'runs in-process when the console already has rights (no prompt)' {
+        Mock Get-PnAdminState { 'yes' }
+        Invoke-PnActVault
+        Should -Invoke Invoke-PnTool -Times 1 -Exactly
+        Should -Invoke Invoke-PnToolElevated -Times 0 -Exactly
+    }
+
+    It 'asks Windows for rights when the console has none' {
+        Mock Get-PnAdminState { 'no' }
+        Invoke-PnActVault
+        Should -Invoke Invoke-PnToolElevated -Times 1 -Exactly -ParameterFilter {
+            $Tool -eq 'securetrash' -and ($ToolArgs -contains 'open')
+        }
+        Should -Invoke Invoke-PnTool -Times 0 -Exactly
+    }
+
+    It 'says what is about to happen and where the password goes' {
+        Mock Get-PnAdminState { 'no' }
+        $out = Get-PnScreen { Invoke-PnActVault }
+        $out | Should -Match 'administrator rights'
+        $out | Should -Match 'own window'
+    }
+
+    It 'a declined prompt does nothing and says so' {
+        Mock Get-PnAdminState { 'no' }
+        Mock Invoke-PnToolElevated { $false }
+        $out = Get-PnScreen { Invoke-PnActVault }
+        Should -Invoke Invoke-PnTool -Times 0 -Exactly
+        $out | Should -Not -Match 're-read'
+    }
+
+    It 'destroy, empty, watch and panic take the same path' {
+        Mock Get-PnAdminState { 'no' }
+        Mock Read-PnVaultSize { '' }
+        foreach ($act in 'Invoke-PnActDestroy', 'Invoke-PnActEmpty', 'Invoke-PnActWatch', 'Invoke-PnActPanic') {
+            Get-PnScreen { & $act } | Out-Null
+        }
+        Should -Invoke Invoke-PnToolElevated -Times 4 -Exactly
+    }
+
+    It 'the dashboard no longer threatens a refusal it will not make' {
+        Mock Get-PnAdminState { 'no' }
+        Mock Get-PnBitLockerState { 'unknown' }
+        $out = Get-PnDashboard
+        $out | Should -Match 'ask Windows for rights'
+        $out | Should -Not -Match 'will refuse'
+    }
+
+    It '_elevated runs one tool and waits before closing the window' {
+        # The window is opened by UAC and would otherwise vanish with the output — and with the
+        # password prompt the user is supposed to type into.
+        Invoke-PnMain -Argv @('_elevated', 'securetrash', 'vault', 'open')
+        Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
+            $Tool -eq 'securetrash' -and ($ToolArgs -contains 'vault') -and ($ToolArgs -contains 'open')
+        }
+        Should -Invoke Read-PnLine -Times 1 -Exactly
+    }
+}
+
 Describe 'Update (menu item 6) — parity with the macOS launcher' {
 
     BeforeEach {
@@ -783,6 +869,7 @@ Describe 'Update (menu item 6) — parity with the macOS launcher' {
 Describe 'dispatch — quit and unknown' {
     BeforeEach {
         Mock Invoke-PnTool { }
+        Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
         Mock Invoke-PnPause { }
     }
 

@@ -260,16 +260,24 @@ securetrash version
 securetrash --help
 ```
 
-**Which commands need an administrator console.** The vault is a BitLocker-encrypted VHDX, and
-Windows hands both `diskpart` and the BitLocker cmdlets to administrators only. So
-`securetrash vault create/open/close/destroy/reset`, `vaultwatch start` and the volume-locking
-half of `panic now` need a PowerShell started with **Run as administrator** — everything else
+**Administrator rights: what needs them, and what that costs you.** The vault is a
+BitLocker-encrypted VHDX, and Windows hands both `diskpart` and the BitLocker cmdlets to
+administrators only. So `securetrash vault create/open/close/destroy/reset`, `vaultwatch start`
+and the volume-locking half of `panic now` cannot run as a normal user; everything else
 (`check`, `status`, `shred`, `seedsplit`, `ghostdraft`, the clipboard and screen-lock half of
-`panic`) runs as your normal user. The tools say so themselves rather than failing raw:
-`securetrash check` reports whether this console can run the vault at all, the `paranoid`
-dashboard carries an `Admin:` line, and an unelevated vault command refuses without touching
-anything. This is a Windows privilege boundary, not a choice of ours — nothing here asks for
-rights it does not need, and nothing runs elevated behind your back.
+`panic`) can.
+
+From the `paranoid` launcher you do not have to think about it: pick one of those actions in a
+normal console and Windows raises its own rights prompt — one click, and the action runs in its
+own window, where you type the vault password. Decline it and nothing happens, which the
+launcher says out loud. The dashboard's `Admin:` line tells you which console you are in before
+you pick anything.
+
+Running the tools directly (not through the launcher) keeps the plain rule: an unelevated vault
+command refuses without touching anything and names the console it needs, and `securetrash
+check` reports up front whether this console can run the vault at all. This is a Windows
+privilege boundary, not a choice of ours — nothing here asks for rights it does not need, and
+nothing runs elevated behind your back.
 
 Each name on your PATH is a small `.cmd` shim in
 `%LOCALAPPDATA%\Programs\ParanoidTools`; the scripts themselves sit in the `lib\`
