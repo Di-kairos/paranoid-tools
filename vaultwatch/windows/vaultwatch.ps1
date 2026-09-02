@@ -76,6 +76,8 @@ function T {
         'ru:unknown_cmd'   { return "Неизвестная команда: $A" }
         'en:need_ps7'      { return "vaultwatch requires PowerShell 7+ (pwsh); running under $A. TTL auto-dismount and hooks call pwsh.exe and will not fire on Windows PowerShell 5.1. Install PowerShell 7: https://aka.ms/powershell" }
         'ru:need_ps7'      { return "vaultwatch требует PowerShell 7+ (pwsh); запущен под $A. TTL-авторазмонтирование и хуки зовут pwsh.exe и НЕ сработают на Windows PowerShell 5.1. Установи PowerShell 7: https://aka.ms/powershell" }
+        'en:need_admin'    { return 'vaultwatch start needs an administrator console. The TTL auto-dismount calls Lock-BitLocker and the scheduled tasks register at the highest run level - both are administrator-only, and without rights the guard would register and then silently never fire. Nothing was started. Open PowerShell as administrator and try again.' }
+        'ru:need_admin'    { return 'vaultwatch start требует консоли администратора. TTL-авторазмонтирование зовёт Lock-BitLocker, а задачи регистрируются с наивысшими правами — и то и другое доступно только администратору, а без прав сторож зарегистрировался бы и молча никогда не сработал. Ничего не запущено. Открой PowerShell от имени администратора и повтори.' }
         'en:need_mount'    { return 'this command needs a mountpoint argument.' }
         'ru:need_mount'    { return 'команде нужен аргумент — точка монтирования.' }
         'en:mount_missing' { return "mountpoint not found: $A" }
@@ -256,15 +258,25 @@ function ConvertTo-VwArgvSafe {
     return ($Value -replace '(\\+)$', '$1$1')
 }
 
+# Both tasks run as THIS user, elevated. Without -RunLevel Highest the task registers happily
+# and then fails at fire time: Lock-BitLocker is administrator-only, so the TTL would expire
+# with the vault still open and nothing to show for it. Interactive logon (not S4U) because the
+# task acts on a volume the logged-on user has mounted, and it needs that session to exist.
+function New-VwTaskPrincipal {
+    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    return (New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Highest)
+}
+
 # Register the one-shot auto-exit task. Returns the label (or '' on failure).
 function Register-VwTtlTask {
     param([string]$Mount, [int]$Seconds, [string]$Self)
     $label = 'vaultwatch-ttl-' + (($Mount -replace '[^a-zA-Z0-9]', '_'))
     try {
-        $arg = "-NoProfile -File `"$(ConvertTo-VwArgvSafe $Self)`" _ttl_fire `"$(ConvertTo-VwArgvSafe $Mount)`""
+        $arg = "-NoProfile -WindowStyle Hidden -File `"$(ConvertTo-VwArgvSafe $Self)`" _ttl_fire `"$(ConvertTo-VwArgvSafe $Mount)`""
         $action = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $arg
         $trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddSeconds($Seconds))
-        Register-ScheduledTask -TaskName $label -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
+        Register-ScheduledTask -TaskName $label -Action $action -Trigger $trigger `
+            -Principal (New-VwTaskPrincipal) -Force -ErrorAction Stop | Out-Null
         return $label
     } catch {
         Write-VwWarn (T 'ttl_sched_fail')
@@ -297,7 +309,7 @@ function Register-VwGuardTask {
     param([string]$Mount, [string]$Self)
     $label = Get-VwGuardLabel -Mount $Mount
     try {
-        $arg = "-NoProfile -File `"$(ConvertTo-VwArgvSafe $Self)`" _guard_fire `"$(ConvertTo-VwArgvSafe $Mount)`""
+        $arg = "-NoProfile -WindowStyle Hidden -File `"$(ConvertTo-VwArgvSafe $Self)`" _guard_fire `"$(ConvertTo-VwArgvSafe $Mount)`""
         $action  = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $arg
         # -RepetitionDuration is MANDATORY: without it -RepetitionInterval registers as a one-shot
         # (fires once immediately, while the volume is still mounted → no-op — and never repeats
@@ -306,7 +318,8 @@ function Register-VwGuardTask {
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
                      -RepetitionInterval (New-TimeSpan -Minutes 1) `
                      -RepetitionDuration (New-TimeSpan -Days 3650)
-        Register-ScheduledTask -TaskName $label -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
+        Register-ScheduledTask -TaskName $label -Action $action -Trigger $trigger `
+            -Principal (New-VwTaskPrincipal) -Force -ErrorAction Stop | Out-Null
         return $label
     } catch {
         Write-VwWarn (T 'guard_sched_fail')
@@ -730,6 +743,32 @@ function Assert-VwPs7 {
     }
 }
 
+# Administrator rights in this session (wrapper for Mock).
+function Test-VwElevated {
+    try {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        return (New-Object System.Security.Principal.WindowsPrincipal($id)).IsInRole(
+            [System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
+# Fail-closed on `start` only, and for the same reason as the PS7 gate: everything a session
+# is FOR happens later, in a scheduled task, where a failure is invisible. Unelevated, the TTL
+# task cannot Lock-BitLocker and cannot register at the highest run level - the vault would sit
+# open past its timer with a session file claiming it was guarded. stop/status stay ungated:
+# tearing a session down and reading it are not privileged, and refusing there would strand the
+# Search exclusion on the volume.
+# ST_ASSUME_ELEVATED=1 is a TEST-ONLY hook (Pester runs these paths on macOS); it grants
+# nothing - without real rights the scheduler and BitLocker refuse exactly as before.
+function Assert-VwElevated {
+    if ($env:ST_ASSUME_ELEVATED -eq '1') { return }
+    if (Test-VwElevated) { return }
+    Write-VwErr (T 'need_admin')
+    Stop-VwCommand 1
+}
+
 function Invoke-VwMain {
     param([string[]]$Argv)
     try {
@@ -756,7 +795,7 @@ function Invoke-VwMain {
             'install-hooks'   { Invoke-VwInstallHooks -Self $self }
             'uninstall-hooks' { Invoke-VwUninstallHooks }
             'status'          { Invoke-VwStatus }
-            'start'           { Invoke-VwStart -ArgList $rest -Self $self }
+            'start'           { Assert-VwElevated; Invoke-VwStart -ArgList $rest -Self $self }
             'stop'            { Invoke-VwStop -ArgList $rest }
             '_ttl_fire'       { Invoke-VwTtlFire -ArgList $rest }
             '_guard_fire'     { Invoke-VwGuardFire -ArgList $rest }

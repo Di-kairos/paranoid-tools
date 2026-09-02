@@ -293,6 +293,17 @@ Flags:
     'en:no_free_letter'     = 'No free drive letter available (D..Z all in use).'
     'ru:no_free_letter'     = 'Нет свободной буквы диска (D..Z все заняты).'
 
+    'en:need_admin'         = 'vault {0} needs an elevated console: it works through diskpart and BitLocker, and Windows hands those to administrators only. NOTHING was changed. Open "PowerShell 7" with a right-click -> "Run as administrator", then run the command again.'
+    'ru:need_admin'         = 'vault {0} требует консоли администратора: команда работает через diskpart и BitLocker, а их Windows отдаёт только администратору. НИЧЕГО не изменено. Открой «PowerShell 7» правой кнопкой → «Запуск от имени администратора» и повтори команду.'
+
+    'en:vault_status_need_admin' = 'Container exists, but its state cannot be READ without an elevated console (Get-DiskImage is administrator-only): {0}. Do NOT assume it is closed — re-run from an administrator PowerShell for a verdict.'
+    'ru:vault_status_need_admin' = 'Контейнер есть, но состояние НЕ прочитать без консоли администратора (Get-DiskImage доступен только ему): {0}. НЕ считай его закрытым — для вердикта повтори из PowerShell от имени администратора.'
+
+    'en:check_admin_needed' = 'This console has NO administrator rights: vault create/open/close/destroy/reset will refuse to run (diskpart and BitLocker are administrator-only, and panic cannot lock the vault either). Open PowerShell as administrator when you need them.'
+    'ru:check_admin_needed' = 'Эта консоль БЕЗ прав администратора: vault create/open/close/destroy/reset работать откажутся (diskpart и BitLocker доступны только администратору, и panic сейф тоже не запрёт). Понадобятся — запусти PowerShell от имени администратора.'
+    'en:check_admin_ok'     = 'Administrator rights: present — the vault commands are available.'
+    'ru:check_admin_ok'     = 'Права администратора: есть — команды vault доступны.'
+
     'en:unknown_cmd'        = 'Unknown command: {0}'
     'ru:unknown_cmd'        = 'Неизвестная команда: {0}'
 }
@@ -808,6 +819,23 @@ function Test-StElevated {
     }
 }
 
+# Refuse a vault operation that cannot possibly work in this session. Every vault command goes
+# through diskpart (create/attach/detach vdisk) and the BitLocker cmdlets, and Windows gives both
+# to administrators only. Without the gate the user gets diskpart's raw failure — or, worse,
+# a half-made container: `create` used to reach Enable-BitLocker and leave an attached,
+# UNENCRYPTED volume behind. An honest refusal that changes nothing is the only correct answer.
+#
+# ST_ASSUME_ELEVATED=1 is a TEST-ONLY hook (Pester drives these paths on macOS and on an
+# unelevated runner). It grants no privilege whatsoever: without real rights diskpart still
+# refuses — the hook only skips this precheck.
+function Assert-StVaultElevated {
+    param([string]$Action)
+    if ($env:ST_ASSUME_ELEVATED -eq '1') { return }
+    if (Test-StElevated) { return }
+    Write-StErr (T 'need_admin' $Action)
+    Stop-StCommand
+}
+
 # How many shadow copies (VSS) the system holds — the Windows analog of local APFS snapshots.
 # A copy taken while the file still lay outside the vault stores it IN FULL: neither shred
 # nor `cipher /w` can reach into it. Wrapper for Mock; CIM unavailability → 'unknown'.
@@ -873,6 +901,11 @@ function Invoke-StCheck {
     }
 
     Write-StSnapshotNote
+
+    # The vault is the tool's whole answer for SSD, and in an unelevated console it cannot run
+    # at all. Better to learn that from `check` than from a refusal mid-way through create.
+    if (Test-StElevated) { Write-StInfo (T 'check_admin_ok') }
+    else { Write-StWarn (T 'check_admin_needed') }
 
     Write-Output ''
     Write-Output (T 'check_verdict')
@@ -1183,6 +1216,13 @@ function Invoke-StVault {
         Write-StWarn (T 'vault_aside_notice' (Get-StAsidePath $vaultPath))
     }
 
+    # Every subcommand below except `status` mutates the container through diskpart/BitLocker,
+    # and both are administrator-only. Checked ONCE here, before any check, prompt or confirm:
+    # asking for a password and only then failing on privileges is the rudest possible order.
+    if ($sub -in @('create', 'open', 'close', 'destroy', 'reset', 'destroy-old')) {
+        Assert-StVaultElevated -Action $sub
+    }
+
     switch ($sub) {
         'create' {
             if (Test-Path -LiteralPath $vaultPath) { Write-StErr (T 'vault_exists' $vaultPath); Stop-StCommand }
@@ -1368,7 +1408,14 @@ function Invoke-StVault {
             # checks `$?` is not told "closed" either — bash does the same since its own
             # unknown branch landed.
             if ($state -eq 'unknown') {
-                Write-StWarn (T 'vault_status_unknown' $vaultPath)
+                # Unelevated is the overwhelmingly common reason Get-DiskImage says nothing, and
+                # "could not determine" leaves the user with no next step. Same shape as the
+                # BitLocker line in `check`: name the missing ingredient, keep the refusal.
+                if (-not (Test-StElevated) -and $env:ST_ASSUME_ELEVATED -ne '1') {
+                    Write-StWarn (T 'vault_status_need_admin' $vaultPath)
+                } else {
+                    Write-StWarn (T 'vault_status_unknown' $vaultPath)
+                }
                 Stop-StCommand
             } elseif ($state -eq 'mounted') {
                 # The real volume, not a guess: the letter is picked dynamically at open.

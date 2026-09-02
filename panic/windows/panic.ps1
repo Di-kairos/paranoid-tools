@@ -60,6 +60,12 @@ function T {
         'ru:unknown_cmd'      { return "Неизвестная команда: $A" }
         'en:hotkey_no_win'    { return "hotkey is macOS-only: it is bound through skhd, which has no Windows counterpart, and panic will not leave a background process resident just to watch the keyboard. Windows binds hotkeys on the shortcut itself: create a shortcut to panic.cmd (Start menu or Desktop), open Properties, put the cursor in 'Shortcut key' and press Ctrl+Alt+P. Windows then runs it from anywhere. Nothing here is installed or removed on your behalf." }
         'ru:hotkey_no_win'    { return "hotkey — только для macOS: там он вешается через skhd, аналога которому в Windows нет, а держать фоновый процесс ради слежения за клавиатурой panic не станет. В Windows горячая клавиша живёт на самом ярлыке: сделай ярлык на panic.cmd (меню «Пуск» или рабочий стол), открой «Свойства», поставь курсор в поле «Быстрый вызов» и нажми Ctrl+Alt+P. Дальше Windows запускает его откуда угодно. Ничего за тебя тут не ставится и не удаляется." }
+        'en:no_admin_lock'    { return 'NOT an administrator console: encrypted volumes canNOT be locked from here (BitLocker is administrator-only), so an open vault stays OPEN. The clipboard and the screen lock still work. For the full kill-switch run panic from an administrator PowerShell.' }
+        'ru:no_admin_lock'    { return 'Консоль БЕЗ прав администратора: запереть шифр-тома отсюда НЕЛЬЗЯ (BitLocker доступен только администратору) — открытый сейф останется ОТКРЫТ. Буфер и блокировка экрана работают. Для полного kill-switch запусти panic из PowerShell от имени администратора.' }
+        'en:status_admin_no'  { return '  administrator: NO — `panic now` will not be able to lock encrypted volumes' }
+        'ru:status_admin_no'  { return '  администратор: НЕТ — `panic now` не сможет запереть шифр-тома' }
+        'en:status_admin_yes' { return '  administrator: yes — volume locking is available' }
+        'ru:status_admin_yes' { return '  администратор: да — запирание томов доступно' }
         'en:status_header'    { return 'panic status — read-only preflight (no changes made)' }
         'ru:status_header'    { return 'panic status — только чтение, предпросмотр (изменений нет)' }
         'en:status_vols'      { return "  encrypted volumes unlocked: $A — would be locked/dismounted by ``panic now``" }
@@ -191,6 +197,20 @@ public static extern bool LockWorkStation();
     } catch { return $false }
 }
 
+# Administrator rights in THIS session (wrapper for Mock). Lock-BitLocker is administrator-only,
+# and without rights Get-BitLockerVolume throws — which the enumeration catches and reports as
+# "no unlocked volumes". So an unelevated `panic now` printed "locked 0 volumes" over a vault
+# that was standing wide open. The rights have to be named, not inferred from an empty list.
+function Test-PnElevated {
+    try {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        return (New-Object System.Security.Principal.WindowsPrincipal($id)).IsInRole(
+            [System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
 # Is BitLocker on for the system drive? (mirror of filevault_on).
 function Test-PnBitLockerOn {
     try {
@@ -234,6 +254,11 @@ function Invoke-PnNow {
 
     $n = 0
 
+    # Said BEFORE the attempt, not after: panic is read in a hurry, and the one thing the user
+    # must not carry away is "0 volumes locked" read as "there was nothing to lock".
+    $elevated = Test-PnElevated
+    if (-not $elevated) { Write-PnWarn (T 'no_admin_lock') }
+
     # 1. Lock unlocked BitLocker data volumes.
     foreach ($mp in (Get-PnBitLockerUnlocked)) {
         try { Invoke-PnLockBitLocker -MountPoint $mp; $n++ }
@@ -258,6 +283,9 @@ function Invoke-PnNow {
     }
 
     Write-PnInfo (T 'now_report' "$n")
+    # The report says how many volumes were locked; unelevated that number is zero for a reason
+    # the user has to see next to it, not twenty lines above.
+    if (-not $elevated) { Write-PnWarn (T 'no_admin_lock') }
     if ($locked) { Write-PnInfo (T 'lock_ok') } else { Write-PnWarn (T 'lock_fail') }
     if ($hard) { Write-PnInfo (T 'now_hard') }
 }
@@ -287,6 +315,11 @@ function Invoke-PnStatus {
     } else {
         Write-PnWarn (T 'status_bl_off')
     }
+
+    # Rights: the preflight exists to answer "what would `panic now` do", and without
+    # administrator rights the answer for every encrypted volume is "nothing".
+    if (Test-PnElevated) { Write-PnInfo (T 'status_admin_yes') }
+    else { Write-PnWarn (T 'status_admin_no') }
 
     # Cloud daemons (--hard would kill them).
     foreach ($d in (Get-PnRunningCloudDaemons)) {

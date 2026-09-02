@@ -90,6 +90,62 @@ Describe 'panic now — orchestration' {
     }
 }
 
+# --- P0-2: without administrator rights Lock-BitLocker cannot run and Get-BitLockerVolume
+# throws — which the enumeration turns into an empty list. So `panic now` printed
+# "locked/dismounted 0 encrypted volume(s)" over a vault standing wide open. ---
+Describe 'panic without administrator rights says so (P0-2)' {
+
+    BeforeAll {
+        # Write-PnWarn writes straight to [Console]::Error, which PowerShell redirection
+        # does not catch — swap the console stderr for a StringWriter.
+        function global:Get-PnStderr {
+            param([scriptblock]$Body)
+            $sw = New-Object System.IO.StringWriter
+            $orig = [Console]::Error
+            [Console]::SetError($sw)
+            try { & $Body | Out-Null } finally { [Console]::SetError($orig) }
+            return $sw.ToString()
+        }
+    }
+
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        Mock Get-PnBitLockerUnlocked { @() }      # what an unelevated enumeration really returns
+        Mock Get-PnVeraCryptMounted  { @() }
+        Mock Invoke-PnClearClipboard { }
+        Mock Invoke-PnLockScreen     { $true }
+        Mock Test-PnClipboardNonEmpty { $false }
+        Mock Test-PnBitLockerOn       { $false }
+        Mock Get-PnRunningCloudDaemons { @() }
+    }
+
+    It 'warns that an open vault stays open, instead of reporting a silent zero' {
+        Mock Test-PnElevated { $false }
+        $err = Get-PnStderr { Invoke-PnNow -ArgList @() }
+        $err | Should -Match 'administrator'
+        $err | Should -Match 'stays OPEN'
+    }
+
+    It 'still clears the clipboard and locks the screen — it does what it can' {
+        Mock Test-PnElevated { $false }
+        Get-PnStderr { Invoke-PnNow -ArgList @() } | Out-Null
+        Should -Invoke Invoke-PnClearClipboard -Times 1 -Exactly
+        Should -Invoke Invoke-PnLockScreen -Times 1 -Exactly
+    }
+
+    It 'stays quiet about rights when the console has them' {
+        Mock Test-PnElevated { $true }
+        $err = Get-PnStderr { Invoke-PnNow -ArgList @() }
+        $err | Should -Not -Match 'stays OPEN'
+    }
+
+    It 'status answers whether locking would work at all' {
+        Mock Test-PnElevated { $false }
+        $err = Get-PnStderr { Invoke-PnStatus }
+        $err | Should -Match 'administrator: NO'
+    }
+}
+
 Describe 'panic status — read-only preflight' {
     It 'lists unlocked volumes and a non-empty clipboard' {
         Mock Get-PnBitLockerUnlocked  { @('D:') }

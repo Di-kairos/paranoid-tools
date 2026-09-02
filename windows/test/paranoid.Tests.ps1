@@ -56,6 +56,25 @@ Describe 'Get-PnDashboard — read-only status text' {
         $out | Should -Match 'closed'
     }
 
+    It 'says outright when the console cannot run the vault actions (P0-2)' {
+        # The menu offers create/open/close/destroy unconditionally, and every one of them
+        # refuses without administrator rights. Learning that from the board beats learning it
+        # from a refusal after typing a password.
+        Mock Get-PnVaultState { 'closed' }
+        Mock Get-PnAdminState { 'no' }
+        $out = Get-PnDashboard
+        $out | Should -Match 'Admin:'
+        $out | Should -Match 'will refuse'
+    }
+
+    It 'does not nag about rights when the console has them' {
+        Mock Get-PnVaultState { 'closed' }
+        Mock Get-PnAdminState { 'yes' }
+        $out = Get-PnDashboard
+        $out | Should -Match 'Admin:'
+        $out | Should -Not -Match 'will refuse'
+    }
+
     It 'marks the panic line (not installed) when panic is absent' {
         Mock Get-PnVaultState { 'closed' }
         Mock Test-PnTool { $false } -ParameterFilter { $Tool -eq 'panic' }

@@ -393,6 +393,42 @@ Describe 'Assert-VwPs7 — требует PowerShell 7+ (P2-8, fail-closed)' {
     }
 }
 
+# --- P0-2: без прав администратора Lock-BitLocker не работает, а задача планировщика не
+# регистрируется с наивысшими правами. Сессия при этом заводилась успешно — и TTL молча
+# не срабатывал: сейф оставался открытым, а файл сессии утверждал, что за ним следят. ---
+Describe 'Assert-VwElevated — start требует администратора (P0-2, fail-closed)' {
+
+    BeforeEach { Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue }
+    AfterEach  { Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue }
+
+    It 'отказывается без прав — иначе TTL не сработает молча' {
+        Mock Test-VwElevated { $false }
+        { Assert-VwElevated } | Should -Throw
+    }
+
+    It 'пропускает с правами' {
+        Mock Test-VwElevated { $true }
+        { Assert-VwElevated } | Should -Not -Throw
+    }
+
+    It 'говорит, что ничего не запущено, и называет нужную консоль' {
+        $script:VW_LOCALE = 'en'
+        (T 'need_admin') | Should -Match 'administrator'
+        (T 'need_admin') | Should -Match 'Nothing was started'
+    }
+
+    It 'обе задачи регистрируются с наивысшими правами и без вспышки консоли' {
+        # Регистрацию нельзя выполнить на macOS-раннере, а цена молчаливой потери флагов —
+        # ровно тот дефект, который здесь чинится: проверяем сам контракт регистрации.
+        $src = Get-Content -LiteralPath $script:ScriptPath -Raw
+        $src | Should -Match 'RunLevel Highest'
+        ([regex]::Matches($src, '-Principal \(New-VwTaskPrincipal\)')).Count |
+            Should -Be 2 -Because 'и TTL-задача, и guard-задача'
+        ([regex]::Matches($src, '-NoProfile -WindowStyle Hidden -File')).Count |
+            Should -Be 2 -Because 'иначе консоль моргает раз в минуту'
+    }
+}
+
 Describe 'unmount-guard _guard_fire — restore только если том исчез (P2-4)' {
     BeforeEach {
         $script:Work  = Join-Path ([System.IO.Path]::GetTempPath()) ("vw_g_" + [Guid]::NewGuid().ToString('N'))

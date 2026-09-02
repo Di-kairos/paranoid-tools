@@ -64,6 +64,10 @@ function T {
         'en:off'          { return 'OFF' }          'ru:off'          { return 'ВЫКЛ' }
         'en:unknown'      { return 'unknown' }      'ru:unknown'      { return 'неизвестно' }
         'en:vw'           { return 'vaultwatch:' }  'ru:vw'           { return 'vaultwatch:' }
+        'en:admin'        { return 'Admin:' }        'ru:admin'        { return 'Админ:' }
+        'en:admin_yes'    { return 'yes' }           'ru:admin_yes'    { return 'да' }
+        'en:admin_no'     { return 'NO - vault actions and panic-lock will refuse (reopen PowerShell as administrator)' }
+        'ru:admin_no'     { return 'НЕТ - действия с сейфом и запирание в панике откажутся (перезапусти PowerShell от имени администратора)' }
         'en:vw_active'    { return 'active' }       'ru:vw_active'    { return 'активен' }
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
         'en:update_avail' { return 'update available:' } 'ru:update_avail' { return 'доступно обновление:' }
@@ -218,6 +222,19 @@ function Get-PnVaultState {
     if ($container -and (Test-Path -LiteralPath $container)) { return 'closed' }
     return 'none'
 }
+# Administrator rights in this session (wrapper for Mock). Everything the vault menu offers runs
+# on diskpart and BitLocker, which Windows gives to administrators only — so an unelevated
+# launcher shows a full menu whose every item refuses. The dashboard says it once, up front.
+function Get-PnAdminState {
+    try {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        if ((New-Object System.Security.Principal.WindowsPrincipal($id)).IsInRole(
+                [System.Security.Principal.WindowsBuiltInRole]::Administrator)) { return 'yes' }
+        return 'no'
+    } catch {
+        return 'no'
+    }
+}
 function Get-PnBitLockerState {
     try {
         $sys = Get-BitLockerVolume -ErrorAction Stop | Where-Object { $_.VolumeType -eq 'OperatingSystem' }
@@ -360,6 +377,10 @@ function Get-PnDashboard {
         'on'  { $lines += "  $(T 'bl')  $(T 'on')" }
         'off' { $lines += "  $(T 'bl')  $(T 'off')" }
         default { $lines += "  $(T 'bl')  $(T 'unknown')" }
+    }
+    switch (Get-PnAdminState) {
+        'yes'   { $lines += "  $(T 'admin')      $(T 'admin_yes')" }
+        default { $lines += "  $(T 'admin')      $(T 'admin_no')" }
     }
     switch ($vw) {
         'active' {

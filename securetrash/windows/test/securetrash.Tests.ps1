@@ -4,6 +4,11 @@
 
 BeforeAll {
     $env:ST_NO_MAIN = '1'   # disable the dispatcher on dot-source
+    # The vault commands refuse outright without an elevated console (Assert-StVaultElevated).
+    # These tests drive those paths with every system call mocked, and they also run on macOS,
+    # where the elevation probe cannot answer at all — so the precheck is skipped file-wide.
+    # The gate's own behavior is tested in its Describe, which clears this hook.
+    $env:ST_ASSUME_ELEVATED = '1'
     $script:ScriptPath = Join-Path $PSScriptRoot '..\securetrash.ps1'
     . $script:ScriptPath
 
@@ -22,6 +27,88 @@ BeforeAll {
 
 AfterAll {
     Remove-Item Env:\ST_NO_MAIN -ErrorAction SilentlyContinue
+    Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue
+}
+
+# --- P0-2: on Windows the whole vault runs on diskpart + BitLocker, and both are
+# administrator-only. Unelevated, `vault create` used to reach Enable-BitLocker and leave an
+# attached UNENCRYPTED volume behind, and `open` failed with diskpart's raw output. The gate
+# has to refuse BEFORE anything is asked for or touched. ---
+Describe 'vault refuses an unelevated console (P0-2)' {
+
+    BeforeEach {
+        Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue
+        Remove-Item Env:\ST_LANG -ErrorAction SilentlyContinue
+        $script:ST_LOCALE = 'en'
+        $env:ST_ASSUME_YES = '1'
+    }
+    AfterEach { $env:ST_ASSUME_ELEVATED = '1' }
+
+    It 'refuses every mutating subcommand without reaching diskpart or the password prompt' {
+        Mock Test-StElevated { $false }
+        Mock Invoke-StDiskpart { throw 'diskpart must never be reached unelevated' }
+        Mock Get-StVaultPasswordNewSecure { throw 'the password must not be asked for' }
+        Mock Get-StVaultPasswordSecure { throw 'the password must not be asked for' }
+        Mock Remove-StVaultContainer { throw 'nothing may be deleted' }
+
+        foreach ($sub in @('create', 'open', 'close', 'destroy', 'reset', 'destroy-old')) {
+            { Invoke-StVault -VaultArgs @($sub) 6>$null 3>$null } |
+                Should -Throw -Because "$sub cannot work without administrator rights"
+        }
+        Should -Invoke Invoke-StDiskpart -Times 0 -Exactly
+        Should -Invoke Remove-StVaultContainer -Times 0 -Exactly
+    }
+
+    It 'names the console it needs and says nothing was changed' {
+        Mock Test-StElevated { $false }
+        $out = Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('create') } catch { } }
+        $out | Should -Match 'administrator'
+        $out | Should -Match 'NOTHING was changed'
+    }
+
+    It 'lets read-only `status` through — reading is not a privileged act' {
+        Mock Test-StElevated { $false }
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -and $LiteralPath -match 'vhdx' }
+        Mock Get-StVaultState { 'unmounted' }
+
+        $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('status') }
+        $out | Should -Match 'CLOSED'
+        $out | Should -Not -Match 'NOTHING was changed'
+    }
+
+    It 'blames the missing rights, not the query, when the state cannot be read unelevated' {
+        # Get-DiskImage is administrator-only: "state could not be determined" alone left the
+        # user with no next step, while the actual fix is one elevated console away.
+        Mock Test-StElevated { $false }
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -and $LiteralPath -match 'vhdx' }
+        Mock Get-StVaultState { 'unknown' }
+
+        $out = Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('status') } catch { } }
+        $out | Should -Match 'administrator'
+        $out | Should -Not -Match 'CLOSED'
+    }
+
+    It 'check warns that the vault commands cannot run in this console' {
+        Mock Test-StElevated { $false }
+        Mock Get-StDiskKind { 'ssd' }
+        Mock Get-StBitLockerState { 'on' }
+        Mock Get-StBitLockerCapable { $true }
+        Mock Get-StVeraCryptPath { $null }
+
+        $out = Get-StCombinedOutput { Invoke-StCheck }
+        $out | Should -Match 'NO administrator rights'
+    }
+
+    It 'check confirms the vault commands are available in an elevated one' {
+        Mock Test-StElevated { $true }
+        Mock Get-StDiskKind { 'ssd' }
+        Mock Get-StBitLockerState { 'on' }
+        Mock Get-StBitLockerCapable { $true }
+        Mock Get-StVeraCryptPath { $null }
+
+        $out = Get-StCombinedOutput { Invoke-StCheck }
+        $out | Should -Match 'Administrator rights: present'
+    }
 }
 
 # --- P0-1: securetrash.ps1 must respect ST_VAULT_PATH (the destructive target = container) ---
