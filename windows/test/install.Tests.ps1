@@ -202,14 +202,14 @@ Describe 'windows/install.ps1 (umbrella)' {
 # must start pwsh with the policy bypassed for its own process. Checked across all six
 # installers at once: each one writes its own shim, and one of them drifting is the bug.
 Describe 'the shim contract, in every installer' {
-    # Plain assignments, not BeforeAll: Pester expands -ForEach during discovery, when
-    # nothing from a BeforeAll block has run yet.
-    $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    # A plain assignment, not BeforeAll: Pester expands -ForEach during discovery, when
+    # nothing from a BeforeAll block has run yet. The two phases have separate scopes, so
+    # $RepoRoot is resolved again inside BeforeAll rather than handed over from here.
     $Installers = @('windows\install.ps1') + @(
         'securetrash', 'vaultwatch', 'panic', 'ghostdraft', 'seedsplit' |
             ForEach-Object { "$_\windows\install.ps1" }
     )
-    BeforeAll { $script:RepoRoot = $RepoRoot }
+    BeforeAll { $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
 
     It '<_> writes a shim that points into lib\ and bypasses the ExecutionPolicy' -ForEach $Installers {
         $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $_) -Raw
