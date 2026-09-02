@@ -184,7 +184,10 @@ function Invoke-PnTool {
         [Console]::Error.WriteLine((T 'install_hint' $Tool (Get-PnToolRepo $Tool)))
         return
     }
-    & $Tool @ToolArgs
+    # Out-Host, not a bare call: the child's stdout would otherwise land in this function's
+    # success stream and be eaten by the `if` further up (see Write-PnScreen). Interactive
+    # prompts are unaffected — Read-Host in the tool writes to its own host, not to stdout.
+    & $Tool @ToolArgs | Out-Host
 }
 
 # --- status for the dashboard (read-only; degrades to unknown, never guesses) ---
@@ -500,6 +503,14 @@ function Format-PnMenuItem {
     return "  $Num) $Label"
 }
 
+# Write a line to the SCREEN, not to the pipeline. This is not a style choice: every menu and
+# every action runs inside `if (Invoke-PnDispatch $choice) { break }`, and an `if` condition
+# consumes the whole success stream of what it evaluates. Anything written with Write-Output
+# from there is swallowed instead of shown — which is exactly what happened: the submenus
+# rendered into nothing, and only Read-Host's prompt (which goes to the host directly) was
+# visible. Console output bypasses the pipeline, so it reaches the user no matter who called.
+function Write-PnScreen { param([string]$Text = '') [Console]::Out.WriteLine($Text) }
+
 # --- input (mocked in Pester) ---
 function Read-PnLine { param([string]$Prompt) return (Read-Host -Prompt $Prompt) }
 function Invoke-PnPause { Read-PnLine "  $(T 'press_enter')" | Out-Null }
@@ -507,7 +518,7 @@ function Invoke-PnPause { Read-PnLine "  $(T 'press_enter')" | Out-Null }
 # --- actions ---
 function Invoke-PnActStatus {
     Invoke-PnTool 'securetrash' @('check')
-    if (Test-PnTool 'vaultwatch') { Write-Output ''; Invoke-PnTool 'vaultwatch' @('status') }
+    if (Test-PnTool 'vaultwatch') { Write-PnScreen; Invoke-PnTool 'vaultwatch' @('status') }
     Invoke-PnPause
 }
 function Invoke-PnActPanic {
@@ -541,9 +552,9 @@ function Invoke-PnActVault {
     switch (Get-PnVaultState) {
         'open'   { Invoke-PnTool 'securetrash' @('vault', 'close') }
         'closed' { Invoke-PnTool 'securetrash' @('vault', 'open') }
-        'unknown' { Write-Output "  $(T 'vault_unknown_act')" }
+        'unknown' { Write-PnScreen "  $(T 'vault_unknown_act')" }
         'none'   {
-            Write-Output "  $(T 'vault_setup_hint')"
+            Write-PnScreen "  $(T 'vault_setup_hint')"
             $sz = Read-PnVaultSize
             if ($null -ne $sz) {
                 $a = @('vault', 'create'); if ($sz) { $a += $sz }
@@ -562,13 +573,13 @@ function Invoke-PnActDestroy {
     }
     $v = Get-PnVaultState
     if ($v -eq 'none') {
-        Write-Output "  $(T 'destroy_none')"; Invoke-PnPause; return
+        Write-PnScreen "  $(T 'destroy_none')"; Invoke-PnPause; return
     }
     # An irreversible operation on top of a state we do not know is not our choice.
     if ($v -eq 'unknown') {
-        Write-Output "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
+        Write-PnScreen "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
-    Write-Output "  $(T 'destroy_hint')"
+    Write-PnScreen "  $(T 'destroy_hint')"
     Invoke-PnTool 'securetrash' @('vault', 'destroy')
     Invoke-PnPause
 }
@@ -582,12 +593,12 @@ function Invoke-PnActEmpty {
     }
     $v = Get-PnVaultState
     if ($v -eq 'none') {
-        Write-Output "  $(T 'empty_none')"; Invoke-PnPause; return
+        Write-PnScreen "  $(T 'empty_none')"; Invoke-PnPause; return
     }
     if ($v -eq 'unknown') {
-        Write-Output "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
+        Write-PnScreen "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
-    Write-Output "  $(T 'empty_hint')"
+    Write-PnScreen "  $(T 'empty_hint')"
     $sz = Read-PnVaultSize
     if ($null -ne $sz) {
         $a = @('vault', 'reset'); if ($sz) { $a += $sz }
@@ -598,12 +609,12 @@ function Invoke-PnActEmpty {
 # seedsplit split/combine silently read stdin — without a hint a newcomer sees a blank cursor
 # and does not know what to paste and how to end the input (parity with bash).
 function Invoke-PnActSplit   { Invoke-PnTool 'seedsplit' @('split');   Invoke-PnPause }
-function Invoke-PnActCombine { Write-Output "  $(T 'combine_prompt')"; Invoke-PnTool 'seedsplit' @('combine'); Invoke-PnPause }
+function Invoke-PnActCombine { Write-PnScreen "  $(T 'combine_prompt')"; Invoke-PnTool 'seedsplit' @('combine'); Invoke-PnPause }
 # Ghost actions (from the notepad submenu). new --clipboard: ghostdraft itself shows DANGER +
 # confirm; on Windows there is NO clipboard auto-clear — the launcher mirrors the caveat with an honest label.
 # pipe reads stdin — we hint what to paste and how to finish (parity with bash).
-function Invoke-PnActGhostPipe { Write-Output "  $(T 'ghost_pipe_hint')"; Invoke-PnTool 'ghostdraft' @('pipe') }
-function Invoke-PnActGhostClip { Write-Output "  $(T 'ghost_clip_hint')"; Invoke-PnTool 'ghostdraft' @('new', '--clipboard') }
+function Invoke-PnActGhostPipe { Write-PnScreen "  $(T 'ghost_pipe_hint')"; Invoke-PnTool 'ghostdraft' @('pipe') }
+function Invoke-PnActGhostClip { Write-PnScreen "  $(T 'ghost_clip_hint')"; Invoke-PnTool 'ghostdraft' @('new', '--clipboard') }
 function Invoke-PnActWatch {
     # Re-read the active letter right here (as Get-PnDashboard does): on Windows the volume
     # is mounted onto the FIRST free letter dynamically, and it could have appeared/changed
@@ -618,7 +629,7 @@ function Invoke-PnActWatch {
     # Watching a volume we do not even know is mounted is a guard session around an empty
     # spot: the on-disk state would appear, yet there would be nothing to guard.
     if ((Get-PnVaultState) -eq 'unknown') {
-        Write-Output "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
+        Write-PnScreen "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
     $ttl = Read-PnLine "  $(T 'ask_ttl')"
     if ($ttl) { Invoke-PnTool 'vaultwatch' @('start', '--ttl', $ttl, $script:VAULT_VOLUME) }
@@ -666,7 +677,7 @@ function Invoke-PnSecretsDispatch {
 function Invoke-PnMenuVault {
     while ($true) {
         Clear-Host
-        Write-Output (Get-PnVaultMenu)
+        Write-PnScreen (Get-PnVaultMenu)
         $c = Read-PnLine "  $(T 'choose')"
         if ($null -eq $c) { break }
         if (Invoke-PnVaultDispatch $c) { break }
@@ -675,7 +686,7 @@ function Invoke-PnMenuVault {
 function Invoke-PnMenuNotepad {
     while ($true) {
         Clear-Host
-        Write-Output (Get-PnNotepadMenu)
+        Write-PnScreen (Get-PnNotepadMenu)
         $c = Read-PnLine "  $(T 'choose')"
         if ($null -eq $c) { break }
         if (Invoke-PnNotepadDispatch $c) { break }
@@ -684,7 +695,7 @@ function Invoke-PnMenuNotepad {
 function Invoke-PnMenuSecrets {
     while ($true) {
         Clear-Host
-        Write-Output (Get-PnSecretsMenu)
+        Write-PnScreen (Get-PnSecretsMenu)
         $c = Read-PnLine "  $(T 'choose')"
         if ($null -eq $c) { break }
         if (Invoke-PnSecretsDispatch $c) { break }
@@ -731,7 +742,7 @@ function Invoke-PnMain {
     }
     while ($true) {
         Clear-Host
-        Write-Output (Get-PnDashboard)
+        Write-PnScreen (Get-PnDashboard)
         $choice = Read-PnLine "  $(T 'choose')"
         if ($null -eq $choice) { break }   # EOF/closed stdin → clean exit, do not spin
         if (Invoke-PnDispatch $choice) { break }

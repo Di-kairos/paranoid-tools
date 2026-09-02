@@ -6,6 +6,17 @@
 # The CLI level (version, exit codes) — via a fresh pwsh.
 
 BeforeAll {
+    # The launcher writes what the user must SEE to [Console]::Out, never to the pipeline:
+    # every action runs inside `if (Invoke-PnDispatch ...)`, and an if-condition consumes the
+    # success stream. So the tests read the console the same way the user does.
+    function global:Get-PnScreen {
+        param([scriptblock]$Body)
+        $sw = New-Object System.IO.StringWriter
+        $orig = [Console]::Out
+        [Console]::SetOut($sw)
+        try { & $Body | Out-Null } finally { [Console]::SetOut($orig) }
+        return $sw.ToString()
+    }
     $env:ST_NO_MAIN = '1'
     $script:ScriptPath = Join-Path $PSScriptRoot '..\paranoid.ps1'
     . $script:ScriptPath
@@ -312,7 +323,7 @@ Describe 'unknown vault state — the launcher names it and refuses to guess' {
         foreach ($act in 'Invoke-PnActVault', 'Invoke-PnActEmpty', 'Invoke-PnActDestroy', 'Invoke-PnActWatch') {
             Mock Test-PnTool { $true }
             Mock Get-PnVaultwatchState { 'idle' }
-            $out = (& $act) -join "`n"
+            $out = Get-PnScreen { & $act }
             $out | Should -Match 'Refusing to guess'
         }
         Should -Invoke Invoke-PnTool -Times 0 -Exactly
@@ -571,14 +582,14 @@ Describe 'notepad submenu dispatch (ghostdraft)' {
         # The note flow is collapsed into one item: write/edit/copy. On Windows the honest
         # DANGER caveat (no clipboard auto-wipe) is printed via Write-Output before the run,
         # so we verify the call itself (Out-Null swallows the hint), not the return value.
-        $out = (Invoke-PnNotepadDispatch '1' 6>&1) -join "`n"
+        $out = Get-PnScreen { Invoke-PnNotepadDispatch '1' }
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'ghostdraft' -and ($ToolArgs -contains 'new') -and ($ToolArgs -contains '--clipboard')
         }
         $out | Should -Match 'auto-clear'
     }
     It '2 runs ghostdraft pipe (and shows a paste hint first)' {
-        $out = (Invoke-PnNotepadDispatch '2' 6>&1) -join "`n"
+        $out = Get-PnScreen { Invoke-PnNotepadDispatch '2' }
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'ghostdraft' -and ($ToolArgs -contains 'pipe')
         }
@@ -613,20 +624,67 @@ Describe 'secrets submenu dispatch (seedsplit) + status (top 1)' {
     It 'secrets 1 runs seedsplit split and leaves the prompt to the tool itself' {
         # seedsplit prints the prompt itself (and reads the input without echo) — the launcher
         # dropped its own, otherwise the user got two different instructions in a row (AUDIT_2026-08-03 P2-1).
-        $out = (Invoke-PnSecretsDispatch '1' 6>&1) -join "`n"
+        $out = Get-PnScreen { Invoke-PnSecretsDispatch '1' }
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'seedsplit' -and ($ToolArgs -contains 'split')
         }
         $out | Should -Not -Match 'Paste the secret'
     }
     It 'secrets 2 runs seedsplit combine (and shows a one-per-line prompt)' {
-        $out = (Invoke-PnSecretsDispatch '2' 6>&1) -join "`n"
+        $out = Get-PnScreen { Invoke-PnSecretsDispatch '2' }
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'seedsplit' -and ($ToolArgs -contains 'combine')
         }
         $out | Should -Match 'one per line'
     }
     It 'returns $true on back (0)' { (Invoke-PnSecretsDispatch '0') | Should -BeTrue }
+}
+
+# --- Found on real hardware: choosing "3 Vault" cleared the screen and showed nothing but the
+# "Choose:" prompt. Every menu and action runs inside `if (Invoke-PnDispatch $choice) { break }`
+# in the main loop, and an if-condition swallows the whole success stream of what it evaluates —
+# so Write-Output from a submenu went nowhere. The unit tests all called the render functions
+# directly and never saw it. These drive the dispatch tree the way the loop does. ---
+Describe 'menus reach the screen through the dispatch tree (live-hardware regression)' {
+
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        Mock Get-PnVaultState { 'closed' }
+        Mock Get-PnVaultwatchState { 'idle' }
+        Mock Test-PnTool { $true }
+        Mock Get-PnVaultMount { 'D:\' }
+        Mock Clear-Host { }
+        Mock Invoke-PnTool { }
+        Mock Invoke-PnPause { }
+    }
+
+    It 'the vault submenu is printed, not swallowed by the caller' {
+        # Read-PnLine returns '0' so the submenu loop renders once and returns.
+        Mock Read-PnLine { '0' }
+        $out = Get-PnScreen { Invoke-PnDispatch '3' }
+        $out | Should -Match 'Vault — encrypted container'
+        $out | Should -Match 'Open the vault'
+    }
+
+    It 'the notepad submenu is printed' {
+        Mock Read-PnLine { '0' }
+        $out = Get-PnScreen { Invoke-PnDispatch '4' }
+        $out | Should -Match 'Notepad — ephemeral text'
+    }
+
+    It 'the secrets submenu is printed' {
+        Mock Read-PnLine { '0' }
+        $out = Get-PnScreen { Invoke-PnDispatch '5' }
+        $out | Should -Match 'Secrets — Shamir shares'
+    }
+
+    It 'a tool run from a menu item shows its output too' {
+        # `securetrash check` from item 1 was swallowed the same way: PowerShell captures a
+        # child process's stdout into the caller's pipeline.
+        Mock Invoke-PnTool { Write-PnScreen 'TOOL SPOKE' }
+        $out = Get-PnScreen { Invoke-PnDispatch '1' }
+        $out | Should -Match 'TOOL SPOKE'
+    }
 }
 
 Describe 'dispatch — quit and unknown' {
