@@ -83,7 +83,7 @@ Describe 'install.ps1 integrity + signature' {
         $env:PATH = $script:Bin
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
-        Test-Path (Join-Path $script:Dest 'securetrash.ps1') | Should -BeTrue
+        Test-Path (Join-Path $script:Dest 'lib\securetrash.ps1') | Should -BeTrue
     }
 
     It 'fails closed on checksum mismatch' {
@@ -93,7 +93,7 @@ Describe 'install.ps1 integrity + signature' {
         $env:PATH = $script:Bin
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
-        Test-Path (Join-Path $script:Dest 'securetrash.ps1') | Should -BeFalse
+        Test-Path (Join-Path $script:Dest 'lib\securetrash.ps1') | Should -BeFalse
     }
 
     It 'fails closed when SHA256SUMS lacks the entry' {
@@ -102,7 +102,7 @@ Describe 'install.ps1 integrity + signature' {
         $env:PATH = $script:Bin
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
-        Test-Path (Join-Path $script:Dest 'securetrash.ps1') | Should -BeFalse
+        Test-Path (Join-Path $script:Dest 'lib\securetrash.ps1') | Should -BeFalse
     }
 
     It 'fails closed when the signature is INVALID' {
@@ -110,7 +110,7 @@ Describe 'install.ps1 integrity + signature' {
         $env:PATH = $script:Bin
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
-        Test-Path (Join-Path $script:Dest 'securetrash.ps1') | Should -BeFalse
+        Test-Path (Join-Path $script:Dest 'lib\securetrash.ps1') | Should -BeFalse
     }
 
     It 'fails closed when the signature is MISSING' {
@@ -119,7 +119,7 @@ Describe 'install.ps1 integrity + signature' {
         $env:PATH = $script:Bin
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
-        Test-Path (Join-Path $script:Dest 'securetrash.ps1') | Should -BeFalse
+        Test-Path (Join-Path $script:Dest 'lib\securetrash.ps1') | Should -BeFalse
     }
 
     It 'fails closed when the verifier (ssh-keygen) is missing' {
@@ -127,7 +127,7 @@ Describe 'install.ps1 integrity + signature' {
         $env:PATH = $script:Bin
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
-        Test-Path (Join-Path $script:Dest 'securetrash.ps1') | Should -BeFalse
+        Test-Path (Join-Path $script:Dest 'lib\securetrash.ps1') | Should -BeFalse
     }
 
     It 'PT_ALLOW_HASH_ONLY=1 allows install when verifier is missing (loud escape)' {
@@ -135,6 +135,6 @@ Describe 'install.ps1 integrity + signature' {
         $env:PT_ALLOW_HASH_ONLY = '1'
         & $script:PwshExe -NoProfile -File $script:Installer 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
-        Test-Path (Join-Path $script:Dest 'securetrash.ps1') | Should -BeTrue
+        Test-Path (Join-Path $script:Dest 'lib\securetrash.ps1') | Should -BeTrue
     }
 }

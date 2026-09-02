@@ -23,7 +23,7 @@ BitLocker locking need an **elevated** session.
 irm https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/install.ps1 -OutFile install.ps1
 irm https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/SHA256SUMS  -OutFile SHA256SUMS
 # verify install.ps1's hash against SHA256SUMS, read the script, then:
-pwsh -File install.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
 
 The installer verifies the SHA-256 of `vaultwatch.ps1` against the release `SHA256SUMS`

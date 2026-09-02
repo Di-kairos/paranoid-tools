@@ -25,7 +25,7 @@ also runs the script.
 irm https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.19/install.ps1 -OutFile install.ps1
 irm https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.19/SHA256SUMS  -OutFile SHA256SUMS
 # verify install.ps1's hash against SHA256SUMS, read the script, then:
-pwsh -File install.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
 
 The installer downloads `ghostdraft.ps1` + `SHA256SUMS` from the **release tag**,

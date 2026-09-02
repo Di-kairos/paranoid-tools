@@ -37,21 +37,22 @@ cd paranoid-tools
 bash install.sh            # ставит все 5 + лаунчер paranoid
 ```
 
-**Windows** (beta) — один раз PowerShell 7 и Git, дальше такая же одна команда:
+**Windows** (beta) — один раз PowerShell 7 и Git, дальше такая же одна команда. Терминал
+подойдёт любой: `cmd`, встроенный Windows PowerShell, PowerShell 7.
 
 ```powershell
 winget install --id Microsoft.PowerShell -e
 winget install --id Git.Git -e
-# закрой это окно, открой из «Пуска» новое «PowerShell 7» и продолжай:
+# здесь открой НОВОЕ окно терминала: winget отдаёт свой PATH только новым процессам
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools
-pwsh -File windows/install.ps1   # ставит все 5 + лаунчер paranoid
+windows\install.cmd            # ставит все 5 + лаунчер paranoid
 ```
 
 **Дальше на обеих системах:** открой **новое** окно терминала, чтобы подхватился `PATH`, и
 запусти `paranoid` — это меню, где сразу видно текущее состояние и откуда доступно любое
-действие: пять командных строк учить не нужно. Подробности по Windows (PATH, установка
-одного инструмента, что делать, если `git` «не распознан») — в разделе
+действие: пять командных строк учить не нужно. Подробности по Windows (установка без Git,
+один инструмент вместо пяти, что делать, если `git` «не распознан») — в разделе
 **[Windows](#windows)** ниже.
 
 Каждый инструмент тянется из своего **подписанного релиза** по правилу «сначала проверь,
@@ -193,7 +194,7 @@ bash install.sh --uninstall                 # macOS: снять все инст�
 ```
 
 ```powershell
-pwsh -File windows/install.ps1 -Uninstall   # Windows: то же самое, вместе с записью в PATH
+windows\install.cmd -Uninstall             # Windows: то же самое, вместе с записью в PATH
 ```
 
 Данные не трогает ни то, ни другое: сейфы, заметки и доли остаются на своих местах.
@@ -201,45 +202,40 @@ pwsh -File windows/install.ps1 -Uninstall   # Windows: то же самое, в�
 ### Windows
 
 Короткий путь есть в начале, в разделе [Установка](#установка) — здесь то же самое, только
-расписано по шагам и с местами, где обычно спотыкаются. Шаги **1–2 делаются один раз**.
+по шагам и с местами, где обычно спотыкаются. Шаг **1 делается один раз**.
 
-**1. Поставь PowerShell 7.** Ставить и запускать поддерживается только на PowerShell 7
-(`pwsh`); встроенный в Windows PowerShell 5.1 официально не поддерживается. В любом терминале
-(нажми `Win`, набери «PowerShell», Enter):
+Какой терминал открыт — неважно: годятся и `cmd`, и встроенный Windows PowerShell 5.1, и
+PowerShell 7. Внутри инструменты работают на PowerShell 7, но запускает его за них
+`.cmd`-обёртка, которая лежит в PATH. Выбирать оболочку и трогать ExecutionPolicy не нужно.
+
+**1. Поставь PowerShell 7 и Git.** Нажми `Win`, набери «PowerShell», Enter и выполни:
 
 ```powershell
 winget install --id Microsoft.PowerShell -e
-```
-
-Закрой это окно и открой из меню «Пуск» **«PowerShell 7»**. Проверь версию:
-
-```powershell
-pwsh --version      # должно напечатать «PowerShell 7.x»
-```
-
-**2. Поставь Git** — им скачиваются инструменты:
-
-```powershell
 winget install --id Git.Git -e
 ```
 
-Дальше **закрой это окно и открой новое PowerShell 7**. Новый PATH `winget` отдаёт только
-новым процессам, поэтому в том окне, где шла установка, `git` так и останется «не распознан
-как имя командлета». Если окно закрывать не хочется — обнови PATH руками:
+Дальше **открой новое окно терминала**. Новый PATH `winget` отдаёт только новым процессам,
+поэтому в том окне, где шла установка, `git` так и останется «не распознан как имя
+командлета». Если окно закрывать не хочется — обнови PATH руками:
 
 ```powershell
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
             [Environment]::GetEnvironmentVariable('Path','User')
 ```
 
-**3. Поставь инструменты.** Все пять лежат в этом репозитории — клонируй один раз, и одна
+*Без Git:* открой страницу репозитория, **Code → Download ZIP**, распакуй и начинай с
+шага 2 внутри распакованной папки. Больше ничего не меняется — сами инструменты в обоих
+случаях приходят из своих подписанных релизов.
+
+**2. Поставь инструменты.** Все пять лежат в этом репозитории — клонируй один раз, и одна
 команда поставит сразу все пять плюс лаунчер `paranoid`, как `install.sh` на macOS:
 
 ```powershell
 cd $HOME            # клонируй в свой профиль, а не в C:\WINDOWS\system32
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools
-pwsh -File windows/install.ps1
+windows\install.cmd
 ```
 
 Сам этот установщик ничего не скачивает: он по очереди запускает `windows/install.ps1`
@@ -254,11 +250,11 @@ pwsh -File windows/install.ps1
 `%LOCALAPPDATA%\Programs\<инструмент>` и сам пропишется в PATH:
 
 ```powershell
-cd paranoid-tools/securetrash
-pwsh -File windows/install.ps1
+cd paranoid-tools\securetrash
+pwsh -NoProfile -ExecutionPolicy Bypass -File windows\install.ps1
 ```
 
-**4. Пользуйся.** Открой **новое** окно PowerShell, чтобы подхватился изменённый PATH, и
+**3. Пользуйся.** Открой **новое** окно терминала, чтобы подхватился изменённый PATH, и
 вызывай инструменты по имени:
 
 ```powershell
@@ -266,6 +262,17 @@ paranoid            # интерактивный лаунчер
 securetrash version
 securetrash --help
 ```
+
+Каждое имя в PATH — это маленькая `.cmd`-обёртка в
+`%LOCALAPPDATA%\Programs\ParanoidTools`; сами скрипты лежат рядом, в подкаталоге `lib\`.
+Так сделано намеренно. Имя команды без расширения PowerShell разрешает в `.ps1` из PATH
+раньше, чем в `.cmd` с тем же именем, а `.ps1` при стандартной политике запуска он
+загружать отказывается — то есть `.ps1` в PATH и есть та самая причина, по которой
+`paranoid` отвечает «cannot be loaded because running scripts is disabled on this system».
+Обёртка запускает `pwsh -ExecutionPolicy Bypass` только для своего процесса: политика
+машины не меняется, и ничего постороннего в системе запускаемым не становится.
+
+Снять всё вместе с записью в PATH: `windows\install.cmd -Uninstall`.
 
 > **Бета.** Логика windows-портов покрыта тестами на CI, но на живом железе они пока обкатаны
 > мало — попробуй сперва на данных, которых не жалко, и только потом доверяй настоящие секреты.
@@ -339,8 +346,8 @@ paranoid          # открывает дашборд и меню
 Скажем честно: лаунчер сделан для удобства, а не ради скорости в ту самую минуту. Мгновенная
 тревога на всю систему — это `panic hotkey install`, глобальный хоткей через skhd (см. README
 у panic). Открытый сейф всегда помечен как «под угрозой». Зеркало на PowerShell тоже готово —
-`windows/paranoid.ps1` (beta): запусти `pwsh -File windows/paranoid.ps1` или положи в PATH
-под именем `paranoid`. Оно управляет теми же пятью портами.
+`windows/paranoid.ps1` (beta): `windows\install.cmd` кладёт его в PATH под именем
+`paranoid`. Оно управляет теми же пятью портами.
 
 **Проверка обновлений — по желанию.** По умолчанию выключена: пока не попросишь, дашборд к
 сети не обращается. Задай `PARANOID_UPDATE_CHECK=1`, и он добавит строку *«доступно

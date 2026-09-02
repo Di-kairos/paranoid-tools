@@ -11,7 +11,7 @@
 #   irm https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/SHA256SUMS  -OutFile SHA256SUMS
 #   # verify install.ps1's hash manually, read the script, then:
-#   pwsh -File install.ps1
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 #
 # Environment variables:
 #   VAULTWATCH_VERSION     — a specific tag (e.g. 0.1.3). Defaults to latest.
@@ -44,7 +44,13 @@ if ($env:VAULTWATCH_BASE_URL) {
 $InstallDir = if ($env:VAULTWATCH_INSTALL_DIR) { $env:VAULTWATCH_INSTALL_DIR } else {
     Join-Path $env:LOCALAPPDATA 'Programs\vaultwatch'
 }
-$ScriptPath = Join-Path $InstallDir 'vaultwatch.ps1'
+# The script itself lives in lib\, NOT next to the shim. PowerShell resolves a bare
+# `vaultwatch` on PATH to a .ps1 BEFORE a .cmd of the same name, and a .ps1 is refused
+# outright under the default ExecutionPolicy (Restricted) — so a .ps1 on PATH means
+# the command fails in PowerShell no matter what the shim does. With only the shim
+# visible, the command works from cmd, Windows PowerShell 5.1 and pwsh 7 alike.
+$LibDir     = Join-Path $InstallDir 'lib'
+$ScriptPath = Join-Path $LibDir 'vaultwatch.ps1'
 $ShimPath   = Join-Path $InstallDir 'vaultwatch.cmd'
 
 function Get-ReleaseFile {
@@ -196,8 +202,8 @@ try {
     # Authenticity on top of integrity: verify the release signature (fail-closed).
     Assert-VwSignature -Tmp $Tmp
 
-    if (-not (Test-Path $InstallDir)) {
-        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    if (-not (Test-Path $LibDir)) {
+        New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
     }
     Copy-Item -Path $tmpScript -Destination $ScriptPath -Force
     Write-Host "Installed: $ScriptPath"
@@ -208,11 +214,19 @@ finally {
 
 $shim = @"
 @echo off
-pwsh -NoProfile -File "%~dp0vaultwatch.ps1" %*
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\vaultwatch.ps1" %*
 if errorlevel 1 exit /b %errorlevel%
 "@
 Set-Content -Path $ShimPath -Value $shim -Encoding ASCII
 Write-Host "Shim created: $ShimPath"
+
+# An install from before lib\ left the script next to the shim, and PowerShell picks
+# THAT one for a bare command name — so an upgrade would change nothing until it goes.
+$legacyScript = Join-Path $InstallDir 'vaultwatch.ps1'
+if (Test-Path -LiteralPath $legacyScript) {
+    Remove-Item -LiteralPath $legacyScript -Force
+    Write-Host "Removed the older copy next to the shim: $legacyScript"
+}
 
 if ($env:VAULTWATCH_SKIP_PATH -ne '1') {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

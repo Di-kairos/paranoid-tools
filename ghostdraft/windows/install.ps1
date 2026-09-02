@@ -11,7 +11,7 @@
 #   irm https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.19/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.19/SHA256SUMS  -OutFile SHA256SUMS
 #   # verify the install.ps1 hash manually, read the script, then:
-#   pwsh -File install.ps1
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 #
 # Environment variables:
 #   GHOSTDRAFT_VERSION     — a specific tag (e.g. 0.1.6). Default: latest.
@@ -47,7 +47,13 @@ if ($env:GHOSTDRAFT_BASE_URL) {
 $InstallDir = if ($env:GHOSTDRAFT_INSTALL_DIR) { $env:GHOSTDRAFT_INSTALL_DIR } else {
     Join-Path $env:LOCALAPPDATA 'Programs\ghostdraft'
 }
-$ScriptPath = Join-Path $InstallDir 'ghostdraft.ps1'
+# The script itself lives in lib\, NOT next to the shim. PowerShell resolves a bare
+# `ghostdraft` on PATH to a .ps1 BEFORE a .cmd of the same name, and a .ps1 is refused
+# outright under the default ExecutionPolicy (Restricted) — so a .ps1 on PATH means
+# the command fails in PowerShell no matter what the shim does. With only the shim
+# visible, the command works from cmd, Windows PowerShell 5.1 and pwsh 7 alike.
+$LibDir     = Join-Path $InstallDir 'lib'
+$ScriptPath = Join-Path $LibDir 'ghostdraft.ps1'
 $ShimPath   = Join-Path $InstallDir 'ghostdraft.cmd'
 
 Write-Host 'ghostdraft (Windows, BETA) installer'
@@ -190,8 +196,8 @@ try {
     }
 
     # Hash is correct → install.
-    if (-not (Test-Path $InstallDir)) {
-        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    if (-not (Test-Path $LibDir)) {
+        New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
     }
     Copy-Item -Path $tmpScript -Destination $ScriptPath -Force
     Write-Host "Installed: $ScriptPath"
@@ -203,11 +209,19 @@ finally {
 # .cmd shim so that `ghostdraft <command>` can be called plainly from cmd/PowerShell.
 $shim = @"
 @echo off
-pwsh -NoProfile -File "%~dp0ghostdraft.ps1" %*
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\ghostdraft.ps1" %*
 if errorlevel 1 exit /b %errorlevel%
 "@
 Set-Content -Path $ShimPath -Value $shim -Encoding ASCII
 Write-Host "Shim created: $ShimPath"
+
+# An install from before lib\ left the script next to the shim, and PowerShell picks
+# THAT one for a bare command name — so an upgrade would change nothing until it goes.
+$legacyScript = Join-Path $InstallDir 'ghostdraft.ps1'
+if (Test-Path -LiteralPath $legacyScript) {
+    Remove-Item -LiteralPath $legacyScript -Force
+    Write-Host "Removed the older copy next to the shim: $legacyScript"
+}
 
 # Add the directory to the user PATH (idempotent). GHOSTDRAFT_SKIP_PATH=1 — skip.
 if ($env:GHOSTDRAFT_SKIP_PATH -ne '1') {

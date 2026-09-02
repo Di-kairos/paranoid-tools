@@ -39,7 +39,7 @@ Describe 'install.ps1 integrity gate' {
     # These tests check the hash gate, not the signature → PT_ALLOW_HASH_ONLY=1 (release without .sig).
     It 'installs the script when the checksum matches' {
         Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; PT_ALLOW_HASH_ONLY='1' } | Out-Null
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeTrue
         (Test-Path (Join-Path $script:Target 'ghostdraft.cmd')) | Should -BeTrue
     }
 
@@ -47,14 +47,14 @@ Describe 'install.ps1 integrity gate' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("0"*64 + "  ghostdraft.ps1")
         $code = Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; PT_ALLOW_HASH_ONLY='1' }
         $code | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeFalse
     }
 
     It 'fails closed when SHA256SUMS lacks the ghostdraft.ps1 entry' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("deadbeef  somethingelse.txt")
         $code = Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; PT_ALLOW_HASH_ONLY='1' }
         $code | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeFalse
     }
 }
 
@@ -112,14 +112,14 @@ Describe 'install.ps1 signature gate' {
 
     It 'installs when the release signature is valid' {
         Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; GHOSTDRAFT_TEST_SIGNING_PUBKEY=$script:PubKey } | Out-Null
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeTrue
     }
 
     It 'fails closed when the signature is invalid/corrupt' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS.sig') -Value 'not-a-real-signature' -NoNewline
         $code = Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; GHOSTDRAFT_TEST_SIGNING_PUBKEY=$script:PubKey }
         $code | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeFalse
     }
 
     It 'treats a bad signature as fatal even with PT_ALLOW_HASH_ONLY=1' {
@@ -127,30 +127,30 @@ Describe 'install.ps1 signature gate' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS.sig') -Value 'not-a-real-signature' -NoNewline
         $code = Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; GHOSTDRAFT_TEST_SIGNING_PUBKEY=$script:PubKey; PT_ALLOW_HASH_ONLY='1' }
         $code | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeFalse
     }
 
     It 'fails closed when SHA256SUMS.sig is missing' {
         Remove-Item -LiteralPath (Join-Path $script:Release 'SHA256SUMS.sig') -Force
         $code = Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; GHOSTDRAFT_TEST_SIGNING_PUBKEY=$script:PubKey }
         $code | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeFalse
     }
 
     It 'installs with PT_ALLOW_HASH_ONLY=1 when the signature is missing (hash-only)' {
         Remove-Item -LiteralPath (Join-Path $script:Release 'SHA256SUMS.sig') -Force
         Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; GHOSTDRAFT_TEST_SIGNING_PUBKEY=$script:PubKey; PT_ALLOW_HASH_ONLY='1' } | Out-Null
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeTrue
     }
 
     It 'fails closed when ssh-keygen verifier is unavailable' {
         $code = Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; GHOSTDRAFT_TEST_SIGNING_PUBKEY=$script:PubKey; GHOSTDRAFT_SSH_KEYGEN='gd-no-such-verifier' }
         $code | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeFalse
     }
 
     It 'installs with PT_ALLOW_HASH_ONLY=1 when the verifier is unavailable' {
         Invoke-Install @{ GHOSTDRAFT_BASE_URL=$script:Release; GHOSTDRAFT_INSTALL_DIR=$script:Target; GHOSTDRAFT_SKIP_PATH='1'; GHOSTDRAFT_TEST_SIGNING_PUBKEY=$script:PubKey; GHOSTDRAFT_SSH_KEYGEN='gd-no-such-verifier'; PT_ALLOW_HASH_ONLY='1' } | Out-Null
-        (Test-Path (Join-Path $script:Target 'ghostdraft.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\ghostdraft.ps1')) | Should -BeTrue
     }
 }

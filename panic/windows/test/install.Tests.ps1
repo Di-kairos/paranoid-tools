@@ -34,7 +34,7 @@ Describe 'install.ps1 integrity gate' {
         # Run the installer in a child pwsh: env settings are set inside -Command
         # so they don't leak into the test session.
         & pwsh -NoProfile -Command "`$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; `$env:PT_ALLOW_HASH_ONLY='1'; & '$($script:InstallScript)'" *> $null
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeTrue
         (Test-Path (Join-Path $script:Target 'panic.cmd')) | Should -BeTrue
     }
 
@@ -43,14 +43,14 @@ Describe 'install.ps1 integrity gate' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("0"*64 + "  panic.ps1")
         & pwsh -NoProfile -Command "`$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; `$env:PT_ALLOW_HASH_ONLY='1'; & '$($script:InstallScript)'" *> $null
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeFalse
     }
 
     It 'fails closed when SHA256SUMS lacks the panic.ps1 entry' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("deadbeef  somethingelse.txt")
         & pwsh -NoProfile -Command "`$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; `$env:PT_ALLOW_HASH_ONLY='1'; & '$($script:InstallScript)'" *> $null
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeFalse
     }
 }
 
@@ -164,7 +164,7 @@ exit 0
         New-SigFile
         Invoke-Installer
         $LASTEXITCODE | Should -Be 0
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeTrue
     }
 
     It 'does not hang when the verifier is noisy (redirected streams must be drained)' {
@@ -181,7 +181,7 @@ exit 0
         $finished = Wait-Job -Job $job -Timeout 90
         Remove-Job -Job $job -Force
         $finished | Should -Not -BeNullOrEmpty -Because 'установщик обязан завершиться, а не ждать верификатор вечно'
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeTrue
     }
 
     It 'hands the verifier the signed bytes unchanged (CRLF survives, nothing appended)' {
@@ -209,21 +209,21 @@ exit 0
         New-SigFile
         Invoke-Installer
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeFalse
     }
 
     It 'fails closed when the signature file is missing' {
         New-SshKeygenShim 0   # verifier present, but no .sig
         Invoke-Installer
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeFalse
     }
 
     It 'installs a missing signature only with PT_ALLOW_HASH_ONLY=1' {
         New-SshKeygenShim 0
         Invoke-Installer "`$env:PT_ALLOW_HASH_ONLY='1'; "
         $LASTEXITCODE | Should -Be 0
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeTrue
     }
 
     It 'fails closed when ssh-keygen is unavailable' {
@@ -231,13 +231,13 @@ exit 0
         New-SigFile
         & pwsh -NoProfile -Command "`$env:PATH='$($script:EmptyDir)'; `$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; & '$($script:InstallScript)'" *> $null
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeFalse
     }
 
     It 'installs without a verifier only with PT_ALLOW_HASH_ONLY=1' {
         New-SigFile
         & pwsh -NoProfile -Command "`$env:PATH='$($script:EmptyDir)'; `$env:PANIC_BASE_URL='$($script:Release)'; `$env:PANIC_INSTALL_DIR='$($script:Target)'; `$env:PANIC_SKIP_PATH='1'; `$env:PT_ALLOW_HASH_ONLY='1'; & '$($script:InstallScript)'" *> $null
         $LASTEXITCODE | Should -Be 0
-        (Test-Path (Join-Path $script:Target 'panic.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\panic.ps1')) | Should -BeTrue
     }
 }

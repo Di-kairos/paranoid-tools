@@ -78,7 +78,7 @@ reconstructs a macOS-generated share-set on Windows CI to guarantee it.
 
 ```powershell
 irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/install.ps1 -OutFile install.ps1
-# verify the hash against SHA256SUMS, then: pwsh -File install.ps1
+# verify the hash against SHA256SUMS, then: pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
 
 ## Usage

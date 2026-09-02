@@ -36,21 +36,23 @@ cd paranoid-tools
 bash install.sh            # installs all 5 + the paranoid launcher
 ```
 
-**Windows** (beta) — PowerShell 7 and Git once, then the same single command:
+**Windows** (beta) — PowerShell 7 and Git once, then the same single command. Any
+terminal will do: `cmd`, the built-in Windows PowerShell, or PowerShell 7.
 
 ```powershell
 winget install --id Microsoft.PowerShell -e
 winget install --id Git.Git -e
-# close this window, open a new "PowerShell 7" from the Start menu, then:
+# open a NEW terminal window here — winget gives its PATH to new processes only
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools
-pwsh -File windows/install.ps1   # installs all 5 + the paranoid launcher
+windows\install.cmd            # installs all 5 + the paranoid launcher
 ```
 
 **Then, on either system:** open a **new** terminal (so `PATH` picks up the change) and
 run `paranoid` — one menu with the current state of everything and every action in it, so
-you do not have to learn five CLIs to start. Step-by-step Windows notes (PATH, one tool
-only, what to do when `git` is "not recognized") are in **[Windows](#windows)** below.
+you do not have to learn five CLIs to start. Step-by-step Windows notes (installing
+without Git, one tool only, what to do when `git` is "not recognized") are in
+**[Windows](#windows)** below.
 
 Each tool is pulled from its own **signed release** with verify-then-run: the installer
 checks the Ed25519 signature over `SHA256SUMS`, then the checksum of the tool's own
@@ -188,7 +190,7 @@ bash install.sh --uninstall                 # macOS: remove all tools and the la
 ```
 
 ```powershell
-pwsh -File windows/install.ps1 -Uninstall   # Windows: the same, PATH entry included
+windows\install.cmd -Uninstall             # Windows: the same, PATH entry included
 ```
 
 Neither one touches your data: vaults, notes and shares stay exactly where they are.
@@ -196,45 +198,41 @@ Neither one touches your data: vaults, notes and shares stay exactly where they 
 ### Windows
 
 The short path is at the top of [Install](#install) — this section is the same thing
-spelled out, plus the things that trip people up. Steps **1–2 you do once**.
+spelled out, plus the things that trip people up. Step **1 you do once**.
 
-**1. Install PowerShell 7.** The supported path for install and run is PowerShell 7
-(`pwsh`); the built-in Windows PowerShell 5.1 is not officially supported. In any
-terminal (press `Win`, type "PowerShell", Enter):
+Which terminal you use does not matter: `cmd`, the built-in Windows PowerShell 5.1 and
+PowerShell 7 all work. The tools run on PowerShell 7 under the hood, and the `.cmd` shim
+on your PATH starts it for them — you never have to pick a shell or touch your
+ExecutionPolicy.
+
+**1. Install PowerShell 7 and Git.** Press `Win`, type "PowerShell", Enter, and run:
 
 ```powershell
 winget install --id Microsoft.PowerShell -e
-```
-
-Close that window, then open **"PowerShell 7"** from the Start menu. Confirm the version:
-
-```powershell
-pwsh --version      # should print "PowerShell 7.x"
-```
-
-**2. Install Git** (used to download the tools):
-
-```powershell
 winget install --id Git.Git -e
 ```
 
-Then **close that window and open a fresh PowerShell 7**. `winget` hands the new PATH to new
-processes only, so in the window you installed from, `git` stays "not recognized as the name of
-a cmdlet". If you would rather keep the window, refresh its PATH by hand:
+Then **open a new terminal window**. `winget` hands the new PATH to new processes only,
+so in the window you installed from, `git` stays "not recognized as the name of a
+cmdlet". If you would rather keep the window, refresh its PATH by hand:
 
 ```powershell
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
             [Environment]::GetEnvironmentVariable('Path','User')
 ```
 
-**3. Install the tools.** All five live in this repository — clone once, then one command
+*Without Git:* open the repository page, **Code → Download ZIP**, unpack it, and start
+from step 2 in the unpacked folder. Nothing else changes — the tools themselves are
+pulled from their signed releases either way.
+
+**2. Install the tools.** All five live in this repository — clone once, then one command
 installs all of them plus the `paranoid` launcher, the same way `install.sh` does on macOS:
 
 ```powershell
 cd $HOME            # clone into your own profile, not C:\WINDOWS\system32
 git clone https://github.com/Di-kairos/paranoid-tools
 cd paranoid-tools
-pwsh -File windows/install.ps1
+windows\install.cmd
 ```
 
 The umbrella installs nothing by itself: it runs each tool's own `windows/install.ps1`,
@@ -249,11 +247,11 @@ Want just one tool? Install it on its own — the per-tool installer puts it int
 `%LOCALAPPDATA%\Programs\<tool>` and edits PATH itself:
 
 ```powershell
-cd paranoid-tools/securetrash
-pwsh -File windows/install.ps1
+cd paranoid-tools\securetrash
+pwsh -NoProfile -ExecutionPolicy Bypass -File windows\install.ps1
 ```
 
-**4. Use it.** Open a **new** PowerShell window (so the PATH change takes effect), then
+**3. Use it.** Open a **new** terminal window (so the PATH change takes effect), then
 call the tools by name:
 
 ```powershell
@@ -261,6 +259,17 @@ paranoid            # the interactive launcher
 securetrash version
 securetrash --help
 ```
+
+Each name on your PATH is a small `.cmd` shim in
+`%LOCALAPPDATA%\Programs\ParanoidTools`; the scripts themselves sit in the `lib\`
+subdirectory next to it. That is deliberate: PowerShell resolves a bare command name to a
+`.ps1` on PATH before a `.cmd` of the same name, and the default ExecutionPolicy then
+refuses to load it — so a `.ps1` on PATH is exactly what turns `paranoid` into "cannot be
+loaded because running scripts is disabled on this system". The shim starts
+`pwsh -ExecutionPolicy Bypass` for its own process only; your machine's policy is never
+changed, and nothing else on the system becomes runnable.
+
+To remove everything, including the PATH entry: `windows\install.cmd -Uninstall`.
 
 > **Beta.** The Windows ports are logic-tested in CI but not yet broadly validated on
 > real hardware — try them on non-critical data first before trusting them with real
@@ -335,8 +344,8 @@ paranoid          # opens the dashboard + menu
 Honest note: the launcher is for convenience, not real-panic-speed. For an instant,
 system-wide panic key, use `panic hotkey install` (a global hotkey via skhd — see
 panic's README). An open vault is always flagged "at risk". A Windows PowerShell mirror
-ships at `windows/paranoid.ps1` (beta) — run it with `pwsh -File windows/paranoid.ps1`
-(or drop it on PATH as `paranoid`); it drives the same five PowerShell ports.
+ships at `windows/paranoid.ps1` (beta); `windows\install.cmd` puts it on your PATH as
+`paranoid`, and it drives the same five PowerShell ports.
 
 **Opt-in update check.** Off by default — nothing on the dashboard touches the network
 unless you ask. Set `PARANOID_UPDATE_CHECK=1` and the dashboard adds an *"update

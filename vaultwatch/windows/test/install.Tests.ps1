@@ -29,7 +29,7 @@ Describe 'install.ps1 integrity gate' {
         # PT_ALLOW_HASH_ONLY=1: локальный «релиз» без Ed25519-подписи — этот тест проверяет
         # именно integrity-гейт (проверка подписи покрыта отдельным Describe ниже).
         & pwsh -NoProfile -Command "`$env:PT_ALLOW_HASH_ONLY='1'; `$env:VAULTWATCH_BASE_URL='$($script:Release)'; `$env:VAULTWATCH_INSTALL_DIR='$($script:Target)'; `$env:VAULTWATCH_SKIP_PATH='1'; & '$($script:InstallScript)'" *> $null
-        (Test-Path (Join-Path $script:Target 'vaultwatch.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\vaultwatch.ps1')) | Should -BeTrue
         (Test-Path (Join-Path $script:Target 'vaultwatch.cmd')) | Should -BeTrue
     }
 
@@ -37,14 +37,14 @@ Describe 'install.ps1 integrity gate' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("0"*64 + "  vaultwatch.ps1")
         & pwsh -NoProfile -Command "`$env:VAULTWATCH_BASE_URL='$($script:Release)'; `$env:VAULTWATCH_INSTALL_DIR='$($script:Target)'; `$env:VAULTWATCH_SKIP_PATH='1'; & '$($script:InstallScript)'" *> $null
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'vaultwatch.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\vaultwatch.ps1')) | Should -BeFalse
     }
 
     It 'fails closed when SHA256SUMS lacks the vaultwatch.ps1 entry' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("deadbeef  somethingelse.txt")
         & pwsh -NoProfile -Command "`$env:VAULTWATCH_BASE_URL='$($script:Release)'; `$env:VAULTWATCH_INSTALL_DIR='$($script:Target)'; `$env:VAULTWATCH_SKIP_PATH='1'; & '$($script:InstallScript)'" *> $null
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'vaultwatch.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\vaultwatch.ps1')) | Should -BeFalse
     }
 }
 

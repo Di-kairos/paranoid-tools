@@ -81,14 +81,47 @@ Describe 'windows/install.ps1 (umbrella)' {
         [Environment]::GetEnvironmentVariable('Path', 'User') | Should -Be $pathBefore
     }
 
-    It 'installs the launcher and its .cmd shim next to the tools' {
+    It 'installs the launcher into lib\ and its .cmd shim next to the tools' {
         $umbrella = New-FakeClone -Root $script:Clone
         & $script:PwshExe -NoProfile -File $umbrella 1> $null 2> $null
 
-        Test-Path -LiteralPath (Join-Path $script:Dest 'paranoid.ps1') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:Dest 'lib\paranoid.ps1') | Should -BeTrue
         $shim = Join-Path $script:Dest 'paranoid.cmd'
         Test-Path -LiteralPath $shim | Should -BeTrue
-        (Get-Content -LiteralPath $shim -Raw) | Should -Match 'paranoid\.ps1'
+        (Get-Content -LiteralPath $shim -Raw) | Should -Match 'lib\\paranoid\.ps1'
+    }
+
+    It 'leaves no .ps1 on PATH, so a bare `paranoid` resolves to the shim' {
+        # The whole point of lib\: PowerShell resolves a bare command name to a .ps1 in a
+        # PATH directory BEFORE a .cmd of the same name, and then the default ExecutionPolicy
+        # refuses to load it. A .ps1 here means the command is broken for the user.
+        $umbrella = New-FakeClone -Root $script:Clone
+        & $script:PwshExe -NoProfile -File $umbrella 1> $null 2> $null
+
+        @(Get-ChildItem -LiteralPath $script:Dest -Filter *.ps1 -File) | Should -HaveCount 0
+    }
+
+    It 'runs the launcher through pwsh with the ExecutionPolicy bypassed for that process' {
+        # Without the bypass the shim still fails on a machine left at Restricted, which is
+        # the Windows default - the user would have to change a security setting to run us.
+        $umbrella = New-FakeClone -Root $script:Clone
+        & $script:PwshExe -NoProfile -File $umbrella 1> $null 2> $null
+
+        (Get-Content -LiteralPath (Join-Path $script:Dest 'paranoid.cmd') -Raw) |
+            Should -Match '-ExecutionPolicy Bypass'
+    }
+
+    It 'removes a pre-lib launcher left next to the shim' {
+        # An upgrade over an older install must take that copy away: PowerShell would keep
+        # picking it over the shim, and the user would see no change at all.
+        New-Item -ItemType Directory -Path $script:Dest -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Dest 'paranoid.ps1') -Value '# old layout'
+        $umbrella = New-FakeClone -Root $script:Clone
+
+        & $script:PwshExe -NoProfile -File $umbrella 1> $null 2> $null
+
+        Test-Path -LiteralPath (Join-Path $script:Dest 'paranoid.ps1') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:Dest 'lib\paranoid.ps1') | Should -BeTrue
     }
 
     It 'exits non-zero when one tool refuses, and still installs the other four' {
@@ -117,8 +150,9 @@ Describe 'windows/install.ps1 (umbrella)' {
         # user has to edit their own PATH by hand to get rid of the toolkit.
         $umbrella = New-FakeClone -Root $script:Clone
         New-Item -ItemType Directory -Path $script:Dest -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:Dest 'lib') -Force | Out-Null
         foreach ($name in @('securetrash', 'vaultwatch', 'panic', 'ghostdraft', 'seedsplit', 'paranoid')) {
-            Set-Content -LiteralPath (Join-Path $script:Dest "$name.ps1") -Value '# installed'
+            Set-Content -LiteralPath (Join-Path $script:Dest "lib\$name.ps1") -Value '# installed'
             Set-Content -LiteralPath (Join-Path $script:Dest "$name.cmd") -Value '@echo off'
         }
 
@@ -158,5 +192,43 @@ Describe 'windows/install.ps1 (umbrella)' {
             Test-Path -LiteralPath (Join-Path $script:Log "$name.txt") | Should -BeTrue
         }
         Test-Path -LiteralPath (Join-Path $script:Log 'seedsplit.txt') | Should -BeFalse
+    }
+}
+
+# What makes `paranoid` (or any of the five) answer at all in a terminal. Two Windows rules
+# decide it, and both bite silently: PowerShell resolves a bare command name to a .ps1 in a
+# PATH directory BEFORE a .cmd of the same name, and the default ExecutionPolicy (Restricted)
+# refuses to load a .ps1 at all. So the script must NOT sit on PATH, and the shim that does
+# must start pwsh with the policy bypassed for its own process. Checked across all six
+# installers at once: each one writes its own shim, and one of them drifting is the bug.
+Describe 'the shim contract, in every installer' {
+    # Plain assignments, not BeforeAll: Pester expands -ForEach during discovery, when
+    # nothing from a BeforeAll block has run yet.
+    $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $Installers = @('windows\install.ps1') + @(
+        'securetrash', 'vaultwatch', 'panic', 'ghostdraft', 'seedsplit' |
+            ForEach-Object { "$_\windows\install.ps1" }
+    )
+    BeforeAll { $script:RepoRoot = $RepoRoot }
+
+    It '<_> writes a shim that points into lib\ and bypasses the ExecutionPolicy' -ForEach $Installers {
+        $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $_) -Raw
+        $text | Should -Match 'pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\\'
+    }
+
+    It '<_> takes away a pre-lib script left next to the shim' -ForEach $Installers {
+        # Without this an upgrade over an older install is invisible: the old .ps1 keeps
+        # winning the name, and the user still cannot run the tool.
+        $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $_) -Raw
+        $text | Should -Match 'Remove-Item -LiteralPath \$legacy'
+    }
+
+    It 'ships install.cmd, so installing needs no knowledge of pwsh or of the policy' {
+        $cmd = Join-Path $script:RepoRoot 'windows\install.cmd'
+        Test-Path -LiteralPath $cmd | Should -BeTrue
+        $text = Get-Content -LiteralPath $cmd -Raw
+        $text | Should -Match 'pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0install\.ps1"'
+        # No pwsh must not look like a broken installer: it must name the one command to run.
+        $text | Should -Match 'winget install --id Microsoft\.PowerShell'
     }
 }

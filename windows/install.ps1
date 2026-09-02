@@ -10,9 +10,10 @@
 # So the verification chain is unchanged; this script only points all five at ONE directory
 # and edits PATH once instead of five times.
 #
-# Usage (from the clone root):
-#   pwsh -File windows/install.ps1              # install/update all five + the launcher
-#   pwsh -File windows/install.ps1 -Uninstall   # remove them (data and vaults are untouched)
+# Usage (from the clone root) - windows\install.cmd is the documented entry point, because
+# it needs nothing of the user: it finds pwsh and sets the ExecutionPolicy for its own process.
+#   windows\install.cmd              # install/update all five + the launcher
+#   windows\install.cmd -Uninstall   # remove them (data and vaults are untouched)
 #
 # Environment variables:
 #   PT_INSTALL_DIR — install directory for all five + the launcher.
@@ -62,9 +63,11 @@ if ($Uninstall) {
         Write-Host 'Nothing to remove: that directory does not exist.'
         exit 0
     }
+    # The shims sit in $InstallDir, the scripts in $InstallDir\lib - and an install from
+    # before lib\ left the scripts next to the shims, so both places are cleaned.
     $names = @()
-    foreach ($tool in $Tools) { $names += @("$($tool.Name).ps1", "$($tool.Name).cmd") }
-    $names += @('paranoid.ps1', 'paranoid.cmd')
+    foreach ($tool in $Tools) { $names += @("$($tool.Name).ps1", "$($tool.Name).cmd", "lib\$($tool.Name).ps1") }
+    $names += @('paranoid.ps1', 'paranoid.cmd', 'lib\paranoid.ps1')
     $removed = 0
     foreach ($name in $names) {
         $path = Join-Path $InstallDir $name
@@ -73,6 +76,11 @@ if ($Uninstall) {
             Write-Host "  removed $name"
             $removed++
         }
+    }
+    # Same rule as for the install directory below: only an empty lib\ is deleted.
+    $libDir = Join-Path $InstallDir 'lib'
+    if ((Test-Path -LiteralPath $libDir) -and -not (Get-ChildItem -LiteralPath $libDir -Force)) {
+        Remove-Item -LiteralPath $libDir -Force
     }
     # Only an empty directory is deleted: anything else in there is the user's, not ours.
     if (-not (Get-ChildItem -LiteralPath $InstallDir -Force)) {
@@ -149,14 +157,22 @@ foreach ($tool in $Tools) {
 Write-Host ''
 $launcherSrc = Join-Path $PSScriptRoot 'paranoid.ps1'
 if (Test-Path -LiteralPath $launcherSrc) {
-    Copy-Item -LiteralPath $launcherSrc -Destination (Join-Path $InstallDir 'paranoid.ps1') -Force
+    # lib\, not $InstallDir: PowerShell resolves a bare `paranoid` on PATH to a .ps1 before
+    # the .cmd, and the default ExecutionPolicy then refuses to load it - so a .ps1 on PATH
+    # is what breaks the command. Only the shim is visible, and it works from any shell.
+    $libDir = Join-Path $InstallDir 'lib'
+    New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+    Copy-Item -LiteralPath $launcherSrc -Destination (Join-Path $libDir 'paranoid.ps1') -Force
     $shim = @"
 @echo off
-pwsh -NoProfile -File "%~dp0paranoid.ps1" %*
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\paranoid.ps1" %*
 if errorlevel 1 exit /b %errorlevel%
 "@
     Set-Content -Path (Join-Path $InstallDir 'paranoid.cmd') -Value $shim -Encoding ASCII
-    Write-Host "Installed: $(Join-Path $InstallDir 'paranoid.ps1') (+ paranoid.cmd shim)"
+    # A pre-lib install left the launcher next to the shim, where PowerShell picks it first.
+    $legacyLauncher = Join-Path $InstallDir 'paranoid.ps1'
+    if (Test-Path -LiteralPath $legacyLauncher) { Remove-Item -LiteralPath $legacyLauncher -Force }
+    Write-Host "Installed: $(Join-Path $libDir 'paranoid.ps1') (+ paranoid.cmd shim)"
 } else {
     Write-Warning "paranoid.ps1 is missing next to this script — the launcher was not installed."
 }

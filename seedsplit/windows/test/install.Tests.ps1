@@ -109,7 +109,7 @@ Describe 'install.ps1 integrity gate' {
     # (релиз-каталог без SHA256SUMS.sig, иначе signature-gate прервал бы happy-path).
     It 'installs the script when the checksum matches' {
         Invoke-Installer -Release $script:Release -Target $script:Target -ExtraEnv "`$env:PT_ALLOW_HASH_ONLY='1'; "
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeTrue
         (Test-Path (Join-Path $script:Target 'seedsplit.cmd')) | Should -BeTrue
     }
 
@@ -118,14 +118,14 @@ Describe 'install.ps1 integrity gate' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("0"*64 + "  seedsplit.ps1")
         Invoke-Installer -Release $script:Release -Target $script:Target -ExtraEnv "`$env:PT_ALLOW_HASH_ONLY='1'; "
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeFalse
     }
 
     It 'fails closed when SHA256SUMS lacks the seedsplit.ps1 entry' {
         Set-Content -LiteralPath (Join-Path $script:Release 'SHA256SUMS') -Value ("deadbeef  somethingelse.txt")
         Invoke-Installer -Release $script:Release -Target $script:Target -ExtraEnv "`$env:PT_ALLOW_HASH_ONLY='1'; "
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeFalse
     }
 }
 
@@ -162,7 +162,7 @@ Describe 'install.ps1 signature gate' {
         Set-Content -LiteralPath $script:SigFile -Value 'dummy-signature'
         script:New-SshKeygenStub -Dir $script:StubDir -ExitCode 0
         Invoke-Installer -Release $script:Release -Target $script:Target -ExtraEnv (script:PrefixPathEnv $script:StubDir)
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeTrue
     }
 
     It 'says the signature did not verify when the verifier quits without reading stdin' {
@@ -190,7 +190,7 @@ Describe 'install.ps1 signature gate' {
             "`$env:SEEDSPLIT_BASE_URL='$($script:Release)'; `$env:SEEDSPLIT_INSTALL_DIR='$($script:Target)'; " +
             "`$env:SEEDSPLIT_SKIP_PATH='1'; & '$($script:InstallScript)'") 2>&1 | Out-String
 
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeFalse
         $out | Should -Match 'signature FAILED verification'
     }
 
@@ -208,7 +208,7 @@ Describe 'install.ps1 signature gate' {
         $finished = Wait-Job -Job $job -Timeout 90
         Remove-Job -Job $job -Force
         $finished | Should -Not -BeNullOrEmpty -Because 'установщик обязан завершиться, а не ждать верификатор вечно'
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeTrue
     }
 
     It 'hands the verifier the signed bytes unchanged (CRLF survives, nothing appended)' {
@@ -239,7 +239,7 @@ Describe 'install.ps1 signature gate' {
         Invoke-Installer -Release $script:Release -Target $script:Target `
             -ExtraEnv ((script:PrefixPathEnv $script:StubDir) + "`$env:PT_ALLOW_HASH_ONLY='1'; ")
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeFalse
     }
 
     It 'fails closed when the signature is missing and hash-only is not allowed' {
@@ -247,14 +247,14 @@ Describe 'install.ps1 signature gate' {
         script:New-SshKeygenStub -Dir $script:StubDir -ExitCode 0
         Invoke-Installer -Release $script:Release -Target $script:Target -ExtraEnv (script:PrefixPathEnv $script:StubDir)
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeFalse
     }
 
     It 'installs on a missing signature when PT_ALLOW_HASH_ONLY=1' {
         script:New-SshKeygenStub -Dir $script:StubDir -ExitCode 0
         Invoke-Installer -Release $script:Release -Target $script:Target `
             -ExtraEnv ((script:PrefixPathEnv $script:StubDir) + "`$env:PT_ALLOW_HASH_ONLY='1'; ")
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeTrue
     }
 
     It 'fails closed when ssh-keygen is missing and hash-only is not allowed' {
@@ -262,7 +262,7 @@ Describe 'install.ps1 signature gate' {
         New-Item -ItemType Directory -Path $script:StubDir -Force | Out-Null   # пустой каталог, без ssh-keygen
         Invoke-Installer -Release $script:Release -Target $script:Target -ExtraEnv (script:OnlyPathEnv $script:StubDir)
         $LASTEXITCODE | Should -Not -Be 0
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeFalse
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeFalse
     }
 
     It 'installs without a verifier when PT_ALLOW_HASH_ONLY=1' {
@@ -270,6 +270,6 @@ Describe 'install.ps1 signature gate' {
         New-Item -ItemType Directory -Path $script:StubDir -Force | Out-Null
         Invoke-Installer -Release $script:Release -Target $script:Target `
             -ExtraEnv ((script:OnlyPathEnv $script:StubDir) + "`$env:PT_ALLOW_HASH_ONLY='1'; ")
-        (Test-Path (Join-Path $script:Target 'seedsplit.ps1')) | Should -BeTrue
+        (Test-Path (Join-Path $script:Target 'lib\seedsplit.ps1')) | Should -BeTrue
     }
 }

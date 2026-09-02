@@ -11,7 +11,7 @@
 #   irm https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.16/SHA256SUMS  -OutFile SHA256SUMS
 #   # check install.ps1's hash manually, read the script, then:
-#   pwsh -File install.ps1
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 #
 # Environment variables:
 #   PANIC_VERSION       — a specific tag (e.g. 0.1.3). Defaults to latest.
@@ -44,7 +44,13 @@ if ($env:PANIC_BASE_URL) {
 $InstallDir = if ($env:PANIC_INSTALL_DIR) { $env:PANIC_INSTALL_DIR } else {
     Join-Path $env:LOCALAPPDATA 'Programs\panic'
 }
-$ScriptPath = Join-Path $InstallDir 'panic.ps1'
+# The script itself lives in lib\, NOT next to the shim. PowerShell resolves a bare
+# `panic` on PATH to a .ps1 BEFORE a .cmd of the same name, and a .ps1 is refused
+# outright under the default ExecutionPolicy (Restricted) — so a .ps1 on PATH means
+# the command fails in PowerShell no matter what the shim does. With only the shim
+# visible, the command works from cmd, Windows PowerShell 5.1 and pwsh 7 alike.
+$LibDir     = Join-Path $InstallDir 'lib'
+$ScriptPath = Join-Path $LibDir 'panic.ps1'
 $ShimPath   = Join-Path $InstallDir 'panic.cmd'
 
 Write-Host 'panic (Windows, BETA) installer'
@@ -171,8 +177,8 @@ try {
     }
 
     # Hash is correct → install.
-    if (-not (Test-Path $InstallDir)) {
-        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    if (-not (Test-Path $LibDir)) {
+        New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
     }
     Copy-Item -Path $tmpScript -Destination $ScriptPath -Force
     Write-Host "Installed: $ScriptPath"
@@ -184,11 +190,19 @@ finally {
 # A .cmd shim so you can call just `panic <command>` from cmd/PowerShell.
 $shim = @"
 @echo off
-pwsh -NoProfile -File "%~dp0panic.ps1" %*
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\panic.ps1" %*
 if errorlevel 1 exit /b %errorlevel%
 "@
 Set-Content -Path $ShimPath -Value $shim -Encoding ASCII
 Write-Host "Shim created: $ShimPath"
+
+# An install from before lib\ left the script next to the shim, and PowerShell picks
+# THAT one for a bare command name — so an upgrade would change nothing until it goes.
+$legacyScript = Join-Path $InstallDir 'panic.ps1'
+if (Test-Path -LiteralPath $legacyScript) {
+    Remove-Item -LiteralPath $legacyScript -Force
+    Write-Host "Removed the older copy next to the shim: $legacyScript"
+}
 
 # Add the directory to the user PATH (idempotent). PANIC_SKIP_PATH=1 — skip.
 if ($env:PANIC_SKIP_PATH -ne '1') {

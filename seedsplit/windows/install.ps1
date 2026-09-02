@@ -13,7 +13,7 @@
 #   irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/install.ps1 -OutFile install.ps1
 #   irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/SHA256SUMS  -OutFile SHA256SUMS
 #   # verify the install.ps1 hash manually, read the script, then:
-#   pwsh -File install.ps1
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 #
 # Environment variables:
 #   SEEDSPLIT_VERSION     — a specific tag (e.g. 0.3.2). Default: latest.
@@ -46,7 +46,13 @@ if ($env:SEEDSPLIT_BASE_URL) {
 $InstallDir = if ($env:SEEDSPLIT_INSTALL_DIR) { $env:SEEDSPLIT_INSTALL_DIR } else {
     Join-Path $env:LOCALAPPDATA 'Programs\seedsplit'
 }
-$ScriptPath = Join-Path $InstallDir 'seedsplit.ps1'
+# The script itself lives in lib\, NOT next to the shim. PowerShell resolves a bare
+# `seedsplit` on PATH to a .ps1 BEFORE a .cmd of the same name, and a .ps1 is refused
+# outright under the default ExecutionPolicy (Restricted) — so a .ps1 on PATH means
+# the command fails in PowerShell no matter what the shim does. With only the shim
+# visible, the command works from cmd, Windows PowerShell 5.1 and pwsh 7 alike.
+$LibDir     = Join-Path $InstallDir 'lib'
+$ScriptPath = Join-Path $LibDir 'seedsplit.ps1'
 $ShimPath   = Join-Path $InstallDir 'seedsplit.cmd'
 
 Write-Host 'seedsplit (Windows, BETA) installer'
@@ -176,8 +182,8 @@ try {
     }
 
     # Hash is correct → install.
-    if (-not (Test-Path $InstallDir)) {
-        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    if (-not (Test-Path $LibDir)) {
+        New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
     }
     Copy-Item -Path $tmpScript -Destination $ScriptPath -Force
     Write-Host "Installed: $ScriptPath"
@@ -189,11 +195,19 @@ finally {
 # .cmd shim so that `seedsplit <command>` can be called plainly from cmd/PowerShell.
 $shim = @"
 @echo off
-pwsh -NoProfile -File "%~dp0seedsplit.ps1" %*
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\seedsplit.ps1" %*
 if errorlevel 1 exit /b %errorlevel%
 "@
 Set-Content -Path $ShimPath -Value $shim -Encoding ASCII
 Write-Host "Shim created: $ShimPath"
+
+# An install from before lib\ left the script next to the shim, and PowerShell picks
+# THAT one for a bare command name — so an upgrade would change nothing until it goes.
+$legacyScript = Join-Path $InstallDir 'seedsplit.ps1'
+if (Test-Path -LiteralPath $legacyScript) {
+    Remove-Item -LiteralPath $legacyScript -Force
+    Write-Host "Removed the older copy next to the shim: $legacyScript"
+}
 
 # Add the directory to the user PATH (idempotent). SEEDSPLIT_SKIP_PATH=1 — skip.
 if ($env:SEEDSPLIT_SKIP_PATH -ne '1') {
