@@ -167,10 +167,12 @@ Flags:
     'en:emptied'            = 'Folder emptied: {0}'
     'ru:emptied'            = 'Папка опустошена: {0}'
 
-    'en:vault_pass'         = 'Container password'
-    'ru:vault_pass'         = 'Пароль контейнера'
-    'en:vault_pass_again'   = 'Repeat the password'
-    'ru:vault_pass_again'   = 'Повтори пароль'
+    # Named so nobody mistakes it for their Windows account password. It is a NEW password,
+    # invented here, and it is the only thing standing between the vault and whoever holds it.
+    'en:vault_pass'         = 'Set a password for this vault (a new one - not your Windows password)'
+    'ru:vault_pass'         = 'Придумай пароль для этого сейфа (новый, не пароль Windows)'
+    'en:vault_pass_again'   = 'Repeat that vault password'
+    'ru:vault_pass_again'   = 'Повтори пароль сейфа'
     'en:vault_pass_short'   = 'Password is too short: minimum {0} characters. The vault has no reset — a weak password is the whole attack surface (see THREAT-MODEL.md). Prefer 5-6 diceware words.'
     'ru:vault_pass_short'   = 'Пароль слишком короткий: минимум {0} символов. У сейфа нет сброса, и слабый пароль — это вся поверхность атаки (см. THREAT-MODEL.md). Лучше 5-6 слов diceware.'
     'en:vault_pass_mismatch' = 'The passwords do not match — nothing was created. A typo here would lock the vault forever: there is no reset.'
@@ -272,8 +274,11 @@ Flags:
     'en:vault_vc_manual'    = 'VeraCrypt detected, but automated VeraCrypt vault is NOT supported in this BETA: passing the password on the command line would leak it (visible via ps/WMI/ETW). Create and mount the container with the VeraCrypt GUI instead, then move secrets into the mounted drive.'
     'ru:vault_vc_manual'    = 'VeraCrypt найден, но автоматический VeraCrypt-vault в этой BETA НЕ поддерживается: передача пароля в командной строке привела бы к его утечке (виден через ps/WMI/ETW). Создайте и смонтируйте контейнер через GUI VeraCrypt, затем перенесите секреты на смонтированный диск.'
 
-    'en:vault_unlock_prompt' = 'Enter BitLocker password to unlock the vault'
-    'ru:vault_unlock_prompt' = 'Введите пароль BitLocker, чтобы разблокировать vault'
+    # "BitLocker password" read as the system BitLocker or the Windows account password - a
+    # live user asked which one it wanted. It is the vault's own password, set at vault create;
+    # BitLocker is merely the machinery underneath, and saying so helps nobody at this prompt.
+    'en:vault_unlock_prompt' = 'Vault password (the one you set when this vault was created - not your Windows password)'
+    'ru:vault_unlock_prompt' = 'Пароль сейфа (тот, что задавался при создании этого сейфа, — не пароль Windows)'
 
     'en:vault_unlock_fail'  = 'BitLocker unlock FAILED — the volume is still locked, contents are not accessible.'
     'ru:vault_unlock_fail'  = 'Разблокировка BitLocker НЕ удалась — том всё ещё заблокирован, содержимое недоступно.'

@@ -548,6 +548,16 @@ Describe 'new vault password: length floor + confirmation' {
         { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
     }
 
+    It 'the prompts say WHICH password, and rule out the Windows one' {
+        # A live user hit "Enter BitLocker password to unlock the vault" and asked which
+        # password that was. At a password prompt, naming the machinery underneath helps nobody.
+        $script:ST_LOCALE = 'en'
+        (T 'vault_pass')          | Should -Match 'vault'
+        (T 'vault_pass')          | Should -Match 'not your Windows password'
+        (T 'vault_unlock_prompt') | Should -Match 'when this vault was created'
+        (T 'vault_unlock_prompt') | Should -Not -Match 'BitLocker'
+    }
+
     It 'ST_VAULT_PASS bypasses both prompts (test-only hook)' {
         $env:ST_VAULT_PASS = 'x'
         Mock Read-Host { throw 'must not prompt' }
