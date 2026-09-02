@@ -20,12 +20,15 @@ Describe 'ghostdraft new — orchestration (override dir)' {
         $script:Work = Join-Path ([System.IO.Path]::GetTempPath()) ("gd_t_" + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Work -Force | Out-Null
         $env:GHOSTDRAFT_DIR = $script:Work
+        $env:EDITOR = 'vim'      # the file path is the EDITOR path now; the default is the console
         Mock Invoke-GdEditor     { }
+        Mock Confirm-GdEditorClosed { }
         Mock Invoke-GdShred      { }
         Mock Set-GdClipboardDraft { $true }
         Mock Clear-GdEditorResidue { }
     }
     AfterEach {
+        Remove-Item Env:\EDITOR -ErrorAction SilentlyContinue
         Remove-Item Env:\GHOSTDRAFT_DIR -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -57,19 +60,116 @@ Describe 'ghostdraft new — orchestration (override dir)' {
     }
 }
 
+# --- P0-1: the old default was Notepad, and Windows 11 Notepad writes the contents of unsaved
+# tabs into TabState on disk — a forensic artifact that outlives ghostdraft's shred, i.e. the
+# exact promise the tool exists to keep. The default is now a console draft that never creates
+# a file at all. ---
+Describe 'ghostdraft new — console draft is the default (P0-1)' {
+
+    BeforeEach {
+        Remove-Item Env:\EDITOR -ErrorAction SilentlyContinue
+        $script:GD_LOCALE = 'en'
+        Mock Read-GdConsoleDraft { 'correct horse battery staple' }
+        Mock Clear-GdConsole     { }
+        Mock Set-GdClipboardText { $true }
+        Mock Invoke-GdEditor     { throw 'no editor may be launched by default' }
+        Mock Get-GdDraftLocation { throw 'no draft location may be chosen by default' }
+        Mock New-GdDraftFile     { throw 'no file may be created by default' }
+    }
+
+    It 'creates no file and launches no editor' {
+        Invoke-GdNew -ArgList @() | Out-Null
+        Should -Invoke Read-GdConsoleDraft -Times 1 -Exactly
+        Should -Invoke Invoke-GdEditor -Times 0 -Exactly
+        Should -Invoke New-GdDraftFile -Times 0 -Exactly
+    }
+
+    It 'clears the screen afterwards' {
+        Invoke-GdNew -ArgList @() | Out-Null
+        Should -Invoke Clear-GdConsole -Times 1 -Exactly
+    }
+
+    It 'copies from memory with --clipboard, never from a file' {
+        Invoke-GdNew -ArgList @('--clipboard') | Out-Null
+        Should -Invoke Set-GdClipboardText -Times 1 -Exactly
+    }
+
+    It 'leaves the clipboard alone without --clipboard' {
+        Invoke-GdNew -ArgList @() | Out-Null
+        Should -Invoke Set-GdClipboardText -Times 0 -Exactly
+    }
+
+    It 'clears the screen even when the clipboard step fails' {
+        Mock Set-GdClipboardText { throw 'clipboard unavailable' }
+        { Invoke-GdNew -ArgList @('--clipboard') } | Should -Throw
+        Should -Invoke Clear-GdConsole -Times 1 -Exactly
+    }
+}
+
+# The editor path is opt-in, and it carries the two warnings that make it honest.
+Describe 'ghostdraft new — $EDITOR is opt-in and warned about (P0-1)' {
+
+    BeforeEach {
+        $script:Work = Join-Path ([System.IO.Path]::GetTempPath()) ("gd_e_" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Work -Force | Out-Null
+        $env:GHOSTDRAFT_DIR = $script:Work
+        $script:GD_LOCALE = 'en'
+        Mock Invoke-GdEditor { }
+        Mock Confirm-GdEditorClosed { }
+        Mock Invoke-GdShred { }
+        Mock Clear-GdEditorResidue { }
+        function global:Get-GdStderr {
+            param([scriptblock]$Body)
+            $sw = New-Object System.IO.StringWriter
+            $orig = [Console]::Error
+            [Console]::SetError($sw)
+            try { & $Body | Out-Null } finally { [Console]::SetError($orig) }
+            return $sw.ToString()
+        }
+    }
+    AfterEach {
+        Remove-Item Env:\EDITOR -ErrorAction SilentlyContinue
+        Remove-Item Env:\GHOSTDRAFT_DIR -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'names TabState when the chosen editor is Notepad' {
+        $env:EDITOR = 'notepad'
+        $err = Get-GdStderr { Invoke-GdNew -ArgList @() }
+        $err | Should -Match 'TabState'
+        $err | Should -Match 'outlives the shred|survives|outlives'
+    }
+
+    It 'does not cry TabState over an unrelated editor' {
+        $env:EDITOR = 'vim'
+        $err = Get-GdStderr { Invoke-GdNew -ArgList @() }
+        $err | Should -Not -Match 'TabState'
+        $err | Should -Match 'weaker path'
+    }
+
+    It 'waits for the human before shredding — -Wait lies for single-instance editors' {
+        $env:EDITOR = 'notepad'
+        Invoke-GdNew -ArgList @() | Out-Null
+        Should -Invoke Confirm-GdEditorClosed -Times 1 -Exactly
+    }
+}
+
 Describe 'ghostdraft new — on-disk fallback (no vault)' {
     BeforeEach {
         Remove-Item Env:\GHOSTDRAFT_DIR -ErrorAction SilentlyContinue
         $script:Fake = Join-Path ([System.IO.Path]::GetTempPath()) ("gd_fb_" + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Fake -Force | Out-Null
+        $env:EDITOR = 'vim'                            # on-disk fallback only exists on this path
         Mock Test-GdWritableDir  { $false }            # vault unavailable
         Mock New-GdSecureTempDir { $script:Fake }      # deterministic temp
         Mock Invoke-GdEditor     { }
+        Mock Confirm-GdEditorClosed { }
         Mock Invoke-GdShred      { }
         Mock Clear-GdEditorResidue { }
         Mock Remove-GdTempDir    { }
     }
     AfterEach {
+        Remove-Item Env:\EDITOR -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $script:Fake -Recurse -Force -ErrorAction SilentlyContinue
     }
 

@@ -5,11 +5,16 @@
 # remain in the usual places (editor backups, recent docs, clipboard).
 #
 # HONESTLY (easy to slide into snake oil — we do NOT promise "zero traces"):
-#   - Windows has NO built-in RAM disk (unlike macOS hdiutil ram://). So the
+#   - By DEFAULT the draft is typed into the console and never reaches disk at all: no file,
+#     no editor, nothing to shred. An external editor needs a file, so it is opt-in via $EDITOR.
+#   - Windows has NO built-in RAM disk (unlike macOS hdiutil ram://). So on the $EDITOR path the
 #     fallback draft lands in a TEMPORARY FILE ON DISK (ACL for the current user only) +
 #     best-effort overwrite-shred. On an SSD overwriting is NO guarantee (wear-leveling).
 #     Real ephemerality exists only inside an open securetrash vault (BitLocker VHDX:
 #     closing = crypto-shred). Hence the priority: GHOSTDRAFT_DIR → open vault → on-disk fallback.
+#   - Notepad (the old default) saves UNSAVED tabs into TabState on disk, where the copy outlives
+#     the shred; ghostdraft warns and refuses to delete those files, since they hold the user's
+#     unrelated notes too. That artifact is the reason the console is the default now.
 #   - the OS may keep the pagefile (swap) and console scrollback — we list them honestly.
 #   - --clipboard for a seed is dangerous (Win+V clipboard history + Cloud Clipboard sync into
 #     the Microsoft account) — OFF by default, with a warning. There is NO background auto-clear
@@ -105,6 +110,16 @@ function T {
         'ru:new_loc_fallback'{ return "Vault не открыт — fallback во ВРЕМЕННЫЙ ФАЙЛ НА ДИСКЕ ($A), ACL только для тебя. На Windows нет встроенного RAM-диска, так что это НЕ настоящая эфемерная память: shred — best-effort overwrite (на SSD без гарантии). Для реальной гарантии сначала открой vault securetrash." }
         'en:new_residue'    { return 'Draft shredded and editor backups cleaned. CANNOT scrub: console scrollback, the OS pagefile (swap), and a vim ~/.viminfo if you used vim — handle those yourself.' }
         'ru:new_residue'    { return 'Черновик удалён, editor-бэкапы вычищены. НЕ могу вычистить: scrollback консоли, pagefile (swap) ОС и ~/.viminfo от vim (если использовал vim) — это на тебе.' }
+        'en:console_prompt' { return 'Type the draft below. It is held in this process only - NOTHING is written to disk. Finish with Ctrl-Z on an empty line, then Enter.' }
+        'ru:console_prompt' { return 'Пиши черновик ниже. Он живёт только в этом процессе — на диск НЕ пишется НИЧЕГО. Закончить: Ctrl-Z на пустой строке, затем Enter.' }
+        'en:console_done'   { return 'Draft gone: the console was cleared and the text died with this process. Nothing was written to disk, so there is nothing to shred. Still outside our reach: the OS pagefile, and the console scrollback if your terminal keeps its own copy.' }
+        'ru:console_done'   { return 'Черновика больше нет: консоль очищена, текст умер вместе с процессом. На диск ничего не писалось — и стирать нечего. Вне досягаемости по-прежнему: pagefile ОС и scrollback консоли, если терминал хранит собственную копию.' }
+        'en:editor_optin'   { return 'EDITOR is set ({0}) - the draft goes into a FILE on disk for it to open. That is the older, weaker path; unset EDITOR to type the draft straight into this console instead, where it never touches disk.' }
+        'ru:editor_optin'   { return 'Задан EDITOR ({0}) — черновик уйдёт в ФАЙЛ на диске, чтобы редактор его открыл. Это старый, более слабый путь; убери EDITOR, и черновик будет набираться прямо в консоли, вообще не касаясь диска.' }
+        'en:editor_notepad' { return 'DANGER: Notepad on Windows 11 saves the contents of UNSAVED tabs to disk (%LOCALAPPDATA%\\Packages\\Microsoft.WindowsNotepad_*\\LocalState\\TabState). That copy survives the shred below, and forensic tooling reads it. ghostdraft will NOT delete those files - they also hold your other, unrelated notes. Use a different EDITOR, or leave EDITOR unset and type into the console.' }
+        'ru:editor_notepad' { return 'ОПАСНО: «Блокнот» в Windows 11 сохраняет содержимое НЕСОХРАНЁННЫХ вкладок на диск (%LOCALAPPDATA%\\Packages\\Microsoft.WindowsNotepad_*\\LocalState\\TabState). Эта копия переживёт shred ниже, и её читают форензик-инструменты. Удалять эти файлы ghostdraft НЕ будет — там же лежат твои другие, посторонние заметки. Возьми другой EDITOR или убери EDITOR совсем и набирай в консоли.' }
+        'en:editor_wait'    { return 'Press Enter HERE once the editor is closed - the draft is shredded then. (Some editors, Notepad among them, hand control back immediately; without this the draft would be shredded while you were still typing.)' }
+        'ru:editor_wait'    { return 'Нажми Enter ЗДЕСЬ, когда закроешь редактор — тогда черновик будет уничтожен. (Часть редакторов, и «Блокнот» в их числе, отдаёт управление сразу; без этой паузы черновик стёрся бы, пока ты ещё печатаешь.)' }
         'en:clip_danger'    { return 'DANGER: --clipboard copies the secret to the system clipboard. Clipboard history (Win+V) keeps copies, and Cloud Clipboard syncs it to your Microsoft account / other devices. There is NO background auto-clear on Windows — clear it yourself.' }
         'ru:clip_danger'    { return 'ОПАСНО: --clipboard кладёт секрет в системный буфер. История буфера (Win+V) хранит копии, а Cloud Clipboard синкает его в твой аккаунт Microsoft / на другие устройства. Фоновой авто-очистки на Windows НЕТ — чисти сам.' }
         'en:clip_confirm'   { return 'Copy to clipboard anyway?' }
@@ -123,8 +138,9 @@ function Get-GdUsage {
 Usage: ghostdraft <command> [args]
 
 Commands:
-  new [--clipboard]   Редактировать эфемерный черновик (в открытом vault / on-disk fallback),
-                      по выходу — shred + чистка editor-истории.
+  new [--clipboard]   Набрать эфемерный черновик прямо в консоли — на диск не пишется
+                      ничего. Если задан $EDITOR, черновик уходит в файл (в открытом
+                      vault / on-disk fallback), а по выходу — shred + чистка editor-истории.
   pipe                Читать stdin, печатать в терминал, на диск НЕ писать ничего
                       (напр. Get-Clipboard | ghostdraft pipe).
   version             Показать версию
@@ -137,8 +153,9 @@ scrollback консоли) — перечисляем честно. --clipboard 
 Usage: ghostdraft <command> [args]
 
 Commands:
-  new [--clipboard]   Edit an ephemeral draft (in an open vault / on-disk fallback), then
-                      shred it and clean editor history on exit.
+  new [--clipboard]   Type an ephemeral draft straight into this console - nothing is
+                      written to disk. With $EDITOR set the draft goes into a file
+                      instead (open vault / on-disk fallback), shredded on exit.
   pipe                Read stdin, print to the terminal, write NOTHING to disk
                       (e.g. Get-Clipboard | ghostdraft pipe).
   version             Show the version
@@ -161,6 +178,32 @@ function Invoke-GdPipe {
 }
 
 # === new: ephemeral draft + shred + editor-residue cleanup ===
+
+# Read the draft from the console, to end-of-input (Ctrl-Z + Enter). Wrapper for Mock.
+# This is the whole point of the console path: the text exists as a string in this process and
+# nowhere else - no temp file, no editor, and so no editor residue to chase afterwards.
+function Read-GdConsoleDraft {
+    $sb = New-Object System.Text.StringBuilder
+    while ($true) {
+        $line = [Console]::In.ReadLine()
+        if ($null -eq $line) { break }
+        [void]$sb.AppendLine($line)
+    }
+    return $sb.ToString()
+}
+
+# Wipe what the user just typed off the screen. Wrapper for Mock.
+function Clear-GdConsole { try { Clear-Host } catch { } }
+
+# Wait for the human, not for the process. Notepad on Windows 11 is single-instance: when one is
+# already open, the process we start exits at once and -Wait returns immediately - the draft was
+# being shredded while the user was still typing into it. No process-tree forensics can settle
+# this for every editor; one Enter can. Wrapper for Mock.
+function Confirm-GdEditorClosed {
+    Write-GdWarn (T 'editor_wait')
+    try { [void][Console]::In.ReadLine() } catch { }
+}
+
 
 # Is the volume mounted and writable? (directory + writable). Crude but honest:
 # we do not write to a path that merely looks like a vault.
@@ -272,14 +315,18 @@ function Clear-GdEditorResidue {
 
 # Put the draft into the system clipboard with an explicit confirmation (dangerous). $false —
 # clipboard untouched (the caller proceeds with the shred). On Windows there is NO background auto-clear.
-function Set-GdClipboardDraft {
-    param([string]$Path)
+function Set-GdClipboardText {
+    param([string]$Text)
     Write-GdWarn (T 'clip_danger')
     if (-not (Confirm-Gd (T 'clip_confirm'))) { Write-GdWarn (T 'clip_cancelled'); return $false }
-    $content = Get-Content -LiteralPath $Path -Raw
-    Set-Clipboard -Value $content
+    Set-Clipboard -Value $Text
     Write-GdInfo (T 'clip_set')
     return $true
+}
+
+function Set-GdClipboardDraft {
+    param([string]$Path)
+    return (Set-GdClipboardText -Text (Get-Content -LiteralPath $Path -Raw))
 }
 
 # Remove the fallback temp directory entirely (after the file shred).
@@ -288,6 +335,22 @@ function Remove-GdTempDir {
     if ($Dir -and (Test-Path -LiteralPath $Dir)) {
         Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+# The draft never reaches disk: typed into this console, optionally copied to the clipboard,
+# then the screen is cleared and the string dies with the process. Nothing is created, so
+# nothing has to be shredded - and on Windows a shred is best-effort anyway.
+function Invoke-GdNewInConsole {
+    param([bool]$UseClipboard)
+    Write-GdWarn (T 'console_prompt')
+    $text = Read-GdConsoleDraft
+    try {
+        if ($UseClipboard -and $text) { Set-GdClipboardText -Text $text | Out-Null }
+    } finally {
+        $text = $null
+        Clear-GdConsole
+    }
+    Write-GdWarn (T 'console_done')
 }
 
 function Invoke-GdNew {
@@ -299,6 +362,17 @@ function Invoke-GdNew {
             default { Write-GdErr (T 'unknown_cmd' $a); Stop-GdCommand 1 }
         }
     }
+
+    # No EDITOR is the DEFAULT, and it is the safe one. The old default was Notepad, which on
+    # Windows 11 writes the contents of unsaved tabs into TabState on disk - a documented
+    # forensic artifact that outlives the shred, i.e. exactly what this tool promises not to
+    # leave behind. An external editor is now something you ask for by name.
+    if (-not $env:EDITOR) {
+        Invoke-GdNewInConsole -UseClipboard $useClip
+        return
+    }
+    Write-GdWarn (T 'editor_optin' $env:EDITOR)
+    if ($env:EDITOR -match '(?i)notepad') { Write-GdWarn (T 'editor_notepad') }
 
     $loc = Get-GdDraftLocation
     $dir = $loc.Dir
@@ -314,6 +388,8 @@ function Invoke-GdNew {
 
     try {
         Invoke-GdEditor -Path $f
+        # Only after the human says the editor is gone: -Wait cannot be trusted (see the function).
+        Confirm-GdEditorClosed
         if ($useClip) { Set-GdClipboardDraft -Path $f | Out-Null }
         Write-GdWarn (T 'new_residue')
     } finally {

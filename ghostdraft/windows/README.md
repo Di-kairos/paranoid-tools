@@ -37,18 +37,29 @@ shim, and adds that folder to your user `PATH`. Open a new terminal afterward.
 
 | Command | What it does |
 |---------|--------------|
-| `ghostdraft new [--clipboard]` | Edit an ephemeral draft (in an open vault, or an on-disk fallback), then shred it and clean editor backups on exit. `--clipboard` copies the result to the clipboard (off by default, with a warning). |
+| `ghostdraft new [--clipboard]` | Type an ephemeral draft straight into the console — **nothing is written to disk**, the screen is cleared afterwards. With `$env:EDITOR` set, the draft goes into a file instead (open vault, or an on-disk fallback), shredded on exit along with editor backups. `--clipboard` copies the result to the clipboard (off by default, with a warning). |
 | `ghostdraft pipe` | Read stdin, print it to the terminal, write **nothing** to disk. |
 | `ghostdraft version` | Show the version. |
 
 ```powershell
 Get-Clipboard | ghostdraft pipe     # view without writing to disk
-ghostdraft new                      # edit a draft (vault if open, else on-disk fallback)
+ghostdraft new                      # type into the console; nothing reaches the disk
+$env:EDITOR = 'vim'; ghostdraft new # opt in to an editor (needs a file on disk)
 ```
 
-The editor is `$env:EDITOR` (default `notepad`). `ST_LANG=ru` switches messages to
-Russian. Draft location priority: `GHOSTDRAFT_DIR` (your override) → open securetrash
-vault (`ST_VAULT_VOLUME`, default `V:\`) → on-disk secure-temp fallback.
+**Why the console is the default, and why Notepad is not.** Notepad on Windows 11 saves the
+contents of *unsaved* tabs to disk, under
+`%LOCALAPPDATA%\Packages\Microsoft.WindowsNotepad_*\LocalState\TabState`. That copy outlives
+ghostdraft's shred and is a documented forensic artifact — precisely the trace this tool exists
+not to leave. So `new` no longer launches an editor on its own: the draft is typed into the
+console, lives in the process, and the screen is cleared when you are done. Setting
+`$env:EDITOR` opts back into the file path; ghostdraft warns that it is the weaker one, and
+warns again, by name, if that editor is Notepad. It will **not** delete TabState files itself —
+they hold your other, unrelated notes.
+
+`ST_LANG=ru` switches messages to Russian. On the `$EDITOR` path the draft location priority is:
+`GHOSTDRAFT_DIR` (your override) → open securetrash vault (`ST_VAULT_VOLUME`, default `V:\`) →
+on-disk secure-temp fallback.
 
 ## What maps to what (macOS → Windows)
 
