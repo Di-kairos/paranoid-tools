@@ -104,8 +104,8 @@ function T {
         'ru:guard_sched_fail'{ return 'unmount-guard: не удалось зарегистрировать задачу — eject мимо stop НЕ восстановит исключение.' }
         'en:ttl_busy'      { return "TTL expired but $A has open files — NOT dismounted (use --force to override)." }
         'ru:ttl_busy'      { return "TTL истёк, но в $A открыты файлы — НЕ размонтирую (--force чтобы форсировать)." }
-        'en:ttl_force_confirm' { return "force-dismount $A with open files? data corruption risk" }
-        'ru:ttl_force_confirm' { return "форсировать dismount $A при открытых файлах? риск повредить данные" }
+        'en:ttl_forcing'   { return "TTL expired and $A has open files - force-dismounting, because the session was started with --force. Files open at this moment may be corrupted." }
+        'ru:ttl_forcing'   { return "TTL истёк, в $A открыты файлы — форсирую dismount, потому что сессия была запущена с --force. Файлы, открытые в этот момент, могут быть повреждены." }
         'en:ttl_detach_fail' { return "TTL: dismount $A failed — vault may still be open. Session state kept." }
         'ru:ttl_detach_fail' { return "TTL: dismount $A не удался — vault может быть открыт. Состояние сохранено." }
         'en:restore_incomplete' { return "Session state kept for $A — restore incomplete. Re-mount vault and run vaultwatch stop." }
@@ -128,6 +128,8 @@ function T {
         'ru:rep_snap_none' { return '  VSS shadows:     не обнаружено (vssadmin list shadows)' }
         'en:rep_snap_some' { return "  VSS shadows:     $A present — vaultwatch does NOT delete them (see limitations)" }
         'ru:rep_snap_some' { return "  VSS shadows:     есть ($A) — vaultwatch их НЕ удаляет (см. limitations)" }
+        'en:rep_snap_na'   { return '  VSS shadows:     UNKNOWN - vssadmin could not be read (it needs an administrator console). Assume a shadow copy may hold a full copy of anything that was outside the vault.' }
+        'ru:rep_snap_na'   { return '  VSS shadows:     НЕИЗВЕСТНО — vssadmin прочитать не удалось (нужна консоль администратора). Считай, что теневая копия может хранить полную копию всего, что лежало вне сейфа.' }
         'en:rep_swap'      { return '  pagefile (swap): NOT addressed (see limitations)' }
         'ru:rep_swap'      { return '  pagefile (swap): не затрагивается (см. limitations)' }
         'en:status_no_sessions' { return 'vaultwatch: no active sessions.' }
@@ -221,13 +223,19 @@ function Enable-VwSearchIndex {
     } catch { return $false }
 }
 
-# Count of existing VSS shadow copies (honest analog of tmutil listlocalsnapshots). Best-effort.
+# Existing VSS shadow copies (honest analog of tmutil listlocalsnapshots): a count, or the
+# string 'unknown'. Tri-state on purpose. vssadmin needs an administrator console, and it also
+# fails when the service is off - both used to be reported as 0, i.e. "no shadow copies", which
+# is a lie in the reassuring direction about the one channel that can hold a full plaintext
+# copy of a file that was outside the vault. securetrash's snapshot note is tri-state for
+# exactly this reason; this is the same rule applied here.
 function Get-VwShadowCount {
     try {
         $out = & vssadmin list shadows 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $out) { return 0 }
+        if ($LASTEXITCODE -ne 0) { return 'unknown' }
+        if (-not $out) { return 'unknown' }
         return @($out | Where-Object { $_ -match 'Shadow Copy ID' }).Count
-    } catch { return 0 }
+    } catch { return 'unknown' }
 }
 
 # Cloud detection: return an array of @{ Sev='ok'|'warn'; Text=... } for active daemons.
@@ -643,7 +651,9 @@ function Invoke-VwStop {
         foreach ($c in $cloud) { Write-Output "  cloud daemons:   $($c.Text)" }
     } else { Write-Output (T 'rep_cloud_none') }
     $nsnap = Get-VwShadowCount
-    if ($nsnap -gt 0) { Write-Output (T 'rep_snap_some' "$nsnap") } else { Write-Output (T 'rep_snap_none') }
+    if ($nsnap -eq 'unknown') { Write-Output (T 'rep_snap_na') }
+    elseif ($nsnap -gt 0)     { Write-Output (T 'rep_snap_some' "$nsnap") }
+    else                      { Write-Output (T 'rep_snap_none') }
     Write-Output (T 'rep_swap')
 
     if ($searchNa) {
@@ -683,7 +693,13 @@ function Invoke-VwTtlFire {
     $ttlForce = ($st['ttl_force'] -eq '1')
 
     if (Test-VwMountBusy -Mount $mount) {
-        if ($ttlForce -and (Confirm-Vw (T 'ttl_force_confirm' $mount))) {
+        # No second confirmation here, deliberately. _ttl_fire runs from a Task Scheduler task
+        # with no console attached: Read-Host reads EOF, that is not 'yes', and the force path
+        # could never once fire in production - the flag was dead. Consent for tearing open
+        # handles was given, interactively, when the session was started with --force; there is
+        # nobody at this end to ask again, and asking a machine is not consent.
+        if ($ttlForce) {
+            Write-VwWarn (T 'ttl_forcing' $mount)
             Invoke-VwDismount -Mount $mount -Force $true | Out-Null
         } else {
             Write-VwWarn (T 'ttl_busy' $mount); return

@@ -67,12 +67,18 @@ vaultwatch stop V:\               # restore + report
 
 - **Backup snapshots are reported, not removed.** Windows offers no clean CLI to
   exclude a path from File History / VSS, so vaultwatch only *reports* existing VSS
-  shadow copies that may already hold plaintext — it does not delete them.
+  shadow copies that may already hold plaintext — it does not delete them. The count is
+  tri-state: when `vssadmin` cannot be read at all (it needs an administrator console, and
+  it also fails with the service off) the report says **UNKNOWN**, never "none observed".
 - **Pagefile (swap) is not addressed** — plaintext paged out can survive on disk.
 - **Search exclusion** uses the `NotContentIndexed` folder attribute (reversible);
   it stops *future* content indexing, not anything already indexed.
-- **TTL auto-dismount** needs an elevated session (BitLocker lock + Scheduler). A busy
-  mount is not dismounted unless `--force` is given (with a confirmation).
+- **TTL auto-dismount** needs an administrator console — `Lock-BitLocker` and the highest
+  run level both require it, so `vaultwatch start` refuses without one rather than
+  registering a guard that could never fire. `stop` and `status` need no rights.
+  A busy mount is not dismounted unless the session was started with `--force`; the consent
+  is given there, interactively, because the timer fires inside a Task Scheduler task with
+  no console to ask at.
 - **Unmount-guard is polling, not event-driven.** If the vault is ejected past
   `vaultwatch stop` (e.g. Explorer eject of the VHDX), a Task Scheduler task checks
   every ~1 minute and auto-restores the Search exclusion once the volume is gone. macOS

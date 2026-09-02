@@ -342,6 +342,93 @@ Describe '_ttl_fire — auto-exit' {
     }
 }
 
+# --- P1-2: _ttl_fire выполняется в задаче планировщика, где консоли нет. Confirm-Vw читал EOF,
+# это не 'yes' — и ветка --force не могла сработать НИ РАЗУ в реальной эксплуатации. Согласие
+# на разрыв открытых файлов даётся интерактивно при `start --force`; переспрашивать машину
+# бессмысленно, а «ответ» машины согласием не является. ---
+Describe '_ttl_fire — --force больше не мёртв в задаче планировщика (P1-2)' {
+    BeforeEach {
+        $script:Work  = Join-Path ([System.IO.Path]::GetTempPath()) ("vw_ff_" + [Guid]::NewGuid().ToString('N'))
+        $script:Mount = Join-Path $script:Work 'mount'
+        New-Item -ItemType Directory -Path $script:Mount -Force | Out-Null
+        $script:VW_STATE_DIR = Join-Path $script:Work 'state'
+        New-Item -ItemType Directory -Path $script:VW_STATE_DIR -Force | Out-Null
+        $script:Sf = Get-VwStateFile -Mount (Resolve-Path $script:Mount).Path
+        $script:VW_LOCALE = 'en'
+        Mock Enable-VwSearchIndex { $true }
+        Mock Get-VwShadowCount    { 0 }
+        Mock Get-VwCloudLines     { @() }
+        Mock Unregister-VwTtlTask { }
+        Mock Unregister-VwGuardTask { }
+        Mock Invoke-VwDismount    { $true }
+        Mock Test-VwMountBusy     { $true }
+        Mock Get-VwMountPoints    { @('C:\') }
+        # Если бы подтверждение осталось, в задаче оно прочитало бы EOF — тест обязан упасть,
+        # а не тихо «согласиться» за пользователя.
+        Mock Confirm-Vw { throw 'a scheduled task has nobody to ask' }
+    }
+    AfterEach { Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'форсирует dismount по ttl_force=1 без повторного вопроса' {
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=60', 'ttl_force=1')
+        Invoke-VwTtlFire -ArgList @($script:Mount) 6>$null | Out-Null
+        Should -Invoke Invoke-VwDismount -Times 1 -Exactly -ParameterFilter { $Force -eq $true }
+        Should -Invoke Confirm-Vw -Times 0 -Exactly
+    }
+
+    It 'говорит, ПОЧЕМУ рвёт открытые файлы, и предупреждает о риске' {
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=60', 'ttl_force=1')
+        Mock Write-VwWarn { }
+        Invoke-VwTtlFire -ArgList @($script:Mount) | Out-Null
+        Should -Invoke Write-VwWarn -Times 1 -Exactly -ParameterFilter { $Msg -match 'started with --force' }
+    }
+
+    It 'без ttl_force по-прежнему НЕ трогает занятый том' {
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=1', 'ttl_secs=60', 'ttl_force=0')
+        Invoke-VwTtlFire -ArgList @($script:Mount) 6>$null | Out-Null
+        Should -Invoke Invoke-VwDismount -Times 0 -Exactly
+    }
+}
+
+# --- P1-3: vssadmin требует консоли администратора и молчит при выключенной службе. Оба
+# случая возвращали 0 — то есть отчёт печатал «теневых копий не обнаружено» про единственный
+# канал, способный хранить ПОЛНУЮ копию файла, лежавшего вне сейфа. ---
+Describe 'Get-VwShadowCount — tri-state, а не успокаивающий ноль (P1-3)' {
+    BeforeEach {
+        $script:Work  = Join-Path ([System.IO.Path]::GetTempPath()) ("vw_vss_" + [Guid]::NewGuid().ToString('N'))
+        $script:Mount = Join-Path $script:Work 'mount'
+        New-Item -ItemType Directory -Path $script:Mount -Force | Out-Null
+        $script:VW_STATE_DIR = Join-Path $script:Work 'state'
+        New-Item -ItemType Directory -Path $script:VW_STATE_DIR -Force | Out-Null
+        $script:Sf = Get-VwStateFile -Mount (Resolve-Path $script:Mount).Path
+        $script:VW_LOCALE = 'en'
+        Set-Content -LiteralPath $script:Sf -Value @("mount=$($script:Mount)", 'started=1000', 'search_was=enabled', 'search_set=0', 'ttl_secs=0', 'ttl_force=0')
+        Mock Get-VwCloudLines { @() }
+        Mock Unregister-VwTtlTask { }
+        Mock Unregister-VwGuardTask { }
+    }
+    AfterEach { Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'сообщает НЕИЗВЕСТНО, когда прочитать не удалось' {
+        Mock Get-VwShadowCount { 'unknown' }
+        $out = (Invoke-VwStop -ArgList @($script:Mount)) -join "`n"
+        $out | Should -Match 'UNKNOWN'
+        $out | Should -Not -Match 'none observed'
+    }
+
+    It 'сообщает «нет», только когда действительно посмотрел' {
+        Mock Get-VwShadowCount { 0 }
+        $out = (Invoke-VwStop -ArgList @($script:Mount)) -join "`n"
+        $out | Should -Match 'none observed'
+    }
+
+    It 'называет число, когда копии есть' {
+        Mock Get-VwShadowCount { 4 }
+        $out = (Invoke-VwStop -ArgList @($script:Mount)) -join "`n"
+        $out | Should -Match '4 present'
+    }
+}
+
 Describe 'Invoke-VwDismount — force gate (не рвём открытые файлы без --force)' {
     BeforeAll {
         # Lock-BitLocker — системный cmdlet, на macOS-раннере его нет: определяем стаб,
