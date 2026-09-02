@@ -60,6 +60,14 @@ function T {
         'ru:unknown_cmd'      { return "Неизвестная команда: $A" }
         'en:hotkey_no_win'    { return "hotkey is macOS-only: it is bound through skhd, which has no Windows counterpart, and panic will not leave a background process resident just to watch the keyboard. Windows binds hotkeys on the shortcut itself: create a shortcut to panic.cmd (Start menu or Desktop), open Properties, put the cursor in 'Shortcut key' and press Ctrl+Alt+P. Windows then runs it from anywhere. Nothing here is installed or removed on your behalf." }
         'ru:hotkey_no_win'    { return "hotkey — только для macOS: там он вешается через skhd, аналога которому в Windows нет, а держать фоновый процесс ради слежения за клавиатурой panic не станет. В Windows горячая клавиша живёт на самом ярлыке: сделай ярлык на panic.cmd (меню «Пуск» или рабочий стол), открой «Свойства», поставь курсор в поле «Быстрый вызов» и нажми Ctrl+Alt+P. Дальше Windows запускает его откуда угодно. Ничего за тебя тут не ставится и не удаляется." }
+        'en:clip_history'     { return 'clipboard history cleared (Win+V). NOT covered: items you pinned there, and anything Cloud Clipboard already synced to your Microsoft account or another device - those are gone from this machine only.' }
+        'ru:clip_history'     { return 'история буфера очищена (Win+V). НЕ покрыто: закреплённые в ней элементы и то, что Cloud Clipboard уже синхронизировал в аккаунт Microsoft или на другое устройство — это ушло только с ЭТОЙ машины.' }
+        'en:clip_history_fail'{ return 'could NOT clear the clipboard history (Win+V) - previous copies of your secret may still be there. Clear it by hand: Win+V -> the three dots -> Clear all.' }
+        'ru:clip_history_fail'{ return 'НЕ удалось очистить историю буфера (Win+V) — прежние копии секрета могут остаться там. Очисти вручную: Win+V → три точки → «Очистить всё».' }
+        'en:hard_jumplists'   { return 'jump lists cleared (the per-app "recent files" shown on taskbar icons).' }
+        'ru:hard_jumplists'   { return 'jump-списки очищены («последние файлы» на значках панели задач).' }
+        'en:status_tabstate'  { return "  Notepad: $A unsaved tab(s) held ON DISK (TabState) - panic does NOT delete them. They are your notes, not traces, and panic hides rather than destroys. Close them in Notepad, or turn off Settings -> 'Opening files' -> 'Open content from the previous session'." }
+        'ru:status_tabstate'  { return "  «Блокнот»: несохранённых вкладок НА ДИСКЕ (TabState): $A — panic их НЕ удаляет. Это твои заметки, а не следы, а panic прячет, но не уничтожает. Закрой их в «Блокноте» или выключи «Параметры» → «Открытие файлов» → «Открывать содержимое предыдущего сеанса»." }
         'en:no_admin_lock'    { return 'NOT an administrator console: encrypted volumes canNOT be locked from here (BitLocker is administrator-only), so an open vault stays OPEN. The clipboard and the screen lock still work. For the full kill-switch run panic from an administrator PowerShell.' }
         'ru:no_admin_lock'    { return 'Консоль БЕЗ прав администратора: запереть шифр-тома отсюда НЕЛЬЗЯ (BitLocker доступен только администратору) — открытый сейф останется ОТКРЫТ. Буфер и блокировка экрана работают. Для полного kill-switch запусти panic из PowerShell от имени администратора.' }
         'en:status_admin_no'  { return '  administrator: NO — `panic now` will not be able to lock encrypted volumes' }
@@ -104,8 +112,9 @@ Usage: panic <command> [args]
 Commands:
   status              Только чтение: что затронет `panic now` (безопасно, предпросмотр).
   now [--hard]        Спрятать и запереть сейчас: запереть BitLocker-тома, размонтировать
-                      тома VeraCrypt, очистить буфер, заблокировать экран. --hard также
-                      прибивает cloud-демоны и чистит Recent items.
+                      тома VeraCrypt, очистить буфер И его историю (Win+V), заблокировать
+                      экран. --hard также прибивает cloud-демоны и чистит Recent items
+                      и jump-списки.
   hotkey              Нет в Windows-порте — печатает, как повесить Ctrl+Alt+P средствами ОС.
   version             Показать версию
 
@@ -119,8 +128,9 @@ Usage: panic <command> [args]
 Commands:
   status              Read-only preflight: show what `panic now` would affect.
   now [--hard]        Hide & lock now: lock BitLocker volumes, dismount VeraCrypt
-                      volumes, clear clipboard, lock screen. --hard also kills cloud
-                      daemons and clears recent items.
+                      volumes, clear the clipboard AND its history (Win+V), lock the
+                      screen. --hard also kills cloud daemons and clears recent items
+                      and jump lists.
   hotkey              Not in the Windows port - prints how to bind Ctrl+Alt+P with the OS itself.
   version             Show the version
 
@@ -171,6 +181,56 @@ function Invoke-PnDismountVeraCrypt {
 # Clear the clipboard (mirror of `pbcopy </dev/null`).
 function Invoke-PnClearClipboard {
     try { Set-Clipboard -Value '' -ErrorAction Stop } catch { }
+}
+
+# Clear the clipboard HISTORY (Win+V), not just the current slot. Set-Clipboard replaces what
+# is on the clipboard now; every earlier copy of the secret stays in the history panel, and
+# Cloud Clipboard may have pushed them to the account already. The WinRT call is the documented
+# way; PowerShell 7 cannot project WinRT types directly, so it goes through Windows PowerShell,
+# which is present on every Windows. Returns $true only if the API said it cleared.
+# HONEST: pinned items are not removed by this API, and anything already synced off this
+# machine is out of reach entirely.
+function Invoke-PnClearClipboardHistory {
+    try {
+        $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        if (-not (Test-Path -LiteralPath $ps)) { return $false }
+        $out = & $ps -NoProfile -NonInteractive -Command `
+            '[Windows.ApplicationModel.DataTransfer.Clipboard,Windows,ContentType=WindowsRuntime]::ClearHistory()' 2>$null
+        return ([string]$out -match '(?i)true')
+    } catch { return $false }
+}
+
+# --hard: clear jump lists - the per-app "recent files" behind taskbar icons. Pure trace
+# metadata (paths and titles), not content: nothing of the user's is destroyed by removing them.
+function Invoke-PnClearJumpLists {
+    foreach ($leaf in @('Microsoft\Windows\Recent\AutomaticDestinations',
+                        'Microsoft\Windows\Recent\CustomDestinations')) {
+        $dir = Join-Path $env:APPDATA $leaf
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        Get-ChildItem -LiteralPath $dir -File -Force -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# How many unsaved Notepad tabs Windows 11 is holding on disk. panic REPORTS this and never
+# deletes it: TabState holds the text of the user's own unsaved notes, and panic's whole
+# doctrine is that it hides and locks but does not destroy (that is securetrash's job).
+# 0 when the feature is off or the folder is absent; -1 when it could not be read.
+function Get-PnNotepadTabStateCount {
+    try {
+        if (-not $env:LOCALAPPDATA) { return 0 }
+        $pkg = Join-Path $env:LOCALAPPDATA 'Packages'
+        if (-not (Test-Path -LiteralPath $pkg)) { return 0 }
+        $dirs = @(Get-ChildItem -LiteralPath $pkg -Directory -Force -ErrorAction Stop |
+                  Where-Object { $_.Name -like 'Microsoft.WindowsNotepad_*' })
+        $n = 0
+        foreach ($d in $dirs) {
+            $ts = Join-Path $d.FullName 'LocalState\TabState'
+            if (-not (Test-Path -LiteralPath $ts)) { continue }
+            $n += @(Get-ChildItem -LiteralPath $ts -File -Force -Filter '*.bin' -ErrorAction SilentlyContinue).Count
+        }
+        return $n
+    } catch { return -1 }
 }
 
 # Is the clipboard non-empty? (for the status preflight).
@@ -272,22 +332,27 @@ function Invoke-PnNow {
         catch { Write-PnWarn (T 'dismount_fail' ($vc -join ',')) }
     }
 
-    # 3. Clear the clipboard. 4. Lock the screen (honestly — the status as it actually happened).
+    # 3. Clear the clipboard AND its history. Not a --hard extra: the current slot was never the
+    # whole story - Win+V keeps every earlier copy, which is where a secret actually sits.
     Invoke-PnClearClipboard
+    $histCleared = Invoke-PnClearClipboardHistory
     $locked = Invoke-PnLockScreen
 
-    # 5. --hard: kill cloud daemons + clear Recent items.
+    # 5. --hard: kill cloud daemons + clear Recent items and jump lists.
     if ($hard) {
         Invoke-PnKillCloudDaemons
         Invoke-PnClearRecentItems
+        Invoke-PnClearJumpLists
     }
 
     Write-PnInfo (T 'now_report' "$n")
     # The report says how many volumes were locked; unelevated that number is zero for a reason
     # the user has to see next to it, not twenty lines above.
     if (-not $elevated) { Write-PnWarn (T 'no_admin_lock') }
+    # Said either way: "cleared the clipboard" would otherwise be read as covering the history.
+    if ($histCleared) { Write-PnInfo (T 'clip_history') } else { Write-PnWarn (T 'clip_history_fail') }
     if ($locked) { Write-PnInfo (T 'lock_ok') } else { Write-PnWarn (T 'lock_fail') }
-    if ($hard) { Write-PnInfo (T 'now_hard') }
+    if ($hard) { Write-PnInfo (T 'now_hard'); Write-PnInfo (T 'hard_jumplists') }
 }
 
 function Invoke-PnStatus {
@@ -315,6 +380,10 @@ function Invoke-PnStatus {
     } else {
         Write-PnWarn (T 'status_bl_off')
     }
+
+    # Notepad's unsaved tabs: reported, never deleted (see Get-PnNotepadTabStateCount).
+    $tabs = Get-PnNotepadTabStateCount
+    if ($tabs -gt 0) { Write-PnWarn (T 'status_tabstate' "$tabs") }
 
     # Rights: the preflight exists to answer "what would `panic now` do", and without
     # administrator rights the answer for every encrypted volume is "nothing".

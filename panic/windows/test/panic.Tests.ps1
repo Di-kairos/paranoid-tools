@@ -26,6 +26,8 @@ Describe 'panic now — orchestration' {
         Mock Invoke-PnLockScreen        { $true }
         Mock Invoke-PnKillCloudDaemons  { }
         Mock Invoke-PnClearRecentItems  { }
+        Mock Invoke-PnClearClipboardHistory { $true }   # never shell out to real WinRT in tests
+        Mock Invoke-PnClearJumpLists    { }
     }
 
     It 'locks each BitLocker volume, dismounts VeraCrypt, clears clipboard, locks screen' {
@@ -113,10 +115,12 @@ Describe 'panic without administrator rights says so (P0-2)' {
         Mock Get-PnBitLockerUnlocked { @() }      # what an unelevated enumeration really returns
         Mock Get-PnVeraCryptMounted  { @() }
         Mock Invoke-PnClearClipboard { }
+        Mock Invoke-PnClearClipboardHistory { $true }
         Mock Invoke-PnLockScreen     { $true }
         Mock Test-PnClipboardNonEmpty { $false }
         Mock Test-PnBitLockerOn       { $false }
         Mock Get-PnRunningCloudDaemons { @() }
+        Mock Get-PnNotepadTabStateCount { 0 }
     }
 
     It 'warns that an open vault stays open, instead of reporting a silent zero' {
@@ -146,7 +150,101 @@ Describe 'panic without administrator rights says so (P0-2)' {
     }
 }
 
+# --- P1-1: Set-Clipboard replaces the current slot only. Every earlier copy of the secret sits
+# in the Win+V history, and Cloud Clipboard may have pushed it to the account. "cleared the
+# clipboard" was true and misleading at the same time. ---
+Describe 'panic clears the clipboard HISTORY, not just the slot (P1-1)' {
+
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        Mock Get-PnBitLockerUnlocked { @() }
+        Mock Get-PnVeraCryptMounted  { @() }
+        Mock Invoke-PnClearClipboard { }
+        Mock Invoke-PnLockScreen     { $true }
+        Mock Test-PnElevated         { $true }
+        Mock Invoke-PnKillCloudDaemons { }
+        Mock Invoke-PnClearRecentItems { }
+        Mock Invoke-PnClearJumpLists { }
+        Mock Get-PnNotepadTabStateCount { 0 }
+    }
+
+    It 'clears the history on a plain `now`, not only under --hard' {
+        Mock Invoke-PnClearClipboardHistory { $true }
+        Invoke-PnNow -ArgList @() | Out-Null
+        Should -Invoke Invoke-PnClearClipboardHistory -Times 1 -Exactly
+    }
+
+    It 'names what the API does not cover (pinned items, what already synced)' {
+        Mock Invoke-PnClearClipboardHistory { $true }
+        $out = (Invoke-PnNow -ArgList @()) -join "`n"
+        $out | Should -Match 'clipboard history cleared'
+        $out | Should -Match 'pinned'
+        $out | Should -Match 'Cloud Clipboard'
+    }
+
+    It 'warns loudly when the history could NOT be cleared, instead of implying it was' {
+        Mock Invoke-PnClearClipboardHistory { $false }
+        Mock Write-PnWarn { }
+        Invoke-PnNow -ArgList @() | Out-Null
+        Should -Invoke Write-PnWarn -Times 1 -Exactly -ParameterFilter { $Msg -match 'could NOT clear the clipboard history' }
+    }
+
+    It '--hard also clears jump lists (trace metadata, not content)' {
+        Mock Invoke-PnClearClipboardHistory { $true }
+        Invoke-PnNow -ArgList @('--hard') | Out-Null
+        Should -Invoke Invoke-PnClearJumpLists -Times 1 -Exactly
+    }
+
+    It 'leaves jump lists alone without --hard' {
+        Mock Invoke-PnClearClipboardHistory { $true }
+        Invoke-PnNow -ArgList @() | Out-Null
+        Should -Invoke Invoke-PnClearJumpLists -Times 0 -Exactly
+    }
+}
+
+# panic hides and locks; it does not destroy. Notepad's unsaved tabs are the user's own notes
+# sitting on disk — a real leak, but deleting them would be destroying data, which is
+# securetrash's job and never panic's. So: reported, never touched.
+Describe 'panic reports Notepad tabs on disk and refuses to delete them (P1-1)' {
+
+    BeforeAll {
+        function global:Get-PnStderr2 {
+            param([scriptblock]$Body)
+            $sw = New-Object System.IO.StringWriter
+            $orig = [Console]::Error
+            [Console]::SetError($sw)
+            try { & $Body | Out-Null } finally { [Console]::SetError($orig) }
+            return $sw.ToString()
+        }
+    }
+
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        Mock Get-PnBitLockerUnlocked  { @() }
+        Mock Get-PnVeraCryptMounted   { @() }
+        Mock Test-PnClipboardNonEmpty { $false }
+        Mock Test-PnBitLockerOn       { $true }
+        Mock Get-PnRunningCloudDaemons { @() }
+        Mock Test-PnElevated          { $true }
+    }
+
+    It 'names the count and says panic will not delete them' {
+        Mock Get-PnNotepadTabStateCount { 3 }
+        $err = Get-PnStderr2 { Invoke-PnStatus }
+        $err | Should -Match 'TabState'
+        $err | Should -Match 'does NOT delete'
+    }
+
+    It 'stays silent when there are none' {
+        Mock Get-PnNotepadTabStateCount { 0 }
+        $err = Get-PnStderr2 { Invoke-PnStatus }
+        $err | Should -Not -Match 'TabState'
+    }
+}
+
 Describe 'panic status — read-only preflight' {
+    BeforeEach { Mock Get-PnNotepadTabStateCount { 0 } }
+
     It 'lists unlocked volumes and a non-empty clipboard' {
         Mock Get-PnBitLockerUnlocked  { @('D:') }
         Mock Get-PnVeraCryptMounted   { @('F:') }

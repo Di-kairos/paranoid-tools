@@ -37,13 +37,13 @@ that folder to your user `PATH`. Open a new terminal afterward so `PATH` refresh
 | Command | What it does |
 |---------|--------------|
 | `panic status` | Read-only preflight — show what `panic now` would lock/dismount/clear. Makes no changes. |
-| `panic now [--hard]` | Lock BitLocker volumes, dismount VeraCrypt, clear clipboard, lock screen. `--hard` also kills cloud daemons (OneDrive/Dropbox/Google Drive) and clears recent items. |
+| `panic now [--hard]` | Lock BitLocker volumes, dismount VeraCrypt, clear the clipboard **and its Win+V history**, lock screen. `--hard` also kills cloud daemons (OneDrive/Dropbox/Google Drive) and clears recent items and jump lists. |
 | `panic version` | Show the version. |
 
 ```powershell
 panic status        # always look first
 panic now           # hide & lock
-panic now --hard    # + kill cloud daemons, clear recent items
+panic now --hard    # + kill cloud daemons, clear recent items and jump lists
 ```
 
 There is **no confirmation** — `panic now` is the panic path (speed over safety);
@@ -68,8 +68,20 @@ messages to Russian.
 - **BitLocker locking** needs admin and only applies to **data** volumes with
   auto-unlock off (never the OS drive). No access / no module → skipped (best-effort).
 - **VeraCrypt** needs `VeraCrypt.exe` on `PATH`. Absent → skipped (not an error).
-- **Recent items** clears the *global* jump-list folder; per-app "recent" lists
-  inside applications are not touched.
+- **Recent items** clears the *global* Recent folder and the jump-list stores
+  (`AutomaticDestinations` / `CustomDestinations`); per-app "recent" lists kept
+  inside applications themselves are not touched.
+- **Clipboard history** (Win+V) is cleared through the documented WinRT call. It does
+  **not** remove items you *pinned* there, and anything Cloud Clipboard already synced to
+  your Microsoft account or another device is beyond this machine's reach. If the call
+  fails, `panic` says so instead of implying the history is gone.
+- **Notepad's unsaved tabs** are *reported, never deleted*. Windows 11 keeps them on disk
+  (`%LOCALAPPDATA%\Packages\Microsoft.WindowsNotepad_*\LocalState\TabState`), so `panic
+  status` counts them — but that file holds the text of your own notes, and panic hides
+  rather than destroys. Close them in Notepad, or turn the feature off in its settings.
+- **Administrator rights.** Locking encrypted volumes is administrator-only. Run without
+  them and panic still clears the clipboard and locks the screen, but says plainly that an
+  open vault stays open — a quiet "0 volumes locked" would read as "nothing to lock".
 - Force-dismount may corrupt files that are open at the moment of panic.
 
 ## Tests
