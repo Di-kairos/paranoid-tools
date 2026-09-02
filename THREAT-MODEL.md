@@ -94,6 +94,26 @@ logins, Paranoid Tools for the secrets that are too valuable to live in either.
 - **A weak vault password.** Crypto-shred and Shamir math don't help against
   `password123`.
 
+## Where Windows copies your text
+
+Windows keeps helpful copies of things, in places nobody thinks about when typing a seed
+phrase. This is the map for the Windows port — what each channel is, and what the tools do
+about it. Where a tool cannot win, it says so rather than staying quiet.
+
+| Channel | What lands there | What we do |
+|---------|------------------|------------|
+| **Clipboard history** (Win+V) | Every copy you made, not just the last one. **Cloud Clipboard** syncs them to your Microsoft account and other devices. | `panic now` clears the history through the documented WinRT call, and names what it cannot reach: pinned items, and anything already synced off this machine. `ghostdraft --clipboard` warns before it copies. |
+| **Notepad tabs** (`TabState`) | The full text of *unsaved* Notepad tabs, on disk, surviving reboots. A standard forensic artifact with off-the-shelf parsers. | `ghostdraft new` no longer uses an editor at all by default — the draft is typed into the console and never reaches disk. With `$EDITOR` set to Notepad it warns by name. Nothing deletes those files: they hold your other notes too. `panic status` counts them. |
+| **Volume Shadow Copies** (VSS) | A full copy of any file that was outside the vault when a shadow copy was taken. `shred` cannot reach inside one; a single file cannot be removed from a shadow copy, only the whole copy. | `securetrash check` and the `vaultwatch` session report count them — tri-state, so "could not read" never prints as "none". Files created *inside* the vault are safe: a shadow copy captures the container as ciphertext. |
+| **MFT-resident data** | A file under roughly 700 bytes — the size of a seed phrase or a key — has no data blocks of its own on NTFS: it lives inside its MFT record. `cipher /w` overwrites free clusters and never the MFT. | Named by `securetrash check` and after every `shred`. No userland tool reaches in there; the answer is to create the secret inside the vault. |
+| **Pagefile** (swap) | Plaintext paged out of RAM while you worked. | Not addressed by any of these tools, and said so in every relevant output. Encrypting the pagefile is a system setting, not something a userland tool should silently flip. |
+| **Windows Search index** | Names and content of files indexed while the vault is open. | `vaultwatch` sets `NotContentIndexed` on the mounted volume for the session and restores it afterwards — including when the vault is ejected past `vaultwatch stop`. It stops *future* indexing, not what was already indexed. |
+| **Recent items and jump lists** | Paths and titles of files you opened — metadata, not content. | `panic now --hard` clears both. |
+| **Console scrollback** | Whatever you typed or displayed, for as long as the window lives (and longer, if your terminal persists it). | `ghostdraft` clears the screen after a console draft and names scrollback as outside its reach; `pipe` says the same. |
+
+Two of these — the pagefile and whatever a cloud already synced — are outside a userland
+tool's reach entirely. They are on this page instead of being quietly omitted.
+
 ## Verify, don't trust
 
 Every tool is a single readable file — audit it before you run it. Installs are
