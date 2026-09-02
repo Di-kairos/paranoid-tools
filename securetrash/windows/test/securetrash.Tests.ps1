@@ -85,7 +85,10 @@ Describe 'vault refuses an unelevated console (P0-2)' {
 
         $out = Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('status') } catch { } }
         $out | Should -Match 'administrator'
-        $out | Should -Not -Match 'CLOSED'
+        $out | Should -Match 'cannot be READ'
+        # -CNotMatch, not -NotMatch: the refusal itself says "do NOT assume it is closed", and a
+        # case-insensitive check would read that as the CLOSED verdict it exists to withhold.
+        $out | Should -CNotMatch 'is CLOSED'
     }
 
     It 'check warns that the vault commands cannot run in this console' {
