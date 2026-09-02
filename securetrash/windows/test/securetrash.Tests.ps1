@@ -86,9 +86,9 @@ Describe 'vault refuses an unelevated console (P0-2)' {
         $out = Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('status') } catch { } }
         $out | Should -Match 'administrator'
         $out | Should -Match 'cannot be READ'
-        # -CNotMatch, not -NotMatch: the refusal itself says "do NOT assume it is closed", and a
-        # case-insensitive check would read that as the CLOSED verdict it exists to withhold.
-        $out | Should -CNotMatch 'is CLOSED'
+        # Matched on the phrase unique to the CLOSED verdict. Not on the word "closed": the
+        # refusal itself says "do NOT assume it is closed", and -Match is case-insensitive.
+        $out | Should -Not -Match 'not mounted'
     }
 
     It 'check names the MFT-resident copy a small secret leaves behind' {
