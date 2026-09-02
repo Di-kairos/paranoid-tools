@@ -165,11 +165,15 @@ EOF
     en:vault_pass_again) echo "Repeat the password: " ;;
     ru:vault_pass_again) echo "Повтори пароль: " ;;
 
-    en:vault_pass_short) printf 'Password is too short: minimum %s characters. The vault has no reset — a weak password is the whole attack surface (see THREAT-MODEL.md). Prefer 5-6 diceware words.' "$1" ;;
-    ru:vault_pass_short) printf 'Пароль слишком короткий: минимум %s символов. У сейфа нет сброса, и слабый пароль — это вся поверхность атаки (см. THREAT-MODEL.md). Лучше 5-6 слов diceware.' "$1" ;;
+    en:vault_pass_short) printf 'That password is %s characters; %s is where this stops warning. The vault has no reset, so the password is the whole attack surface (see THREAT-MODEL.md) — 5-6 diceware words beat any length rule. Your call.' "$1" "$2" ;;
+    ru:vault_pass_short) printf 'В пароле %s символов; предупреждать перестаём с %s. Сброса у сейфа нет, поэтому пароль — это вся поверхность атаки (см. THREAT-MODEL.md); 5-6 слов diceware надёжнее любого правила о длине. Решать тебе.' "$1" "$2" ;;
+    en:vault_pass_short_use) echo 'Use this short password anyway?' ;;
+    ru:vault_pass_short_use) echo 'Всё равно использовать этот короткий пароль?' ;;
+    en:vault_pass_empty) echo 'Empty password — nothing was created. Run create again when you have one in mind.' ;;
+    ru:vault_pass_empty) echo 'Пустой пароль — ничего не создано. Запусти create снова, когда придумаешь пароль.' ;;
 
-    en:vault_pass_mismatch) echo "The passwords do not match — nothing was created. A typo here would lock the vault forever: there is no reset." ;;
-    ru:vault_pass_mismatch) echo "Пароли не совпали — ничего не создано. Опечатка здесь заперла бы сейф навсегда: сброса нет." ;;
+    en:vault_pass_mismatch) echo "The passwords do not match — let us take it from the top. A typo here would lock the vault forever: there is no reset." ;;
+    ru:vault_pass_mismatch) echo "Пароли не совпали — начнём сначала. Опечатка здесь заперла бы сейф навсегда: сброса нет." ;;
 
     en:vault_exists)     printf 'Container already exists: %s' "$1" ;;
     ru:vault_exists)     printf 'Контейнер уже существует: %s' "$1" ;;
@@ -602,11 +606,22 @@ _vault_pass() {
 _vault_pass_new() {
   if [[ -n "${ST_VAULT_PASS:-}" ]]; then printf '%s' "$ST_VAULT_PASS"; return; fi
   local p1 p2
-  read -r -s -p "$(t vault_pass)" p1; echo >&2
-  if (( ${#p1} < VAULT_PASS_MIN )); then err "$(t vault_pass_short "$VAULT_PASS_MIN")"; return 1; fi
-  read -r -s -p "$(t vault_pass_again)" p2; echo >&2
-  if [[ "$p1" != "$p2" ]]; then err "$(t vault_pass_mismatch)"; return 1; fi
-  printf '%s' "$p1"
+  # A loop, not a single shot: a short password or a typo used to abort create outright, and
+  # the user had to walk back through size and confirmations to reach this prompt again. The
+  # length is a WARNING, not a rule — the vault has no reset and we say what that means, but a
+  # tool that overrides its owner on their own secret is a tool that gets worked around.
+  while :; do
+    read -r -s -p "$(t vault_pass)" p1; echo >&2
+    if [[ -z "$p1" ]]; then warn "$(t vault_pass_empty)"; return 1; fi
+    if (( ${#p1} < VAULT_PASS_MIN )); then
+      warn "$(t vault_pass_short "${#p1}" "$VAULT_PASS_MIN")"
+      confirm "$(t vault_pass_short_use)" || continue
+    fi
+    read -r -s -p "$(t vault_pass_again)" p2; echo >&2
+    if [[ "$p1" != "$p2" ]]; then err "$(t vault_pass_mismatch)"; continue; fi
+    printf '%s' "$p1"
+    return 0
+  done
 }
 
 # Find the whole-disk dev-node (/dev/diskN) of the image bound to VAULT_PATH specifically.

@@ -486,20 +486,55 @@ Describe 'new vault password: length floor + confirmation' {
         $script:ST_LOCALE = 'en'
     }
 
-    It 'refuses a password below the minimum (StExit thrown, no second prompt)' {
+    It 'warns about a short password but takes it when the user says so' {
+        # The length is a warning, not a rule: the vault is the user's, and a tool that
+        # overrides its owner on their own secret is a tool that gets worked around.
         Mock Read-Host { ConvertTo-SecureString -String 'short' -AsPlainText -Force }
-        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
-        Should -Invoke Read-Host -Times 1 -Exactly
+        Mock Confirm-StAction { $true }
+        Mock Write-StWarn { }
+        (Get-StVaultPasswordNewSecure).Length | Should -Be 5
+        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -match 'whole attack surface' }
     }
 
-    It 'refuses a mismatched confirmation' {
+    It 'asks for the password again when the short one is declined — it does not abort' {
+        # Aborting sent the user back through the UAC prompt, the size question and the menu,
+        # for a slip made at the keyboard.
         $script:calls = 0
         Mock Read-Host {
             $script:calls++
-            $v = if ($script:calls -eq 1) { 'correct-horse-battery' } else { 'correct-horse-batteru' }
+            # 1st: too short and declined; 2nd and 3rd: a long one, entered and confirmed.
+            $v = if ($script:calls -eq 1) { 'short' } else { 'correct-horse-battery' }
             ConvertTo-SecureString -String $v -AsPlainText -Force
         }
-        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+        Mock Confirm-StAction { $false }
+        Mock Write-StWarn { }
+        (Get-StVaultPasswordNewSecure).Length | Should -Be 21
+        Should -Invoke Read-Host -Times 3 -Exactly
+    }
+
+    It 'asks again after a mismatched confirmation instead of aborting' {
+        $script:calls = 0
+        Mock Read-Host {
+            $script:calls++
+            # 1+2 mismatch; 3+4 match.
+            $v = switch ($script:calls) {
+                1 { 'correct-horse-battery' }
+                2 { 'correct-horse-batteru' }
+                default { 'correct-horse-battery' }
+            }
+            ConvertTo-SecureString -String $v -AsPlainText -Force
+        }
+        Mock Write-StWarn { }
+        (Get-StVaultPasswordNewSecure).Length | Should -Be 21
+        Should -Invoke Read-Host -Times 4 -Exactly
+        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -match 'do not match' }
+    }
+
+    It 'an empty password cancels — that is the way out of the loop' {
+        Mock Read-Host { ConvertTo-SecureString -String '' -AsPlainText -Force }
+        Mock Write-StWarn { }
+        { Get-StVaultPasswordNewSecure } | Should -Throw
+        Should -Invoke Read-Host -Times 1 -Exactly
     }
 
     It 'accepts a confirmed password of sufficient length' {
@@ -513,10 +548,17 @@ Describe 'new vault password: length floor + confirmation' {
         $script:calls = 0
         Mock Read-Host {
             $script:calls++
-            $v = if ($script:calls -eq 1) { 'correct-horse-battery' } else { 'Correct-horse-battery' }
+            # A case-only difference must count as a mismatch: 1+2 differ, 3+4 match.
+            $v = switch ($script:calls) {
+                1 { 'correct-horse-battery' }
+                2 { 'Correct-horse-battery' }
+                default { 'correct-horse-battery' }
+            }
             ConvertTo-SecureString -String $v -AsPlainText -Force
         }
-        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+        Mock Write-StWarn { }
+        (Get-StVaultPasswordNewSecure).Length | Should -Be 21
+        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -match 'do not match' }
     }
 
     It 'accepts a long password unchanged — the unmanaged compare is byte-exact' {
@@ -528,24 +570,36 @@ Describe 'new vault password: length floor + confirmation' {
     }
 
     It 'catches a difference in the LAST character' {
-        # The loop breaks on the first mismatch; an off-by-one on the end would let this pass.
+        # The compare breaks on the first mismatch; an off-by-one at the end would let this pass.
         $script:calls = 0
         Mock Read-Host {
             $script:calls++
-            $v = if ($script:calls -eq 1) { 'correct-horse-batterx' } else { 'correct-horse-battery' }
+            $v = switch ($script:calls) {
+                1 { 'correct-horse-batterx' }
+                2 { 'correct-horse-battery' }
+                default { 'correct-horse-battery' }
+            }
             ConvertTo-SecureString -String $v -AsPlainText -Force
         }
-        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+        Mock Write-StWarn { }
+        Get-StVaultPasswordNewSecure | Out-Null
+        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -match 'do not match' }
     }
 
     It 'catches a confirmation that merely starts the same' {
         $script:calls = 0
         Mock Read-Host {
             $script:calls++
-            $v = if ($script:calls -eq 1) { 'correct-horse-battery' } else { 'correct-horse-battery-plus' }
+            $v = switch ($script:calls) {
+                1 { 'correct-horse-battery' }
+                2 { 'correct-horse-battery-plus' }
+                default { 'correct-horse-battery' }
+            }
             ConvertTo-SecureString -String $v -AsPlainText -Force
         }
-        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+        Mock Write-StWarn { }
+        Get-StVaultPasswordNewSecure | Out-Null
+        Should -Invoke Write-StWarn -Times 1 -Exactly -ParameterFilter { $Msg -match 'do not match' }
     }
 
     It 'the prompts say WHICH password, and rule out the Windows one' {

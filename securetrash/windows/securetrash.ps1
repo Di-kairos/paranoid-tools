@@ -173,10 +173,14 @@ Flags:
     'ru:vault_pass'         = 'Придумай пароль для этого сейфа (новый, не пароль Windows)'
     'en:vault_pass_again'   = 'Repeat that vault password'
     'ru:vault_pass_again'   = 'Повтори пароль сейфа'
-    'en:vault_pass_short'   = 'Password is too short: minimum {0} characters. The vault has no reset — a weak password is the whole attack surface (see THREAT-MODEL.md). Prefer 5-6 diceware words.'
-    'ru:vault_pass_short'   = 'Пароль слишком короткий: минимум {0} символов. У сейфа нет сброса, и слабый пароль — это вся поверхность атаки (см. THREAT-MODEL.md). Лучше 5-6 слов diceware.'
-    'en:vault_pass_mismatch' = 'The passwords do not match — nothing was created. A typo here would lock the vault forever: there is no reset.'
-    'ru:vault_pass_mismatch' = 'Пароли не совпали — ничего не создано. Опечатка здесь заперла бы сейф навсегда: сброса нет.'
+    'en:vault_pass_short'   = 'That password is {0} characters; {1} is where this stops warning. The vault has no reset, so the password is the whole attack surface (see THREAT-MODEL.md) - 5-6 diceware words beat any length rule. Your call.'
+    'ru:vault_pass_short'   = 'В пароле {0} символов; предупреждать перестаём с {1}. Сброса у сейфа нет, поэтому пароль — это вся поверхность атаки (см. THREAT-MODEL.md); 5-6 слов diceware надёжнее любого правила о длине. Решать тебе.'
+    'en:vault_pass_short_use' = 'Use this short password anyway?'
+    'ru:vault_pass_short_use' = 'Всё равно использовать этот короткий пароль?'
+    'en:vault_pass_empty'   = 'Empty password - nothing was created. Run create again when you have one in mind.'
+    'ru:vault_pass_empty'   = 'Пустой пароль — ничего не создано. Запусти create снова, когда придумаешь пароль.'
+    'en:vault_pass_mismatch' = 'The passwords do not match - let us take it from the top. A typo here would lock the vault forever: there is no reset.'
+    'ru:vault_pass_mismatch' = 'Пароли не совпали — начнём сначала. Опечатка здесь заперла бы сейф навсегда: сброса нет.'
 
     'en:vault_exists'       = 'Container already exists: {0}'
     'ru:vault_exists'       = 'Контейнер уже существует: {0}'
@@ -1089,8 +1093,10 @@ function Get-StVaultPasswordSecure {
     return (Read-Host -AsSecureString $Prompt)
 }
 
-# Minimum length of a NEW container password. Not a strength meter — a floor against slips
-# on the one operation that cannot be undone. Real resistance is entropy: see THREAT-MODEL.md.
+# Where the short-password warning stops. NOT a rule and not a strength meter: it is the point
+# below which we say out loud what a weak password costs on a vault that has no reset. Real
+# resistance is entropy (see THREAT-MODEL.md), which no length check can measure.
+# ST_VAULT_PASS_MIN=0 silences the warning entirely.
 $script:StVaultPassMin = if ($env:ST_VAULT_PASS_MIN) { [int]$env:ST_VAULT_PASS_MIN } else { 12 }
 
 # Read a NEW container password: twice, with a length floor. Separate from
@@ -1102,34 +1108,43 @@ function Get-StVaultPasswordNewSecure {
     if ($env:ST_VAULT_PASS) {
         return (ConvertTo-SecureString -String $env:ST_VAULT_PASS -AsPlainText -Force)
     }
-    $first = Read-Host -AsSecureString (T 'vault_pass')
-    if ($first.Length -lt $script:StVaultPassMin) {
-        Write-StErr (T 'vault_pass_short' $script:StVaultPassMin); Stop-StCommand
-    }
-    $again = Read-Host -AsSecureString (T 'vault_pass_again')
-    $b1 = [IntPtr]::Zero; $b2 = [IntPtr]::Zero
-    try {
-        $b1 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($first)
-        $b2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($again)
-        # Compared in unmanaged memory, char by char. PtrToStringBSTR would hand back two
-        # managed System.String copies of the password: strings are immutable, so they cannot be
-        # wiped and simply sit in the heap until a GC that may never come while the process
-        # lives. The BSTRs below are zeroed in finally; nothing else ever holds the plaintext.
-        # Not constant-time, deliberately: both sides are the same human typing the same secret
-        # twice, so there is no attacker to leak a timing difference to.
-        $same = ($first.Length -eq $again.Length)
-        if ($same) {
-            for ($i = 0; $i -lt $first.Length; $i++) {
-                if ([Runtime.InteropServices.Marshal]::ReadInt16($b1, $i * 2) -ne
-                    [Runtime.InteropServices.Marshal]::ReadInt16($b2, $i * 2)) { $same = $false; break }
-            }
+    # A loop, not a single shot. A short password or a typo used to abort create outright, and
+    # on Windows that means walking back through the UAC prompt, the size question and the menu
+    # to reach this prompt again — for a slip made at the keyboard. And the length is a WARNING
+    # now, not a rule: the vault has no reset and we say exactly what that costs, but a tool
+    # that overrides its owner on their own secret is a tool that gets worked around.
+    while ($true) {
+        $first = Read-Host -AsSecureString (T 'vault_pass')
+        if ($first.Length -eq 0) { Write-StWarn (T 'vault_pass_empty'); Stop-StCommand }
+        if ($first.Length -lt $script:StVaultPassMin) {
+            Write-StWarn (T 'vault_pass_short' $first.Length $script:StVaultPassMin)
+            if (-not (Confirm-StAction (T 'vault_pass_short_use'))) { continue }
         }
-    } finally {
-        if ($b1 -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b1) }
-        if ($b2 -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b2) }
+        $again = Read-Host -AsSecureString (T 'vault_pass_again')
+        $b1 = [IntPtr]::Zero; $b2 = [IntPtr]::Zero
+        try {
+            $b1 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($first)
+            $b2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($again)
+            # Compared in unmanaged memory, char by char. PtrToStringBSTR would hand back two
+            # managed System.String copies of the password: strings are immutable, so they cannot be
+            # wiped and simply sit in the heap until a GC that may never come while the process
+            # lives. The BSTRs below are zeroed in finally; nothing else ever holds the plaintext.
+            # Not constant-time, deliberately: both sides are the same human typing the same secret
+            # twice, so there is no attacker to leak a timing difference to.
+            $same = ($first.Length -eq $again.Length)
+            if ($same) {
+                for ($i = 0; $i -lt $first.Length; $i++) {
+                    if ([Runtime.InteropServices.Marshal]::ReadInt16($b1, $i * 2) -ne
+                        [Runtime.InteropServices.Marshal]::ReadInt16($b2, $i * 2)) { $same = $false; break }
+                }
+            }
+        } finally {
+            if ($b1 -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b1) }
+            if ($b2 -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b2) }
+        }
+        if (-not $same) { Write-StWarn (T 'vault_pass_mismatch'); continue }
+        return $first
     }
-    if (-not $same) { Write-StErr (T 'vault_pass_mismatch'); Stop-StCommand }
-    return $first
 }
 
 # --- shared low-level operations (reused by create/destroy/reset) ---
