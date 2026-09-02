@@ -30,7 +30,7 @@ and copy-on-write (ReFS) mean the old blocks may survive. Real protection is:
 One-liner (PowerShell):
 
 ```powershell
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/install.ps1 | iex
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8/install.ps1 | iex
 ```
 
 The installer pulls `securetrash.ps1` **and `SHA256SUMS` from the release tag** (not a

@@ -65,7 +65,7 @@ brew install Di-kairos/tap/securetrash
 Быстрая форма:
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8/install.sh | bash
 ```
 
 ### Verify-then-run (не доверяй — проверь)
@@ -74,7 +74,7 @@ curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securet
 сумму, прочитать, потом запустить:
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -105,7 +105,7 @@ VeraCrypt здесь ручной fallback, а не автоматический
 `securetrash.ps1` по `SHA256SUMS` с релизного тега до установки.
 
 ```powershell
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/install.ps1 | iex
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8/install.ps1 | iex
 ```
 
 > **Beta:** Windows-порт протестирован по логике (Pester, замоканные Windows-API), но

@@ -67,7 +67,7 @@ install when it cannot (missing `.sig` or no usable `ssh-keygen`) — fail-close
 releases only (integrity check stays). To verify by hand:
 
 ```sh
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.7
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
 printf '%s namespaces="file" %s\n' \

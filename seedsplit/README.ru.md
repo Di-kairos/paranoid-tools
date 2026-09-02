@@ -31,7 +31,7 @@
 сумму, прочитать глазами, потом запустить:
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.7
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -45,7 +45,7 @@ bash install.sh
 ### Установка одной строкой
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.7/install.sh | bash
 ```
 
 > **Целостность ≠ подлинность (честные границы).** Контрольная сумма доказывает, что

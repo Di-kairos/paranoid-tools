@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.1.17] — 2026-09-02
+
 ### Fixed
 - **Windows: `panic now` чистит историю буфера (Win+V), а не только текущий слот.**
   `Set-Clipboard` заменяет то, что в буфере сейчас; каждая предыдущая копия секрета оставалась
@@ -287,7 +289,8 @@
   `PANIC_SFL_DIR` overrides.
 - Real-device smoke на macOS: `now` распарсил живой `hdiutil info` и размонтировал тест-образ.
 
-[Unreleased]: https://github.com/Di-kairos/panic/compare/v0.1.14...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/panic-v0.1.17...HEAD
+[0.1.17]: https://github.com/Di-kairos/paranoid-tools/compare/panic-v0.1.16...panic-v0.1.17
 [0.1.16]: https://github.com/Di-kairos/paranoid-tools/releases/tag/panic-v0.1.16
 [0.1.14]: https://github.com/Di-kairos/panic/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/Di-kairos/panic/compare/v0.1.12...v0.1.13

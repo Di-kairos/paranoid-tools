@@ -10,8 +10,8 @@
 # signature (F-4) / Homebrew.
 #
 # Usage (verify-then-run recommended, see README):
-#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/install.sh
-#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7/SHA256SUMS
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8/install.sh
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8/SHA256SUMS
 #   shasum -a 256 -c SHA256SUMS --ignore-missing   # verify install.sh itself
 #   less install.sh                                  # read it with your own eyes
 #   bash install.sh
@@ -30,7 +30,7 @@ REPO="Di-kairos/paranoid-tools"
 # Default release of this tool; kept in lockstep with the securetrash-vX.Y.Z tag by a
 # release.yml gate. In the monorepo `releases/latest` would be the latest release
 # of ANY tool, so nothing here ever uses `latest` — the tag is always pinned.
-ST_VERSION_DEFAULT="0.5.7"
+ST_VERSION_DEFAULT="0.5.8"
 # Source: explicit ST_BASE_URL → ST_VERSION override → the baked-in default tag.
 if [[ -n "${ST_BASE_URL:-}" ]]; then
   BASE_URL="$ST_BASE_URL"

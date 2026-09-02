@@ -24,7 +24,7 @@
 # BETA: the logic is covered by Pester (external effects — editor/shred/clipboard — are mocked);
 # behavior on real hardware with exotic editors/locales is not widely road-tested.
 
-$VERSION = '0.1.19'
+$VERSION = '0.1.20'
 
 # --- configurable primitives (mirror of bash GHOSTDRAFT_*/ST_VAULT_VOLUME) ---
 # Root of the open securetrash vault. securetrash.ps1 mounts the VHDX on the FIRST FREE

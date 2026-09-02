@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.5.7] — 2026-09-02
+
 ### Fixed
 - **Windows: `seedsplit` не запускался из PowerShell — «running scripts is disabled on this system».**
   Установщик клал `seedsplit.ps1` рядом с `seedsplit.cmd` в каталоге из PATH, а PowerShell разрешает
@@ -289,7 +291,8 @@
   порога, отказ при <T долях без утечки, детект порчи/чужого набора, бинарные секреты,
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
-[Unreleased]: https://github.com/Di-kairos/seedsplit/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.7...HEAD
+[0.5.7]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.6...seedsplit-v0.5.7
 [0.5.6]: https://github.com/Di-kairos/paranoid-tools/releases/tag/seedsplit-v0.5.6
 [0.5.4]: https://github.com/Di-kairos/seedsplit/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/Di-kairos/seedsplit/compare/v0.5.2...v0.5.3

@@ -33,8 +33,8 @@ Requires [PowerShell 7+](https://aka.ms/powershell) (`pwsh`); Windows PowerShell
 also runs the script.
 
 ```powershell
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/install.ps1 -OutFile install.ps1
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.6/SHA256SUMS  -OutFile SHA256SUMS
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.7/install.ps1 -OutFile install.ps1
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.7/SHA256SUMS  -OutFile SHA256SUMS
 # verify install.ps1's hash against SHA256SUMS, read the script, then:
 pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```

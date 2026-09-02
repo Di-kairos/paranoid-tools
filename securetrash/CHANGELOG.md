@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.5.8] — 2026-09-02
+
 ### Fixed
 - **Windows: промпты пароля сейфа больше не называют чужую машинерию.** «Enter BitLocker password
   to unlock the vault» живой пользователь прочитал как системный BitLocker или пароль Windows и
@@ -482,7 +484,8 @@
 - На SSD перезапись (`rm -P`) гарантий НЕ даёт (wear leveling, COW, TRIM) — для секретов
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
-[Unreleased]: https://github.com/Di-kairos/securetrash/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.8...HEAD
+[0.5.8]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.7...securetrash-v0.5.8
 [0.5.7]: https://github.com/Di-kairos/paranoid-tools/releases/tag/securetrash-v0.5.7
 [0.5.5]: https://github.com/Di-kairos/securetrash/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/Di-kairos/securetrash/compare/v0.5.3...v0.5.4

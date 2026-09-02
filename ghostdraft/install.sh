@@ -11,8 +11,8 @@
 # requires a signature / Homebrew.
 #
 # Usage (verify-then-run recommended, see README):
-#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.19/install.sh
-#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.19/SHA256SUMS
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.20/install.sh
+#   curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.20/SHA256SUMS
 #   shasum -a 256 -c SHA256SUMS --ignore-missing   # verify install.sh itself
 #   less install.sh                                  # read it with your own eyes
 #   bash install.sh
@@ -31,7 +31,7 @@ REPO="Di-kairos/paranoid-tools"
 # Default release of this tool; kept in lockstep with the ghostdraft-vX.Y.Z tag by a
 # release.yml gate. In the monorepo `releases/latest` would be the latest release
 # of ANY tool, so nothing here ever uses `latest` — the tag is always pinned.
-GHOSTDRAFT_VERSION_DEFAULT="0.1.19"
+GHOSTDRAFT_VERSION_DEFAULT="0.1.20"
 # Source: explicit GHOSTDRAFT_BASE_URL → GHOSTDRAFT_VERSION override → the baked-in default tag.
 if [[ -n "${GHOSTDRAFT_BASE_URL:-}" ]]; then
   BASE_URL="$GHOSTDRAFT_BASE_URL"

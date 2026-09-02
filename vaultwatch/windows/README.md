@@ -20,8 +20,8 @@ Requires [PowerShell 7+](https://aka.ms/powershell) (`pwsh`). TTL auto-dismount 
 BitLocker locking need an **elevated** session.
 
 ```powershell
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/install.ps1 -OutFile install.ps1
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.15/SHA256SUMS  -OutFile SHA256SUMS
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.16/install.ps1 -OutFile install.ps1
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.16/SHA256SUMS  -OutFile SHA256SUMS
 # verify install.ps1's hash against SHA256SUMS, read the script, then:
 pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```

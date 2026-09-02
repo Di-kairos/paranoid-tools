@@ -10,7 +10,7 @@
 # limits (see README "Scope & limitations"). The full core lands in later packs.
 set -euo pipefail
 
-VERSION="0.1.15"
+VERSION="0.1.16"
 
 # === BEGIN vendored common (pin: 42fc268) ===
 # shellcheck shell=bash

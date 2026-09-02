@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.1.16] — 2026-09-02
+
 ### Fixed
 - **Windows: `--force` в TTL больше не мёртв.** `_ttl_fire` выполняется в задаче планировщика,
   где консоли нет: `Read-Host` читал EOF, это не `yes` — и ветка `--force` не могла сработать
@@ -319,7 +321,8 @@
 - Real-device smoke на macOS: start/stop/`--ttl` на живом sparsebundle, launchd
   bootstrap/bootout-цикл, plist валиден (`plutil -lint`).
 
-[Unreleased]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.13...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.16...HEAD
+[0.1.16]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.15...vaultwatch-v0.1.16
 [0.1.15]: https://github.com/Di-kairos/paranoid-tools/releases/tag/vaultwatch-v0.1.15
 [0.1.13]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/Di-kairos/vaultwatch/compare/v0.1.11...v0.1.12

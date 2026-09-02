@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.1.20] — 2026-09-02
+
 ### Fixed
 - **Windows: ACL временного каталога ставится по SID, а не по имени пользователя.** Имя надо
   резолвить против машины или домена, и это может не получиться либо указать не туда
@@ -336,7 +338,8 @@
 - Real-device smoke на macOS: `new` создал RAM-диск, открыл редактор, по выходу сделал
   shred и detach (регрессия subshell-leak покрыта).
 
-[Unreleased]: https://github.com/Di-kairos/ghostdraft/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.20...HEAD
+[0.1.20]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.19...ghostdraft-v0.1.20
 [0.1.19]: https://github.com/Di-kairos/paranoid-tools/releases/tag/ghostdraft-v0.1.19
 [0.1.17]: https://github.com/Di-kairos/ghostdraft/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/Di-kairos/ghostdraft/compare/v0.1.15...v0.1.16

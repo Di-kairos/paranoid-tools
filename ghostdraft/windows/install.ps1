@@ -8,8 +8,8 @@
 # RELEASE ITSELF being replaced; authenticity requires a signature (SHA256SUMS.sig).
 #
 # Usage (verify-then-run recommended, see windows/README.md):
-#   irm https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.19/install.ps1 -OutFile install.ps1
-#   irm https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.19/SHA256SUMS  -OutFile SHA256SUMS
+#   irm https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.20/install.ps1 -OutFile install.ps1
+#   irm https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.20/SHA256SUMS  -OutFile SHA256SUMS
 #   # verify the install.ps1 hash manually, read the script, then:
 #   pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 #
@@ -34,7 +34,7 @@ $Repo = 'Di-kairos/paranoid-tools'
 # Default release of this tool; kept in lockstep with the ghostdraft-vX.Y.Z tag by a
 # release.yml gate. In the monorepo `releases/latest` is the latest release of ANY
 # tool, so nothing here uses `latest` — the tag is always pinned.
-$GHOSTDRAFT_VERSION_DEFAULT = '0.1.19'
+$GHOSTDRAFT_VERSION_DEFAULT = '0.1.20'
 # Source: explicit GHOSTDRAFT_BASE_URL → GHOSTDRAFT_VERSION override → the baked-in default tag.
 if ($env:GHOSTDRAFT_BASE_URL) {
     $BaseUrl = $env:GHOSTDRAFT_BASE_URL

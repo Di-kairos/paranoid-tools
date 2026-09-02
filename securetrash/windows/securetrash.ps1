@@ -3,7 +3,7 @@
 # IMPORTANT: the port is marked BETA — logic is tested via Pester, BitLocker/VHDX/VeraCrypt
 # behavior is NOT verified on real hardware.
 
-$VERSION = '0.5.7'
+$VERSION = '0.5.8'
 
 # --- language detection ---
 # Output language selection. English by default. Russian — if ST_LANG starts

@@ -48,7 +48,7 @@ cannot (missing `.sig` or no usable `ssh-keygen`) — fail-closed.
 releases only (integrity check stays). To verify by hand:
 
 ```sh
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.7
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
 # Trust anchor — the release-signing public key (see below):
