@@ -177,6 +177,22 @@ if errorlevel 1 exit /b %errorlevel%
     Write-Warning "paranoid.ps1 is missing next to this script — the launcher was not installed."
 }
 
+# Remember WHERE this was installed from: the launcher's Update item re-runs the installer from
+# that directory. The copy in %LOCALAPPDATA% knows nothing about the clone it came from, so
+# without this the menu item would have nothing to update. Mirror of install.sh's state file.
+if ($env:LOCALAPPDATA) {
+    $stateDir = Join-Path $env:LOCALAPPDATA 'paranoid-tools'
+    try {
+        New-Item -ItemType Directory -Path $stateDir -Force -ErrorAction Stop | Out-Null
+        $stateFile = Join-Path $stateDir 'source'
+        # Removed first: writing over a symlink would clobber whatever it points at.
+        if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue }
+        Set-Content -LiteralPath $stateFile -Value $Root -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        Write-Warning "Could not record the source directory ($stateDir\source) — the launcher's Update item will ask for PARANOID_SRC."
+    }
+}
+
 # One PATH edit for the shared directory (idempotent). PT_SKIP_PATH=1 — skip.
 if ($env:PT_SKIP_PATH -ne '1') {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

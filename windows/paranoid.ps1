@@ -71,10 +71,9 @@ function T {
         'en:vw_active'    { return 'active' }       'ru:vw_active'    { return 'активен' }
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
         'en:update_avail' { return 'update available:' } 'ru:update_avail' { return 'доступно обновление:' }
-        # There is no "Update" menu item here (unlike the macOS launcher): updating means running
-        # the installer from a clone, and the launcher does not know where that clone is. It
-        # names the command instead of pretending to a button. (Homebrew is macOS-only, and this
-        # line used to advertise `brew upgrade` on Windows.)
+        # Shown under the "update available" banner. The Update menu item does the same thing;
+        # this line is for someone who wants to run it themselves. (Homebrew is macOS-only, and
+        # this used to advertise `brew upgrade` on Windows.)
         'en:update_how'   { return 'to update: git pull in the clone, then windows\install.cmd' }
         'ru:update_how'   { return 'обновить: git pull в клоне, затем windows\install.cmd' }
         'en:m_status'     { return 'Status — full read-only check' }
@@ -101,6 +100,30 @@ function T {
         'en:m_unwatch'    { return 'Stop watching the vault (vaultwatch)' }
         'ru:m_unwatch'    { return 'Снять охрану сейфа (vaultwatch)' }
         'en:m_quit'       { return 'Quit' }         'ru:m_quit'       { return 'Выход' }
+        'en:m_update'     { return 'Update         re-run the installer from your clone' }
+        'ru:m_update'     { return 'Обновить       перезапустить установщик из твоего клона' }
+        'en:upd_src_none' { return 'Cannot find the installer. Run it once from your clone of the repo (windows\install.cmd) - after that this menu item will work. Or point PARANOID_SRC at the clone.' }
+        'ru:upd_src_none' { return 'Не нахожу установщик. Запусти его один раз из клона репозитория (windows\install.cmd) — после этого пункт меню заработает. Или укажи путь к клону в PARANOID_SRC.' }
+        'en:upd_src'      { return "Installer: $A" }
+        'ru:upd_src'      { return "Установщик: $A" }
+        'en:upd_confirm'  { return 'Pull the latest sources and reinstall all tools?' }
+        'ru:upd_confirm'  { return 'Подтянуть свежие исходники и переустановить все тулы?' }
+        'en:upd_cancel'   { return 'Cancelled.' }
+        'ru:upd_cancel'   { return 'Отменено.' }
+        'en:upd_pull'     { return 'Updating the clone...' }
+        'ru:upd_pull'     { return 'Обновляю клон…' }
+        'en:upd_pull_fail' { return 'git pull did not succeed - see the message above. Continuing with the clone in its current state.' }
+        'ru:upd_pull_fail' { return 'git pull не прошёл — причина выше. Продолжаю с клоном в текущем состоянии.' }
+        'en:upd_nogit'    { return 'Not a git clone (or git is not on PATH) - reinstalling from the local copy as it is.' }
+        'ru:upd_nogit'    { return 'Это не git-клон (или git не в PATH) — переустанавливаю из локальной копии как есть.' }
+        'en:upd_run'      { return 'Running the installer from that directory. Downloaded releases are signature-verified; anything already present in the clone is installed as-is.' }
+        'ru:upd_run'      { return 'Запускаю установщик из этого каталога. Скачанные релизы проверяются по подписи; то, что уже лежит в клоне, ставится как есть.' }
+        'en:upd_stale_src' { return 'Note: the clone itself was not updated - what got installed came from its current state.' }
+        'ru:upd_stale_src' { return 'Учти: сам клон обновить не удалось — установилось то, что в нём сейчас.' }
+        'en:upd_done'     { return 'Update finished. This launcher process still runs the old code - quit and start it again; an already-open vault also keeps the old script until you close and reopen it.' }
+        'ru:upd_done'     { return 'Обновление завершено. Этот процесс лаунчера всё ещё на старом коде — выйди и запусти заново; уже открытый сейф тоже держит старый скрипт, пока не закроешь и не откроешь его.' }
+        'en:upd_fail'     { return 'The installer exited with an error - nothing was silently half-done, see the output above.' }
+        'ru:upd_fail'     { return 'Установщик завершился с ошибкой — молчаливой полуустановки нет, смотри вывод выше.' }
         # --- top-level group items (open submenus) ---
         'en:m_t_vault'   { return 'Vault >        open / empty / destroy / watch' }
         'ru:m_t_vault'   { return 'Сейф >         открыть / очистить / уничтожить / сторожить' }
@@ -414,6 +437,7 @@ function Get-PnDashboard {
     $lines += "  3) $(T 'm_t_vault')"
     $lines += "  4) $(T 'm_t_notepad')"
     $lines += "  5) $(T 'm_t_secrets')"
+    $lines += "  6) $(T 'm_update')"
     $lines += "  0) $(T 'm_quit')"
     $lines += ''
     return ($lines -join "`n")
@@ -637,6 +661,103 @@ function Invoke-PnActWatch {
     Invoke-PnPause
 }
 
+# Does this directory look like our clone? A reparse point (symlink/junction) is refused: a
+# substituted target would pass the check while the user still sees the trusted path.
+# Mirror of bash _is_clone_dir, with the Windows entry points.
+function Test-PnCloneDir {
+    param([string]$Dir)
+    if (-not $Dir) { return $false }
+    if (-not (Test-Path -LiteralPath $Dir -PathType Container)) { return $false }
+    foreach ($rel in @('windows\install.cmd', 'windows\install.ps1')) {
+        $f = Join-Path $Dir $rel
+        $item = Get-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+        if (-not $item -or $item.PSIsContainer) { return $false }
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { return $false }
+    }
+    return $true
+}
+
+# Where the installer lives. Order: explicit PARANOID_SRC → the path windows\install.ps1
+# recorded at the last install → the directory this script sits in (when run straight from the
+# clone). Empty when nothing matched: we say so instead of guessing. Mirror of bash.
+function Get-PnUpdateSource {
+    if (Test-PnCloneDir $env:PARANOID_SRC) { return $env:PARANOID_SRC }
+    if ($env:LOCALAPPDATA) {
+        $state = Join-Path $env:LOCALAPPDATA 'paranoid-tools\source'
+        if (Test-Path -LiteralPath $state) {
+            # Only the CR is stripped: trimming edge whitespace would change the path itself —
+            # with a trailing space that is a different directory.
+            $src = (Get-Content -LiteralPath $state -TotalCount 1 -ErrorAction SilentlyContinue)
+            if ($src) {
+                $src = ([string]$src).TrimEnd("`r")
+                if (Test-PnCloneDir $src) { return $src }
+            }
+        }
+    }
+    # $PSScriptRoot is the installed copy's lib\ directory, so the clone is only found this way
+    # when the launcher is run out of the clone itself.
+    $own = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+    if (Test-PnCloneDir $own) { return $own }
+    return ''
+}
+
+# Wrappers so Pester can drive the update without a clone or a network. Kept separate on
+# purpose: each is one external call, and the logic around them is what needs testing.
+function Invoke-PnGitPull { param([string]$Src) & git -C $Src pull --ff-only | Out-Host; return ($LASTEXITCODE -eq 0) }
+function Test-PnGitClone  { param([string]$Src)
+    if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) { return $false }
+    & git -C $Src rev-parse --git-dir *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+function Invoke-PnInstaller { param([string]$Src)
+    & (Join-Path $Src 'windows\install.cmd') | Out-Host
+    return ($LASTEXITCODE -eq 0)
+}
+
+# Updating = re-running the installer from the clone: it pulls each tool's latest SIGNED release
+# and verifies the signature itself. Deliberately no download logic of our own here — a second,
+# unverified path next to the verified one is exactly what this project must not grow.
+function Invoke-PnActUpdate {
+    $src = Get-PnUpdateSource
+    if (-not $src) {
+        [Console]::Error.WriteLine("  $(T 'upd_src_none')")
+        Invoke-PnPause; return
+    }
+    Write-PnScreen "  $(T 'upd_src' $src)"
+    if ((Read-PnLine "  $(T 'upd_confirm') [yes]") -ne 'yes') {
+        Write-PnScreen "  $(T 'upd_cancel')"; Invoke-PnPause; return
+    }
+
+    $pulled = $true
+    if (Test-PnGitClone $src) {
+        Write-PnScreen "  $(T 'upd_pull')"
+        # --ff-only: silently overwriting the user's local edits is not allowed.
+        if (-not (Invoke-PnGitPull $src)) {
+            $pulled = $false
+            [Console]::Error.WriteLine("  $(T 'upd_pull_fail')")
+        }
+    } else {
+        $pulled = $false
+        [Console]::Error.WriteLine("  $(T 'upd_nogit')")
+    }
+
+    Write-PnScreen "  $(T 'upd_run')"
+    if (Invoke-PnInstaller $src) {
+        # The "update available" banner is cached for a day — after the install it would lie.
+        if ($env:LOCALAPPDATA) {
+            Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'paranoid-tools\update-check') `
+                -Force -ErrorAction SilentlyContinue
+        }
+        # No "all fresh" claim when the sources could not be pulled: the installer may have run
+        # perfectly while the clone stayed exactly as it was.
+        if (-not $pulled) { [Console]::Error.WriteLine("  $(T 'upd_stale_src')") }
+        Write-PnScreen "  $(T 'upd_done')"
+    } else {
+        [Console]::Error.WriteLine("  $(T 'upd_fail')")
+    }
+    Invoke-PnPause
+}
+
 # --- submenu dispatchers (Pester calls them directly). They return $true = "back". ---
 function Invoke-PnVaultDispatch {
     param([string]$Choice)
@@ -711,6 +832,7 @@ function Invoke-PnDispatch {
         '3' { Invoke-PnMenuVault }
         '4' { Invoke-PnMenuNotepad }
         '5' { Invoke-PnMenuSecrets }
+        '6' { Invoke-PnActUpdate }
         { $_ -in '0', 'q', 'Q' } { return $true }
         default { }   # invalid input → redraw the menu
     }

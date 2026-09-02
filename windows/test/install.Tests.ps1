@@ -91,6 +91,24 @@ Describe 'windows/install.ps1 (umbrella)' {
         (Get-Content -LiteralPath $shim -Raw) | Should -Match 'lib\\paranoid\.ps1'
     }
 
+    It 'records where it was installed from, so the launcher can update' {
+        # The installed copy knows nothing about the clone it came from; without this file the
+        # launcher's Update item has nothing to re-run. Mirror of install.sh's state file.
+        $store = Join-Path $script:Clone 'appdata'
+        New-Item -ItemType Directory -Path $store -Force | Out-Null
+        $prev = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = $store
+        try {
+            $umbrella = New-FakeClone -Root $script:Clone
+            & $script:PwshExe -NoProfile -File $umbrella 1> $null 2> $null
+            $state = Join-Path $store 'paranoid-tools\source'
+            Test-Path -LiteralPath $state | Should -BeTrue
+            (Get-Content -LiteralPath $state -Raw).Trim() | Should -Be (Split-Path -Parent (Split-Path -Parent $umbrella))
+        } finally {
+            $env:LOCALAPPDATA = $prev
+        }
+    }
+
     It 'leaves no .ps1 on PATH, so a bare `paranoid` resolves to the shim' {
         # The whole point of lib\: PowerShell resolves a bare command name to a .ps1 in a
         # PATH directory BEFORE a .cmd of the same name, and then the default ExecutionPolicy

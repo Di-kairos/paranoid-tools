@@ -687,6 +687,99 @@ Describe 'menus reach the screen through the dispatch tree (live-hardware regres
     }
 }
 
+# --- Parity with the macOS launcher, which has had item 6 all along. It was missing here for
+# a real reason — there was no umbrella installer on Windows — and that reason is gone. ---
+Describe 'Update (menu item 6) — parity with the macOS launcher' {
+
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        $script:Work = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_upd_" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $script:Work 'windows') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Work 'windows\install.cmd') -Value '@echo off'
+        Set-Content -LiteralPath (Join-Path $script:Work 'windows\install.ps1') -Value '# installer'
+        Mock Invoke-PnPause { }
+        Mock Read-PnLine { 'yes' }
+        Mock Test-PnGitClone { $true }
+        Mock Invoke-PnGitPull { $true }
+        Mock Invoke-PnInstaller { $true }
+    }
+    AfterEach {
+        Remove-Item Env:\PARANOID_SRC -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'the item is on the dashboard' {
+        Mock Get-PnVaultState { 'closed' }
+        Mock Get-PnBitLockerState { 'unknown' }
+        Mock Get-PnVaultwatchState { 'idle' }
+        Mock Test-PnTool { $true }
+        (Get-PnDashboard) | Should -Match '6\) Update'
+    }
+
+    It 'choice 6 runs the update' {
+        Mock Invoke-PnActUpdate { }
+        Invoke-PnDispatch '6' | Should -BeFalse
+        Should -Invoke Invoke-PnActUpdate -Times 1 -Exactly
+    }
+
+    It 'PARANOID_SRC wins when it points at a clone' {
+        $env:PARANOID_SRC = $script:Work
+        Get-PnUpdateSource | Should -Be $script:Work
+    }
+
+    It 'a directory without the installer is not a clone' {
+        $env:PARANOID_SRC = ([System.IO.Path]::GetTempPath())
+        Get-PnUpdateSource | Should -Not -Be ([System.IO.Path]::GetTempPath())
+    }
+
+    It 'refuses to guess when no clone is known, and installs nothing' {
+        Mock Get-PnUpdateSource { '' }
+        $err = Get-PnScreen { Invoke-PnActUpdate }   # the refusal goes to stderr; screen stays clean
+        Should -Invoke Invoke-PnInstaller -Times 0 -Exactly
+        $err | Should -Not -Match 'Running the installer'
+    }
+
+    It 'a confirmation that is not "yes" cancels before touching anything' {
+        $env:PARANOID_SRC = $script:Work
+        Mock Read-PnLine { 'y' }
+        $out = Get-PnScreen { Invoke-PnActUpdate }
+        Should -Invoke Invoke-PnGitPull -Times 0 -Exactly
+        Should -Invoke Invoke-PnInstaller -Times 0 -Exactly
+        $out | Should -Match 'Cancelled'
+    }
+
+    It 'pulls the clone, then runs the installer' {
+        $env:PARANOID_SRC = $script:Work
+        $out = Get-PnScreen { Invoke-PnActUpdate }
+        Should -Invoke Invoke-PnGitPull -Times 1 -Exactly
+        Should -Invoke Invoke-PnInstaller -Times 1 -Exactly
+        $out | Should -Match 'Update finished'
+    }
+
+    It 'still installs when the pull fails, but does not claim the sources are fresh' {
+        $env:PARANOID_SRC = $script:Work
+        Mock Invoke-PnGitPull { $false }
+        $out = Get-PnScreen { Invoke-PnActUpdate }
+        Should -Invoke Invoke-PnInstaller -Times 1 -Exactly
+        $out | Should -Match 'Update finished'
+    }
+
+    It 'installs from a plain copy when it is not a git clone' {
+        $env:PARANOID_SRC = $script:Work
+        Mock Test-PnGitClone { $false }
+        Get-PnScreen { Invoke-PnActUpdate } | Out-Null
+        Should -Invoke Invoke-PnGitPull -Times 0 -Exactly
+        Should -Invoke Invoke-PnInstaller -Times 1 -Exactly
+    }
+
+    It 'does not report success when the installer failed' {
+        $env:PARANOID_SRC = $script:Work
+        Mock Invoke-PnInstaller { $false }
+        $out = Get-PnScreen { Invoke-PnActUpdate }
+        $out | Should -Not -Match 'Update finished'
+    }
+}
+
 Describe 'dispatch — quit and unknown' {
     BeforeEach {
         Mock Invoke-PnTool { }

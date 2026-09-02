@@ -280,6 +280,11 @@ loaded because running scripts is disabled on this system". The shim starts
 `pwsh -ExecutionPolicy Bypass` for its own process only; your machine's policy is never
 changed, and nothing else on the system becomes runnable.
 
+To update later, the launcher's **Update** item (6) re-runs the installer from your clone —
+it pulls the sources with `git pull --ff-only` and then installs, so the signature check stays
+on the one path it has always been on. By hand it is the same two commands: `git pull` in the
+clone, then `windows\install.cmd`.
+
 To remove everything, including the PATH entry: `windows\install.cmd -Uninstall`.
 
 > **Beta.** The Windows ports are logic-tested in CI but not yet broadly validated on
