@@ -244,7 +244,11 @@ function New-GdSecureTempDir {
     try {
         $acl = Get-Acl -LiteralPath $dir
         $acl.SetAccessRuleProtection($true, $false)   # disable inheritance, drop inherited rules
-        $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        # By SID, not by name: a name has to be resolved against the domain/machine, which can
+        # fail or resolve to something else entirely (renamed account, unreachable DC) — and a
+        # failed ACL here means the draft sits in %TEMP% with inherited permissions.
+        # securetrash's Set-StPrivateAcl has always used the SID; this matches it.
+        $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
         $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
             $me, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
         $acl.AddAccessRule($rule)

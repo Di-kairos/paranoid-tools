@@ -91,6 +91,20 @@ Describe 'vault refuses an unelevated console (P0-2)' {
         $out | Should -CNotMatch 'is CLOSED'
     }
 
+    It 'check names the MFT-resident copy a small secret leaves behind' {
+        # A seed phrase is a few hundred bytes: NTFS keeps it inside the MFT record, where
+        # cipher /w (which overwrites free clusters) never reaches. Not fixable from userland —
+        # so it gets named, like the SSD and snapshot limits before it.
+        Mock Test-StElevated { $true }
+        Mock Get-StDiskKind { 'hdd' }
+        Mock Get-StBitLockerState { 'on' }
+        Mock Get-StBitLockerCapable { $true }
+        Mock Get-StVeraCryptPath { $null }
+
+        $out = Get-StCombinedOutput { Invoke-StCheck }
+        $out | Should -Match 'MFT'
+    }
+
     It 'check warns that the vault commands cannot run in this console' {
         Mock Test-StElevated { $false }
         Mock Get-StDiskKind { 'ssd' }
@@ -500,6 +514,35 @@ Describe 'new vault password: length floor + confirmation' {
         Mock Read-Host {
             $script:calls++
             $v = if ($script:calls -eq 1) { 'correct-horse-battery' } else { 'Correct-horse-battery' }
+            ConvertTo-SecureString -String $v -AsPlainText -Force
+        }
+        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+    }
+
+    It 'accepts a long password unchanged — the unmanaged compare is byte-exact' {
+        # The comparison walks the two BSTRs directly instead of materialising managed copies;
+        # a length or offset slip there would show up as a false mismatch on real passwords.
+        $long = 'correct horse battery staple, и кириллица тоже'
+        Mock Read-Host { ConvertTo-SecureString -String $long -AsPlainText -Force }
+        (Get-StVaultPasswordNewSecure).Length | Should -Be $long.Length
+    }
+
+    It 'catches a difference in the LAST character' {
+        # The loop breaks on the first mismatch; an off-by-one on the end would let this pass.
+        $script:calls = 0
+        Mock Read-Host {
+            $script:calls++
+            $v = if ($script:calls -eq 1) { 'correct-horse-batterx' } else { 'correct-horse-battery' }
+            ConvertTo-SecureString -String $v -AsPlainText -Force
+        }
+        { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw
+    }
+
+    It 'catches a confirmation that merely starts the same' {
+        $script:calls = 0
+        Mock Read-Host {
+            $script:calls++
+            $v = if ($script:calls -eq 1) { 'correct-horse-battery' } else { 'correct-horse-battery-plus' }
             ConvertTo-SecureString -String $v -AsPlainText -Force
         }
         { Get-StVaultPasswordNewSecure 6>$null } | Should -Throw

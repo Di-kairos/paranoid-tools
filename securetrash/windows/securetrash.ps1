@@ -304,6 +304,9 @@ Flags:
     'en:check_admin_ok'     = 'Administrator rights: present — the vault commands are available.'
     'ru:check_admin_ok'     = 'Права администратора: есть — команды vault доступны.'
 
+    'en:mft_resident'       = 'A file under roughly 700 bytes — which is what a seed phrase or a key IS — has no data blocks of its own on NTFS: its contents live inside the MFT record. Deleting it frees the record but leaves those bytes there, and cipher /w overwrites free CLUSTERS, never the MFT. No userland tool can reach into it. This is another reason the real answer is to create the secret inside the vault, where the MFT of the outer disk only ever sees ciphertext.'
+    'ru:mft_resident'       = 'Файл примерно до 700 байт — а seed-фраза или ключ именно такие — на NTFS не имеет собственных блоков данных: содержимое лежит внутри записи MFT. Удаление освобождает запись, но эти байты остаются в ней, а cipher /w перезаписывает свободные КЛАСТЕРЫ и до MFT не добирается. Ни один userland-инструмент туда не дотянется. Это ещё одна причина создавать секрет сразу внутри сейфа: MFT внешнего диска видит только шифротекст.'
+
     'en:unknown_cmd'        = 'Unknown command: {0}'
     'ru:unknown_cmd'        = 'Неизвестная команда: {0}'
 }
@@ -902,6 +905,8 @@ function Invoke-StCheck {
 
     Write-StSnapshotNote
 
+    Write-StWarn (T 'mft_resident')
+
     # The vault is the tool's whole answer for SSD, and in an unelevated console it cannot run
     # at all. Better to learn that from `check` than from a refusal mid-way through create.
     if (Test-StElevated) { Write-StInfo (T 'check_admin_ok') }
@@ -948,6 +953,7 @@ function Write-StHonestDiskNote {
     } else {
         Write-StInfo (T 'hdd_note')
     }
+    Write-StWarn (T 'mft_resident')
     Write-StSnapshotNote
 }
 
@@ -1100,9 +1106,19 @@ function Get-StVaultPasswordNewSecure {
     try {
         $b1 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($first)
         $b2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($again)
-        $p1 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b1)
-        $p2 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b2)
-        $same = ($p1 -ceq $p2)
+        # Compared in unmanaged memory, char by char. PtrToStringBSTR would hand back two
+        # managed System.String copies of the password: strings are immutable, so they cannot be
+        # wiped and simply sit in the heap until a GC that may never come while the process
+        # lives. The BSTRs below are zeroed in finally; nothing else ever holds the plaintext.
+        # Not constant-time, deliberately: both sides are the same human typing the same secret
+        # twice, so there is no attacker to leak a timing difference to.
+        $same = ($first.Length -eq $again.Length)
+        if ($same) {
+            for ($i = 0; $i -lt $first.Length; $i++) {
+                if ([Runtime.InteropServices.Marshal]::ReadInt16($b1, $i * 2) -ne
+                    [Runtime.InteropServices.Marshal]::ReadInt16($b2, $i * 2)) { $same = $false; break }
+            }
+        }
     } finally {
         if ($b1 -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b1) }
         if ($b2 -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b2) }

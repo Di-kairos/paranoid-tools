@@ -71,11 +71,12 @@ function T {
         'en:vw_active'    { return 'active' }       'ru:vw_active'    { return 'активен' }
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
         'en:update_avail' { return 'update available:' } 'ru:update_avail' { return 'доступно обновление:' }
-        # There is no "Update" menu item here (unlike the macOS launcher): no umbrella installer
-        # exists for Windows — each tool has its own windows/install.ps1, and there is nothing
-        # to remember "where it was installed from". A deliberate parity break, not an oversight.
-        'en:update_how'   { return 'to update: re-run install.ps1 or brew upgrade' }
-        'ru:update_how'   { return 'обновить: перезапусти install.ps1 или brew upgrade' }
+        # There is no "Update" menu item here (unlike the macOS launcher): updating means running
+        # the installer from a clone, and the launcher does not know where that clone is. It
+        # names the command instead of pretending to a button. (Homebrew is macOS-only, and this
+        # line used to advertise `brew upgrade` on Windows.)
+        'en:update_how'   { return 'to update: git pull in the clone, then windows\install.cmd' }
+        'ru:update_how'   { return 'обновить: git pull в клоне, затем windows\install.cmd' }
         'en:m_status'     { return 'Status — full read-only check' }
         'ru:m_status'     { return 'Статус — полная проверка (только чтение)' }
         'en:m_panic'      { return 'PANIC NOW — hide & lock everything, hard mode (instant, no confirm)' }
