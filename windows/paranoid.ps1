@@ -707,11 +707,15 @@ function Invoke-PnToolElevated {
 # learn to open their own vault.
 function Invoke-PnToolAdmin {
     param([string]$Tool, [string[]]$ToolArgs = @())
+    # With rights in hand this is the old path exactly, missing-tool hint included: that check
+    # lives in Invoke-PnTool, and repeating it here would only add a second place to keep true.
+    if ((Get-PnAdminState) -eq 'yes') { Invoke-PnTool -Tool $Tool -ToolArgs $ToolArgs; return }
+    # On the elevated path it has to be checked before the prompt: raising UAC to run a command
+    # that does not exist asks the user for rights and then wastes them.
     if (-not (Test-PnTool $Tool)) {
         [Console]::Error.WriteLine((T 'install_hint' $Tool (Get-PnToolRepo $Tool)))
         return
     }
-    if ((Get-PnAdminState) -eq 'yes') { Invoke-PnTool -Tool $Tool -ToolArgs $ToolArgs; return }
     Write-PnScreen "  $(T 'elev_ask')"
     if (Invoke-PnToolElevated -Tool $Tool -ToolArgs $ToolArgs) {
         Write-PnScreen "  $(T 'elev_back')"
