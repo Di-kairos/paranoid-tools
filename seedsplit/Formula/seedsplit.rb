@@ -1,8 +1,8 @@
 class Seedsplit < Formula
   desc "Split a secret into Shamir shares (pure Bash, GF(256))"
   homepage "https://github.com/Di-kairos/paranoid-tools"
-  url "https://github.com/Di-kairos/paranoid-tools/archive/refs/tags/seedsplit-v0.5.6.tar.gz"
-  sha256 "3364beb65f27f95fb0a0056ad6871c059c5a3e2891c397bbab510a17205f3de3"
+  url "https://github.com/Di-kairos/paranoid-tools/archive/refs/tags/seedsplit-v0.5.7.tar.gz"
+  sha256 "bd68455626609eafa7b9d1a0e0c493e0cf49ad1069a92c73204f40cd129a6a73"
   license "MIT"
 
   def install

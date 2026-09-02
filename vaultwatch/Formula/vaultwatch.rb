@@ -1,8 +1,8 @@
 class Vaultwatch < Formula
   desc "Guard an open securetrash vault on macOS (Spotlight/Time Machine/cloud)"
   homepage "https://github.com/Di-kairos/paranoid-tools"
-  url "https://github.com/Di-kairos/paranoid-tools/archive/refs/tags/vaultwatch-v0.1.15.tar.gz"
-  sha256 "d77640f107ffc2240c3edd08f4122b416fea0413d60f2bd5548f198780079fc1"
+  url "https://github.com/Di-kairos/paranoid-tools/archive/refs/tags/vaultwatch-v0.1.16.tar.gz"
+  sha256 "8d90498ebd0751d2655609a5c869a32c9c31c9a3a895d1909a1bb0864f949ec2"
   license "MIT"
 
   def install
