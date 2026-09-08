@@ -872,8 +872,9 @@ _recover_secret_hex() {
 cmd_combine() {
   local raw; if (( $# )); then raw="$(cat "$@")"; else raw="$(cat)"; fi
   local sh; sh="$(_recover_secret_hex "$raw")" || exit 1
-  # Which passphrase container is this? "SSPP1" (hex 5353505031) = the authenticated format:
-  # a wrong passphrase is caught by the tag inside the ciphertext and refused. A bare "Salted__"
+  # Which passphrase container is this? "SSPP2" (hex 5353505032, 600000 iterations) or "SSPP1"
+  # (…31, 200000) = the checked format: a wrong passphrase is caught by the tag inside the
+  # ciphertext and refused. A bare "Salted__"
   # (hex 53616c7465645f5f) = a legacy container cut before that format existed: it still opens,
   # but openssl alone cannot distinguish a wrong passphrase from a right one, so we say so.
   # Edge (documented in the README): if a NON-encrypted secret (split without -p) itself begins

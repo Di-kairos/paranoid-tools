@@ -36,10 +36,10 @@ _need_openssl() { command -v openssl >/dev/null 2>&1 || skip "openssl not on PAT
   secret="topsecretvalue"
   shares="$(printf '%s' "$secret" | SEEDSPLIT_PASSPHRASE=pw bash "$SCRIPT" split -p -n 3 -t 2)"
   sel="$(printf '%s\n' "$shares" | sed -n '1p;2p')"
-  # the reconstructed bytes BEFORE decryption = the sealed container (magic "SSPP1" + the openssl
+  # the reconstructed bytes BEFORE decryption = the sealed container (magic "SSPP2" + the openssl
   # container), NOT the plaintext secret
   sh="$(printf '%s\n' "$sel" | bash -c "ST_NO_MAIN=1 source '$SCRIPT' 2>/dev/null; _recover_secret_hex \"\$(cat)\"")"
-  [[ "${sh:0:10}" == "5353505031" ]]
+  [[ "${sh:0:10}" == "5353505032" ]]
   [[ "$sh" != *"$(printf '%s' "$secret" | od -An -v -tx1 | tr -d ' \n')"* ]]
 }
 
