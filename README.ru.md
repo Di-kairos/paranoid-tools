@@ -65,8 +65,9 @@ windows\install.cmd            # ставит все 5 + лаунчер paranoid
 а не скачиваемые артефакты.
 
 Есть также подписанное и нотаризованное **[приложение для macOS](#приложение-для-macos-меню-бар)**
-и **[путь для Windows](#windows)** (PowerShell 7). Homebrew пока закрывает `securetrash`
-(`brew install Di-kairos/tap/securetrash`).
+и **[путь для Windows](#windows)** (PowerShell 7). Homebrew закрывает все пять инструментов
+(`brew install Di-kairos/tap/securetrash` — и так же `vaultwatch`, `panic`, `ghostdraft`,
+`seedsplit`).
 
 ## Состав
 

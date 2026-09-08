@@ -432,7 +432,7 @@ into N parts so that any **T** of them rebuild the secret, while T−1 reveal **
 ```bash
 # Split a seed into 5 shares, threshold 3 (any 3 of 5 restore it). Secret via stdin:
 printf '%s' "legal winner thank year wave ..." | seedsplit split -n 5 -t 3
-# → 5 lines like SSS2-<setid>-3-1-<hex>-<chk>. Spread them across different places.
+# → 5 lines like SSS3-<setid>-3-1-<hex>-<par>-<chk>. Spread them across different places.
 
 # Rebuild from any 3 shares (one share per line):
 seedsplit combine < my-3-shares.txt

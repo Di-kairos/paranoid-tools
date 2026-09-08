@@ -62,3 +62,20 @@ _docs_of() {
              "$ROOT"/*/docs/index.html 2>/dev/null || true)
   [ -z "$bad" ] || { printf 'pipe-install without the verify-then-run path:\n%s' "$bad"; false; }
 }
+
+# The share format in the docs is an example a reader copies expectations from, and it drifted:
+# GUIDE and ИНСТРУКЦИЯ still printed an SSS2 template long after the code moved to SSS3 with a
+# parity field (audit 2026-09-07, §16.7). Version pins were already guarded; the wire format was
+# not. Only example TEMPLATES are checked — they are the lines carrying the literal `<setid>`,
+# so prose about reading legacy SSS2 shares stays untouched.
+@test "share-format examples in the docs use the current wire format" {
+  local current bad=""
+  current="$(grep -o 'SSS[0-9]\+-\${setid_hex}' "$ROOT/seedsplit/seedsplit" | head -1 | sed 's/-.*//')"
+  [ -n "$current" ]
+  while read -r hit; do
+    case "$hit" in *"$current-<setid>"*) ;; *) bad="$bad$hit"$'\n' ;; esac
+  done < <(grep -rn 'SSS[0-9]\+-<setid>' \
+             "$ROOT"/README.md "$ROOT"/README.ru.md "$ROOT"/GUIDE.md "$ROOT"/ИНСТРУКЦИЯ.md \
+             "$ROOT"/seedsplit/README.md "$ROOT"/seedsplit/README.ru.md 2>/dev/null || true)
+  [ -z "$bad" ] || { echo "superseded share format in docs (current is $current):"; echo "$bad"; false; }
+}

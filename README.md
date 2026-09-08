@@ -64,8 +64,9 @@ launcher, which is installed straight from the clone in front of you — both ar
 the repository you can read, not downloads.
 
 There is also a signed and notarized **[macOS menu-bar app](#the-macos-app-menu-bar)**,
-and a **[Windows path](#windows)** (PowerShell 7). Homebrew covers `securetrash` today
-(`brew install Di-kairos/tap/securetrash`).
+and a **[Windows path](#windows)** (PowerShell 7). Homebrew covers all five tools
+(`brew install Di-kairos/tap/securetrash`, and the same for `vaultwatch`, `panic`,
+`ghostdraft` and `seedsplit`).
 
 ## The tools
 
