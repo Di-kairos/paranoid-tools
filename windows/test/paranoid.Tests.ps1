@@ -921,3 +921,39 @@ Describe 'CLI surface (child pwsh)' {
         $LASTEXITCODE | Should -Not -Be 0
     }
 }
+
+# --- s45: "the menu takes five to seven seconds" is a statement about the four state probes the
+# dashboard runs on every redraw. PARANOID_TIMING=1 prints what each one cost on that machine,
+# so the next report is a number instead of a screen recording. Off by default. ---
+Describe 'PARANOID_TIMING — измеритель проб дашборда (s45)' {
+    BeforeEach {
+        Mock Get-PnVaultMount { 'X:\' }
+        Mock Get-PnVaultState { 'closed' }
+        Mock Get-PnBitLockerState { 'unknown' }
+        Mock Get-PnVaultwatchState { 'idle' }
+        Mock Get-PnAdminState { 'no' }
+    }
+    AfterEach { Remove-Item Env:\PARANOID_TIMING -ErrorAction SilentlyContinue }
+
+    It 'по умолчанию ничего не печатает — это диагностика, а не украшение' {
+        Remove-Item Env:\PARANOID_TIMING -ErrorAction SilentlyContinue
+        (Get-PnDashboard) | Should -Not -Match 'timing:'
+    }
+
+    It 'с PARANOID_TIMING=1 печатает все четыре пробы и сумму' {
+        $env:PARANOID_TIMING = '1'
+        $out = Get-PnDashboard
+        $out | Should -Match 'timing:'
+        foreach ($probe in @('vault mount', 'vault state', 'bitlocker', 'vaultwatch')) {
+            $out | Should -Match ([regex]::Escape($probe) + ' \d+ms')
+        }
+        $out | Should -Match 'total \d+ms'
+    }
+
+    It 'измеритель возвращает значение пробы, а не съедает его' {
+        $env:PARANOID_TIMING = '1'
+        (Measure-PnProbe 'x' { 'value' }) | Should -Be 'value'
+        Remove-Item Env:\PARANOID_TIMING -ErrorAction SilentlyContinue
+        (Measure-PnProbe 'x' { 'value' }) | Should -Be 'value'
+    }
+}

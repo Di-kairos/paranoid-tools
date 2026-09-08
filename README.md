@@ -209,6 +209,11 @@ PowerShell 7 all work. The tools run on PowerShell 7 under the hood, and the `.c
 on your PATH starts it for them — you never have to pick a shell or touch your
 ExecutionPolicy.
 
+**If the menu feels slow, measure it rather than guess.** `PARANOID_TIMING=1 paranoid` prints
+one extra line under the menu with what each state probe cost on your machine in milliseconds —
+the vault mount, the vault state, BitLocker and vaultwatch — plus their total. The dashboard is
+rebuilt on every keystroke, so those four numbers are the whole story. Off by default.
+
 **Which edition of Windows you have does matter — for the vault, and only for it.**
 `securetrash vault` is a BitLocker-encrypted VHDX, and BitLocker *management* —
 `manage-bde` and the BitLocker cmdlets — ships with **Pro, Enterprise and Education**,

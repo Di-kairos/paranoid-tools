@@ -244,13 +244,25 @@ function Get-PnVaultContainer {
 # volumes mounted into a folder, which DriveInfo does not enumerate.
 # $null still means "could not read the table" - the contract's R3, unknown and never closed.
 function Get-PnMountPoints {
-    try {
-        $drives = [System.IO.DriveInfo]::GetDrives()
-        if ($drives -and $drives.Count -gt 0) {
-            $ready = @($drives | Where-Object { $_.IsReady } | ForEach-Object { $_.Name } | Where-Object { $_ })
-            if ($ready.Count -gt 0) { return $ready }
-        }
-    } catch { }
+    # The vault is normally a drive LETTER (securetrash attaches the VHDX to a free one), and a
+    # letter is answered by GetLogicalDrives in microseconds - a string list out of the OS, with
+    # no device touched. DriveInfo would be nearly as cheap except for .IsReady, which polls the
+    # device and can block on an empty optical or a dead network drive - precisely the machine
+    # where a panic menu must not stall. Get-CimInstance Win32_Volume spins up WMI and costs
+    # seconds on a cold session, and this runs on every redraw: that was most of the five to
+    # seven seconds the menu took to appear (live Windows run, s45).
+    #
+    # CIM is still used, and must be, when the vault is mounted into a FOLDER: GetLogicalDrives
+    # does not list those, and answering "closed" over an open vault is the one direction we are
+    # never allowed to be wrong in. So the cheap path is taken only for a drive-letter mount.
+    $target = [string]$script:VAULT_VOLUME
+    $isLetterMount = $target -match '^[A-Za-z]:\\?$'
+    if ($isLetterMount -or -not $target) {
+        try {
+            $names = [System.IO.Directory]::GetLogicalDrives()
+            if ($names -and @($names).Count -gt 0) { return @($names) }
+        } catch { }
+    }
     try {
         $vols = Get-CimInstance -ClassName Win32_Volume -ErrorAction Stop
         if ($null -eq $vols) { return $null }
@@ -450,14 +462,31 @@ function Get-PnUpdateSummary {
 }
 
 # --- dashboard text as a separate function (Pester checks the lines without running the loop) ---
+# Time one probe, in milliseconds, and remember it when PARANOID_TIMING=1. The dashboard is
+# rebuilt on every keystroke of the menu loop, so "the menu is slow" is always a statement about
+# these four calls - and a number settles in one run what a screen recording cannot settle at
+# all (live Windows run, s45). Off by default: zero cost, zero output, no timing on the screen
+# of someone who did not ask for it.
+function Measure-PnProbe {
+    param([string]$Name, [scriptblock]$Body)
+    if ($env:PARANOID_TIMING -ne '1') { return (& $Body) }
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $result = & $Body
+    $sw.Stop()
+    if ($null -eq $script:PN_TIMINGS) { $script:PN_TIMINGS = @() }
+    $script:PN_TIMINGS += [pscustomobject]@{ Name = $Name; Ms = [int]$sw.Elapsed.TotalMilliseconds }
+    return $result
+}
+
 function Get-PnDashboard {
     # Re-read the active volume before every render — the letter could have appeared/vanished
     # (securetrash open/close between ticks). Tests set $script:VAULT_VOLUME directly and
     # mock Get-PnVaultState, so the refresh does not affect their verdicts.
-    $script:VAULT_VOLUME = Get-PnVaultMount
-    $v  = Get-PnVaultState
-    $bl = Get-PnBitLockerState
-    $vw = Get-PnVaultwatchState
+    $script:PN_TIMINGS = @()
+    $script:VAULT_VOLUME = Measure-PnProbe 'vault mount'   { Get-PnVaultMount }
+    $v  = Measure-PnProbe 'vault state'      { Get-PnVaultState }
+    $bl = Measure-PnProbe 'bitlocker'        { Get-PnBitLockerState }
+    $vw = Measure-PnProbe 'vaultwatch'       { Get-PnVaultwatchState }
     $lines = @()
     $lines += ''
     $lines += "  $(T 'title')                          Windows"
@@ -513,6 +542,14 @@ function Get-PnDashboard {
     $lines += "  6) $(T 'm_update')"
     $lines += "  0) $(T 'm_quit')"
     $lines += ''
+    # PARANOID_TIMING=1: what the four state probes cost on THIS machine, in milliseconds.
+    # "The menu is slow" is a statement about exactly these, and one line of numbers settles in
+    # a single run what a screen recording cannot settle at all.
+    if ($env:PARANOID_TIMING -eq '1' -and $script:PN_TIMINGS) {
+        $total = ($script:PN_TIMINGS | Measure-Object -Property Ms -Sum).Sum
+        $lines += '  timing: ' + (($script:PN_TIMINGS | ForEach-Object { "$($_.Name) $($_.Ms)ms" }) -join ', ') + ", total ${total}ms"
+        $lines += ''
+    }
     return ($lines -join "`n")
 }
 
