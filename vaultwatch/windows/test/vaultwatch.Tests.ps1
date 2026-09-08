@@ -5,6 +5,10 @@
 
 BeforeAll {
     $env:ST_NO_MAIN = '1'
+    # Неэлевированные пути, которые гоняет сьют, не должны тянуться за UAC: Start-Process
+    # -Verb RunAs открыл бы на Windows-раннере настоящий диалог и повесил бы прогон на нём.
+    # Снимается только внутри Describe, где обёртка самоэлевации замокана.
+    $env:ST_NO_SELF_ELEVATE = '1'
     $script:ScriptPath = Join-Path $PSScriptRoot '..\vaultwatch.ps1'
     . $script:ScriptPath
     Remove-Item Env:\ST_NO_MAIN -ErrorAction SilentlyContinue
@@ -12,6 +16,7 @@ BeforeAll {
 
 AfterAll {
     Remove-Item Env:\ST_NO_MAIN -ErrorAction SilentlyContinue
+    Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
 }
 
 Describe 'duration parsing' {
@@ -483,6 +488,91 @@ Describe 'Assert-VwPs7 — требует PowerShell 7+ (P2-8, fail-closed)' {
 # --- P0-2: без прав администратора Lock-BitLocker не работает, а задача планировщика не
 # регистрируется с наивысшими правами. Сессия при этом заводилась успешно — и TTL молча
 # не срабатывал: сейф оставался открытым, а файл сессии утверждал, что за ним следят. ---
+# --- s45: `vaultwatch start` из обычной консоли сам поднимает UAC — как лаунчер и трей с s43
+# и как securetrash с s45. Отказ остаётся ответом там, где запрос отклонён или его некому
+# показать: хук securetrash и задача планировщика по-прежнему получают быстрый отказ. ---
+Describe 'start сам поднимает запрос прав (s45)' {
+
+    BeforeEach {
+        Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue
+        Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
+        $script:VW_LOCALE = 'en'
+        $script:VW_ELEVATED_CHILD = $false
+        $script:VW_ARGV = @('start', '--ttl', '15m', 'E:\')
+        # UserInteractive не мокается — гейт спрашивает её через обёртку.
+        Mock Test-VwSelfElevateAllowed { $true }
+    }
+    AfterEach {
+        Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue
+        $env:ST_NO_SELF_ELEVATE = '1'
+    }
+
+    It 'перезапускает себя с правами и теми же аргументами вместо отказа' {
+        Mock Test-VwElevated { $false }
+        Mock Invoke-VwSelfElevated { 0 }
+
+        { Assert-VwElevated } | Should -Throw
+        Should -Invoke Invoke-VwSelfElevated -Times 1 -Exactly -ParameterFilter {
+            ($ToolArgs -join ' ') -eq 'start --ttl 15m E:\'
+        }
+    }
+
+    It 'отдаёт код возврата элевированного прогона, а не общий успех' {
+        Mock Test-VwElevated { $false }
+        Mock Invoke-VwSelfElevated { 7 }
+
+        $code = $null
+        try { Assert-VwElevated } catch { $code = $_.Exception.Code }
+        $code | Should -Be 7
+    }
+
+    It 'при отклонённом запросе не запускает ничего' {
+        Mock Test-VwElevated { $false }
+        Mock Invoke-VwSelfElevated { $null }
+
+        $code = $null
+        try { Assert-VwElevated } catch { $code = $_.Exception.Code }
+        $code | Should -Be 1
+        (T 'elev_declined') | Should -Match 'nothing was started'
+    }
+
+    It 'оставляет прежний отказ, когда UAC поднять нельзя' {
+        Mock Test-VwSelfElevateAllowed { $false }
+        Mock Test-VwElevated { $false }
+        Mock Invoke-VwSelfElevated { throw 'неинтерактивного вызывающего нельзя спрашивать' }
+
+        { Assert-VwElevated } | Should -Throw
+        Should -Invoke Invoke-VwSelfElevated -Times 0 -Exactly
+    }
+}
+
+# Три отказа гейта — это разница между одним диалогом UAC и бесконечным циклом или задачей
+# планировщика, повисшей на диалоге, которого никто не видит.
+Describe 'Test-VwSelfElevateAllowed (s45)' {
+    AfterEach {
+        $script:VW_ELEVATED_CHILD = $false
+        $env:ST_NO_SELF_ELEVATE = '1'
+    }
+
+    It 'отказывает внутри элевированного потомка — второй запрос не кончился бы никогда' {
+        Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
+        $script:VW_ELEVATED_CHILD = $true
+        Test-VwSelfElevateAllowed | Should -BeFalse
+    }
+
+    It 'отказывает при ST_NO_SELF_ELEVATE=1' {
+        $script:VW_ELEVATED_CHILD = $false
+        $env:ST_NO_SELF_ELEVATE = '1'
+        Test-VwSelfElevateAllowed | Should -BeFalse
+    }
+
+    It 'иначе отвечает интерактивностью сессии' {
+        Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
+        $script:VW_ELEVATED_CHILD = $false
+        Test-VwSelfElevateAllowed | Should -Be ([Environment]::UserInteractive)
+    }
+}
+
 Describe 'Assert-VwElevated — start требует администратора (P0-2, fail-closed)' {
 
     BeforeEach { Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue }

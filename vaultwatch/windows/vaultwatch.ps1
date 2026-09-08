@@ -78,6 +78,12 @@ function T {
         'ru:need_ps7'      { return "vaultwatch требует PowerShell 7+ (pwsh); запущен под $A. TTL-авторазмонтирование и хуки зовут pwsh.exe и НЕ сработают на Windows PowerShell 5.1. Установи PowerShell 7: https://aka.ms/powershell" }
         'en:need_admin'    { return 'vaultwatch start needs an administrator console. The TTL auto-dismount calls Lock-BitLocker and the scheduled tasks register at the highest run level - both are administrator-only, and without rights the guard would register and then silently never fire. Nothing was started. Open PowerShell as administrator and try again.' }
         'ru:need_admin'    { return 'vaultwatch start требует консоли администратора. TTL-авторазмонтирование зовёт Lock-BitLocker, а задачи регистрируются с наивысшими правами — и то и другое доступно только администратору, а без прав сторож зарегистрировался бы и молча никогда не сработал. Ничего не запущено. Открой PowerShell от имени администратора и повтори.' }
+        'en:elev_ask'      { return 'vaultwatch start needs administrator rights - Windows will ask now. Confirm, and the session is started in its own window.' }
+        'ru:elev_ask'      { return 'vaultwatch start требует прав администратора — Windows сейчас спросит. Подтверди, и сессия заведётся в отдельном окне.' }
+        'en:elev_declined' { return 'The rights prompt was declined - nothing was started.' }
+        'ru:elev_declined' { return 'Запрос прав отклонён — ничего не запущено.' }
+        'en:elev_close'    { return 'Press Enter to close this window' }
+        'ru:elev_close'    { return 'Нажми Enter, чтобы закрыть это окно' }
         'en:need_mount'    { return 'this command needs a mountpoint argument.' }
         'ru:need_mount'    { return 'команде нужен аргумент — точка монтирования.' }
         'en:mount_missing' { return "mountpoint not found: $A" }
@@ -795,8 +801,55 @@ function Test-VwElevated {
 function Assert-VwElevated {
     if ($env:ST_ASSUME_ELEVATED -eq '1') { return }
     if (Test-VwElevated) { return }
+    # The launcher and the tray have raised the prompt on the user's behalf since s43, and
+    # securetrash does it from its own command line since s45. `vaultwatch start` typed by hand
+    # is the same act by the same user, so it asks too - and keeps the refusal for the cases
+    # where asking is impossible or refused. Nothing about the fail-closed contract changes:
+    # unelevated, the session is still never written.
+    if (Test-VwSelfElevateAllowed) {
+        Write-VwWarn (T 'elev_ask')
+        $code = Invoke-VwSelfElevated -ToolArgs $script:VW_ARGV
+        # $null = declined, or the process never started. Any other value is the elevated run's
+        # exit code and becomes ours - a caller must not read success out of a failed start.
+        if ($null -ne $code) { Stop-VwCommand $code }
+        Write-VwErr (T 'elev_declined')
+        Stop-VwCommand 1
+    }
     Write-VwErr (T 'need_admin')
     Stop-VwCommand 1
+}
+
+# May we raise UAC at all? Three refusals, each for a failure we would otherwise ship:
+# the elevated child must not prompt again (that loop has no end); a non-interactive caller -
+# a securetrash hook, a scheduled task, CI - has nobody to click the dialog and needs the fast
+# refusal it already gets today; ST_NO_SELF_ELEVATE=1 turns it off by hand (same name and
+# meaning as in securetrash). Wrapper for Mock: UserInteractive cannot be mocked directly.
+function Test-VwSelfElevateAllowed {
+    if ($script:VW_ELEVATED_CHILD) { return $false }
+    if ($env:ST_NO_SELF_ELEVATE -eq '1') { return $false }
+    return [Environment]::UserInteractive
+}
+
+# Re-launch THIS script through UAC with the arguments it was given, and wait for it.
+# Returns the elevated run's exit code, or $null when the prompt was declined / nothing started.
+# The `_elevated` sentinel tells the child it IS the elevated copy: it never prompts again and
+# holds its window open at the end, so the started session can be read before it disappears.
+# Arguments go through ConvertTo-VwArgvSafe and quoting like every other command line we build
+# (Get-VwPwshArgs): a mountpoint is a path, and a path can carry spaces.
+# Wrapper for Mock: Pester must never open a real UAC prompt.
+function Invoke-VwSelfElevated {
+    param([string[]]$ToolArgs = @())
+    $quoted = @($ToolArgs | ForEach-Object { "`"$(ConvertTo-VwArgvSafe $_)`"" })
+    $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$(ConvertTo-VwArgvSafe $PSCommandPath)`" _elevated"
+    if ($quoted.Count -gt 0) { $arg = "$arg $($quoted -join ' ')" }
+    try {
+        $p = Start-Process -FilePath 'pwsh.exe' -Verb RunAs -Wait -PassThru -ArgumentList $arg -ErrorAction Stop
+        return $p.ExitCode
+    } catch {
+        # A declined UAC prompt arrives here as a terminating error. Not an anomaly - it is the
+        # user saying no, and the honest answer is that nothing was started.
+        return $null
+    }
 }
 
 function Invoke-VwMain {
@@ -804,6 +857,15 @@ function Invoke-VwMain {
     try {
         Assert-VwPs7
         $self = $PSCommandPath
+        # Internal: this is the script re-entered through UAC by Invoke-VwSelfElevated. The
+        # sentinel is cut here, so `_elevated` never reaches the dispatch as a command.
+        $script:VW_ELEVATED_CHILD = $false
+        if ($Argv -and $Argv.Count -ge 1 -and $Argv[0] -eq '_elevated') {
+            $script:VW_ELEVATED_CHILD = $true
+            $Argv = @(if ($Argv.Count -ge 2) { $Argv[1..($Argv.Count - 1)] } else { @() })
+        }
+        # The arguments as given: this is what the elevated copy re-runs.
+        $script:VW_ARGV = @($Argv)
         # --yes anywhere in the arguments == ST_ASSUME_YES=1 (securetrash contract).
         # After `--` arguments are literal: `stop -- --yes` is a mountpoint with that
         # name, not a flag (mirror of bash).
@@ -833,6 +895,14 @@ function Invoke-VwMain {
         }
     } catch [VwExit] {
         exit $_.Exception.Code
+    } finally {
+        # The elevated copy owns its console window, and the window dies with the process. Held
+        # open in `finally`, so a start that ENDED IN AN ERROR is read too - that is the message
+        # the user needs most, and the one a vanishing window costs them.
+        if ($script:VW_ELEVATED_CHILD) {
+            [Console]::Out.Write("$(T 'elev_close') ")
+            [Console]::In.ReadLine() | Out-Null
+        }
     }
 }
 
