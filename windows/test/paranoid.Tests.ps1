@@ -401,6 +401,25 @@ Describe 'dispatch — panic (choice 2)' {
         }
     }
 
+    It 'declining the rights prompt still clears the clipboard and locks the screen (s45)' {
+        # Live Windows run: refusing UAC left the machine exactly as it was, screen included -
+        # the opposite of what pressing PANIC means. Only closing volumes needs rights.
+        Mock Get-PnAdminState { 'no' }
+        Mock Invoke-PnToolElevated { $false }
+        Invoke-PnDispatch '2' | Should -BeFalse
+        Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
+            $Tool -eq 'panic' -and ($ToolArgs -contains 'now')
+        }
+    }
+
+    It 'an accepted prompt runs panic once, elevated, and not again unelevated (s45)' {
+        Mock Get-PnAdminState { 'no' }
+        Mock Invoke-PnToolElevated { $true }
+        Invoke-PnDispatch '2' | Should -BeFalse
+        Should -Invoke Invoke-PnToolElevated -Times 1 -Exactly
+        Should -Invoke Invoke-PnTool -Times 0 -Exactly
+    }
+
     It 'when panic is absent, runs nothing' {
         Mock Test-PnTool { $false } -ParameterFilter { $Tool -eq 'panic' }
         Invoke-PnDispatch '2' | Out-Null

@@ -237,6 +237,40 @@ Describe 'Invoke-PtTool — диспетчер CLI' {
     }
 }
 
+# --- s45, живой прогон: отказ в UAC оставлял машину ровно как была, включая незапертый экран.
+# Для сейфа это честно (без прав он не откроется), для паники — противоположность смыслу кнопки:
+# буфер и блокировка экрана прав не требуют. ---
+Describe 'отказ в правах: panic всё равно делает бесправную половину (s45)' {
+
+    BeforeEach {
+        Mock Test-PtAdmin { $false }
+        $script:PtStarts = @()
+        Mock Start-Process {
+            $script:PtStarts += ($ArgumentList -join ' ') + $(if ($Verb) { " [verb=$Verb]" } else { '' })
+            if ($Verb -eq 'RunAs') { throw 'UAC declined' }
+        }
+    }
+
+    It 'после отказа запускает panic без прав и возвращает $false' {
+        $ok = Invoke-PtTool -Command 'panic now --hard'
+        $ok | Should -BeFalse
+        ($script:PtStarts | Where-Object { $_ -match 'verb=RunAs' }).Count | Should -Be 1
+        ($script:PtStarts | Where-Object { $_ -notmatch 'verb=' -and $_ -match 'panic now' }).Count | Should -Be 1
+    }
+
+    It 'для команд сейфа отказ остаётся отказом — без прав им делать нечего' {
+        $ok = Invoke-PtTool -Command 'securetrash vault open'
+        $ok | Should -BeFalse
+        ($script:PtStarts | Where-Object { $_ -notmatch 'verb=' }).Count | Should -Be 0
+    }
+
+    It 'уведомление называет сделанную половину, а не «ничего не сделано»' {
+        (Get-PtL notif_uac_declined_panic -Lang 'en') | Should -Match 'screen locked'
+        (Get-PtL notif_uac_declined_panic -Lang 'en') | Should -Match 'NOT closed'
+        (Get-PtL notif_uac_declined_panic -Lang 'ru') | Should -Match 'экран заперт'
+    }
+}
+
 # --- Контракт состояний (test/state-contract.json). На вопрос «сейф открыт?» отвечают три
 # независимые реализации — bash `_volume_mounted`, приложение macOS и этот трей, — и совпадать
 # их заставляет только общая таблица. Идентификаторы правил выписаны буквально: их ищет

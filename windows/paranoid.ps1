@@ -78,6 +78,11 @@ function T {
         'ru:elev_close'   { return 'Нажми Enter, чтобы закрыть это окно' }
         'en:vw_active'    { return 'active' }       'ru:vw_active'    { return 'активен' }
         'en:vw_idle'      { return 'idle' }         'ru:vw_idle'      { return 'нет сессий' }
+        # Prefix of the TTL suffix on the vaultwatch line. Read straight from the session file
+        # now, so the wording is ours rather than a line scraped out of `vaultwatch status`.
+        'en:vw_ttl_left'  { return 'auto-close in' }  'ru:vw_ttl_left'  { return 'авто-закрытие через' }
+        'en:panic_declined_partial' { return 'Rights declined - running what needs none: clipboard and screen lock. Encrypted volumes stay as they are; run panic from an administrator console to close them.' }
+        'ru:panic_declined_partial' { return 'В правах отказано — делаю то, для чего они не нужны: буфер и блокировка экрана. Шифр-тома остаются как есть; чтобы закрыть их, запусти panic из консоли администратора.' }
         'en:update_avail' { return 'update available:' } 'ru:update_avail' { return 'доступно обновление:' }
         # Shown under the "update available" banner. The Update menu item does the same thing;
         # this line is for someone who wants to run it themselves. (Homebrew is macOS-only, and
@@ -232,7 +237,20 @@ function Get-PnVaultContainer {
 # Mount points of all volumes — drive letters AND folder mount points (`C:\Vault\`).
 # A wrapper for Mock. $null = the table could not be read (no CIM cmdlets, WMI refusal,
 # insufficient rights) — this is NOT "nothing is mounted".
+# The volume table, as cheaply as it can be had. DriveInfo is a .NET call that answers in
+# milliseconds; Get-CimInstance Win32_Volume spins up WMI and costs seconds on a cold session -
+# and this runs on every redraw of the dashboard, which is what made the menu take five to
+# seven seconds to appear (live Windows run, s45). CIM stays as the fallback: it also sees
+# volumes mounted into a folder, which DriveInfo does not enumerate.
+# $null still means "could not read the table" - the contract's R3, unknown and never closed.
 function Get-PnMountPoints {
+    try {
+        $drives = [System.IO.DriveInfo]::GetDrives()
+        if ($drives -and $drives.Count -gt 0) {
+            $ready = @($drives | Where-Object { $_.IsReady } | ForEach-Object { $_.Name } | Where-Object { $_ })
+            if ($ready.Count -gt 0) { return $ready }
+        }
+    } catch { }
     try {
         $vols = Get-CimInstance -ClassName Win32_Volume -ErrorAction Stop
         if ($null -eq $vols) { return $null }
@@ -271,6 +289,11 @@ function Get-PnAdminState {
     }
 }
 function Get-PnBitLockerState {
+    # Unelevated, Get-BitLockerVolume cannot answer - it refuses or returns nothing - and it
+    # takes its time about it: the BitLocker WMI provider is one of the slow ones, and the
+    # dashboard paid for it on every redraw only to print "unknown" anyway. Same verdict,
+    # without the wait. Elevated, the call is made and the answer is real.
+    if ((Get-PnAdminState) -ne 'yes') { return 'unknown' }
     try {
         $sys = Get-BitLockerVolume -ErrorAction Stop | Where-Object { $_.VolumeType -eq 'OperatingSystem' }
         if ($sys -and $sys.ProtectionStatus -eq 'On') { return 'on' }
@@ -278,19 +301,61 @@ function Get-PnBitLockerState {
         return 'unknown'
     } catch { return 'unknown' }
 }
+# Where vaultwatch keeps its session files (mirror of the tray's Get-PtVwStateDir and of the
+# macOS app: all three read the same key=value files the CLI writes).
+function Get-PnVwStateDir {
+    if ($env:VW_STATE_DIR) { return $env:VW_STATE_DIR }
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { $null }
+    if (-not $homeDir) { return $null }
+    return (Join-Path $homeDir '.vaultwatch\sessions')
+}
+
+# Read the sessions directly. This used to run `vaultwatch status` - a whole pwsh process, half
+# a second to a second and a half - and then Get-PnVaultwatchTtl ran it a SECOND time for the
+# TTL line. Two process starts on every redraw of a menu that is supposed to appear instantly.
+# The files are the same source the CLI prints from, and the tray has read them this way since
+# it was written. Returns @() when there is no directory or nothing in it.
+function Get-PnVaultwatchSessions {
+    param([int]$Now = [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+    $dir = Get-PnVwStateDir
+    if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { return @() }
+    $out = @()
+    foreach ($f in (Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        # Per-file try/catch: vaultwatch stop may delete a file between listing and reading, and
+        # a half-written file must not take the whole dashboard down with it.
+        try {
+            $kv = @{}
+            foreach ($line in (Get-Content -LiteralPath $f.FullName -ErrorAction Stop)) {
+                if ($line -match '^\s*([A-Za-z_]+)=(.*)$') { $kv[$Matches[1]] = $Matches[2].Trim() }
+            }
+            if (-not $kv.ContainsKey('mount')) { continue }
+            $ttl = 0; $started = 0
+            [void][int]::TryParse([string]$kv['ttl_secs'], [ref]$ttl)
+            [void][int]::TryParse([string]$kv['started'], [ref]$started)
+            $remaining = if ($ttl -gt 0 -and $started -gt 0) { $started + $ttl - $Now } else { $null }
+            $out += [pscustomobject]@{ Mount = $kv['mount']; Remaining = $remaining }
+        } catch { }
+    }
+    return $out
+}
+
 function Get-PnVaultwatchState {
     if (-not (Test-PnTool 'vaultwatch')) { return 'absent' }
     try {
-        $out = & vaultwatch status 2>$null
-        if ($out -match '(?i)session:|сессия:') { return 'active' } else { return 'idle' }
+        if ((Get-PnVaultwatchSessions).Count -gt 0) { return 'active' } else { return 'idle' }
     } catch { return 'idle' }
 }
 # TTL line of the active session (for the dashboard). A separate function — so Pester can mock
 # it and the dashboard render does not hit the real vaultwatch. Empty if no TTL line / no tool.
 function Get-PnVaultwatchTtl {
     try {
-        $m = & vaultwatch status 2>$null | Select-String -Pattern 'TTL|auto-exit|авто-выход' | Select-Object -First 1
-        if ($m) { return $m.ToString().Trim() }
+        $s = @(Get-PnVaultwatchSessions | Where-Object { $null -ne $_.Remaining }) | Select-Object -First 1
+        if (-not $s) { return '' }
+        $left = [int]$s.Remaining
+        if ($left -lt 0) { $left = 0 }
+        $h = [math]::Floor($left / 3600); $m = [math]::Floor(($left % 3600) / 60); $sec = $left % 60
+        $span = if ($h -gt 0) { "${h}h ${m}m ${sec}s" } else { "${m}m ${sec}s" }
+        return "$(T 'vw_ttl_left') $span"
     } catch { }
     return ''
 }
@@ -562,12 +627,30 @@ function Invoke-PnActPanic {
     # --hard (hide/lock + kill cloud daemons + clear recents). The guard against an accidental
     # press is that the item is explicitly marked "instant", and `panic now` itself requires an explicit verb.
     # Panic is reversible: it is hide & lock, NOT data destruction (for destruction — securetrash).
-    # Panic goes through the same path: without rights it cannot lock a single encrypted
-    # volume, and a kill-switch that quietly does half its job is worse than one extra click.
-    # The moment of the press, handed to panic so its report covers the whole path the person
-    # waited through - this launcher, the elevated re-launch and the UAC prompt included.
-    # panic's own stopwatch starts after all of that and would flatter us (audit §16.4).
-    Invoke-PnToolAdmin 'panic' @('now', '--hard', '--trigger-ms', (Get-PnTriggerMs))
+    # Rights are asked for, because only an elevated run can close encrypted volumes. They are
+    # not a precondition for pressing the button: see the declined branch below.
+    # The moment of the press is handed to panic so its report covers the whole path the person
+    # waited through - this launcher, the elevated re-launch and the UAC prompt included; its
+    # own stopwatch starts after all of that and would flatter us (audit §16.4). One stamp for
+    # whichever path ends up running.
+    $trig = Get-PnTriggerMs
+    $panicArgs = @('now', '--hard', '--trigger-ms', $trig)
+    if ((Get-PnAdminState) -eq 'yes') {
+        Invoke-PnTool -Tool 'panic' -ToolArgs $panicArgs
+        Invoke-PnPause; return
+    }
+    Write-PnScreen "  $(T 'elev_ask')"
+    if (Invoke-PnToolElevated -Tool 'panic' -ToolArgs $panicArgs) {
+        Write-PnScreen "  $(T 'elev_back')"
+        Invoke-PnPause; return
+    }
+    # Declined - and for THIS command "nothing was done" is the wrong answer. Clearing the
+    # clipboard and locking the screen need no rights at all; only closing BitLocker volumes
+    # does. Refusing the prompt used to leave the machine exactly as it was, screen included,
+    # which is the opposite of what someone pressing PANIC wants (live Windows run, s45).
+    # So the unelevated run happens anyway, and says plainly which half it could not do.
+    Write-PnScreen "  $(T 'panic_declined_partial')"
+    Invoke-PnTool -Tool 'panic' -ToolArgs $panicArgs
     Invoke-PnPause
 }
 # Ask for the size cap of the new vault (Windows: whole MB for diskpart). Returns the size

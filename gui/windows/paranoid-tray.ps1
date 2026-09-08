@@ -81,6 +81,7 @@ $script:PtStrings = @{
         notif_ttl_warn='Vault auto-closes in {0}'; notif_ttl_expired='vaultwatch TTL expired — vault is still OPEN'
         notif_long_open='Vault open for 30+ minutes (no vaultwatch)'; notif_panic_arm='Press again to PANIC'
         uac_suffix='(asks for admin rights)'; notif_uac_declined='Admin rights declined — NOTHING was done'
+        notif_uac_declined_panic='Admin rights declined — clipboard cleared and screen locked; encrypted volumes were NOT closed'
         notif_hotkey_fail='Panic hotkey unavailable (taken by another app)'
         set_title='Paranoid Bar — Settings'
         set_vol='Vault volume:'; set_poll='Poll interval (s):'; set_lang='Language:'; set_hotkey='Panic hotkey:'
@@ -106,6 +107,7 @@ $script:PtStrings = @{
         notif_ttl_warn='Сейф авто-закроется через {0}'; notif_ttl_expired='TTL vaultwatch истёк — сейф всё ещё ОТКРЫТ'
         notif_long_open='Сейф открыт дольше 30 минут (без vaultwatch)'; notif_panic_arm='Нажмите ещё раз для ПАНИКИ'
         uac_suffix='(запросит права администратора)'; notif_uac_declined='В правах отказано — НИЧЕГО не сделано'
+        notif_uac_declined_panic='В правах отказано — буфер очищен и экран заперт; шифр-тома НЕ закрыты'
         notif_hotkey_fail='Хоткей паники недоступен (занят другим приложением)'
         set_title='Paranoid Bar — Настройки'
         set_vol='Том сейфа:'; set_poll='Интервал опроса (с):'; set_lang='Язык:'; set_hotkey='Хоткей паники:'
@@ -443,11 +445,22 @@ function Invoke-PtTool {
     if ((Test-PtNeedsAdmin $Command) -and -not (Test-PtAdmin)) {
         try {
             # -Verb RunAs raises one UAC prompt; declining it surfaces here as a terminating
-            # error. That is the user saying no, not an anomaly — the honest answer is that
-            # nothing happened, never a window that silently fails half its work.
+            # error. That is the user saying no, not an anomaly.
             Start-Process -FilePath 'pwsh' -Verb RunAs -ArgumentList $argv -ErrorAction Stop | Out-Null
             return $true
-        } catch { return $false }
+        } catch {
+            # For the vault, a declined prompt means nothing happened, and that is the honest
+            # answer: every vault command needs diskpart and BitLocker. panic is different -
+            # clearing the clipboard and locking the screen need no rights at all, and leaving
+            # the screen unlocked because someone refused a dialog is the opposite of what the
+            # button means. So panic runs anyway, unelevated, and reports which half it did
+            # (live Windows run, s45). $false is still returned: the caller says the volumes
+            # were not closed.
+            if ($Command -match '^panic\s+now\b') {
+                Start-Process -FilePath 'pwsh' -ArgumentList $argv | Out-Null
+            }
+            return $false
+        }
     }
     Start-Process -FilePath 'pwsh' -ArgumentList $argv | Out-Null
     return $true
@@ -652,7 +665,9 @@ public class PtHotkeyWindow : NativeWindow {
             if (-not (Invoke-PtTool -Command ('panic now --hard --trigger-ms ' + (Get-PtTriggerMs)))) {
                 # The panic hotkey is the one place where a silent no-op is unacceptable: the
                 # user pressed it twice believing the vault is being closed.
-                $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_uac_declined), [System.Windows.Forms.ToolTipIcon]::Error)
+                # Not "nothing was done": the unelevated run still cleared the clipboard and
+                # locked the screen. Only the volumes are left open, and that is what is named.
+                $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_uac_declined_panic), [System.Windows.Forms.ToolTipIcon]::Error)
             }
         } else {
             $script:panicArmedAt = $now
