@@ -208,6 +208,16 @@ PowerShell 7 all work. The tools run on PowerShell 7 under the hood, and the `.c
 on your PATH starts it for them — you never have to pick a shell or touch your
 ExecutionPolicy.
 
+**Which edition of Windows you have does matter — for the vault, and only for it.**
+`securetrash vault` is a BitLocker-encrypted VHDX, and BitLocker *management* —
+`manage-bde` and the BitLocker cmdlets — ships with **Pro, Enterprise and Education**,
+not with Home. On Home the vault cannot run at all; `securetrash check` says so by name
+instead of sending you to look for a switch that is not there. This is about the
+management commands, not about your disk: Device Encryption may well be protecting your
+system drive on Home — it just does not expose what the vault is built on. The other four
+tools (`panic`, `ghostdraft`, `seedsplit`, `vaultwatch`) do not need BitLocker, though
+`vaultwatch` guards a vault and has little to guard without one.
+
 **1. Install PowerShell 7 and Git.** Press `Win`, type "PowerShell", Enter, and run:
 
 ```powershell

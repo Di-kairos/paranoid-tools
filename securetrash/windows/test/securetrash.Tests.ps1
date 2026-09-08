@@ -230,6 +230,77 @@ Describe 'Test-StSelfElevateAllowed (s45)' {
     }
 }
 
+# --- s45: on Windows Home the BitLocker cmdlets simply do not exist, so the vault can never
+# run there. The old texts told that user to "enable BitLocker" and reported the vault state as
+# "could not be determined" - advice for a switch their edition does not have, and a verdict
+# that sounds like a transient glitch. The reason has to be named, and named only when the
+# registry actually says Home: a missing cmdlet alone can also mean a removed module or a policy. ---
+Describe 'Windows Home: the vault is unavailable by edition, and says so (s45)' {
+
+    BeforeEach {
+        $script:ST_LOCALE = 'en'
+        $env:ST_ASSUME_YES = '1'
+        Mock Get-StDiskKind { 'ssd' }
+        Mock Get-StVeraCryptPath { $null }
+        Mock Test-StElevated { $true }
+    }
+
+    It 'names the edition in check instead of advising a switch that is not there' {
+        Mock Get-StBitLockerCapable { $false }
+        Mock Get-StBitLockerState { 'unknown' }
+        Mock Get-StWindowsEdition { 'Core' }
+
+        $out = Get-StCombinedOutput { Invoke-StCheck }
+        $out | Should -Match 'edition \(Home\)'
+        $out | Should -Match 'Pro, Enterprise and Education'
+        # And it must not read as a temporary failure to look:
+        $out | Should -Not -Match 'could not be determined'
+    }
+
+    It 'does not call the machine unencrypted - Device Encryption may still hold the system drive' {
+        Mock Get-StBitLockerCapable { $false }
+        Mock Get-StBitLockerState { 'unknown' }
+        Mock Get-StWindowsEdition { 'CoreSingleLanguage' }
+
+        $out = Get-StCombinedOutput { Invoke-StCheck }
+        $out | Should -Match 'Device Encryption'
+    }
+
+    It 'blames the environment, not the edition, when the registry does not say Home' {
+        Mock Get-StBitLockerCapable { $false }
+        Mock Get-StBitLockerState { 'unknown' }
+        Mock Get-StWindowsEdition { 'Professional' }
+
+        $out = Get-StCombinedOutput { Invoke-StCheck }
+        $out | Should -Match 'not reported as Home'
+        $out | Should -Not -Match 'edition \(Home\)'
+    }
+
+    It 'refuses vault create with the reason, before anything is created' {
+        Mock Get-StBitLockerCapable { $false }
+        Mock Get-StWindowsEdition { 'Core' }
+        Mock Invoke-StDiskpart { throw 'nothing may reach diskpart on Home' }
+
+        $out = Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('create') } catch { } }
+        $out | Should -Match 'edition \(Home\)'
+        $out | Should -Match 'unavailable'
+        Should -Invoke Invoke-StDiskpart -Times 0 -Exactly
+    }
+}
+
+Describe 'Get-StBitLockerAbsentReason (s45)' {
+    It 'reads every Home edition id as the edition, and everything else as an environment fault' {
+        foreach ($id in @('Core', 'CoreN', 'CoreSingleLanguage', 'CoreCountrySpecific')) {
+            Mock Get-StWindowsEdition { $id }.GetNewClosure()
+            Get-StBitLockerAbsentReason | Should -Be 'home' -Because "$id is a Home edition"
+        }
+        foreach ($id in @('Professional', 'Enterprise', 'Education', 'ServerStandard', '')) {
+            Mock Get-StWindowsEdition { $id }.GetNewClosure()
+            Get-StBitLockerAbsentReason | Should -Be 'absent' -Because "$id is not Home"
+        }
+    }
+}
+
 # --- P0-1: securetrash.ps1 must respect ST_VAULT_PATH (the destructive target = container) ---
 # Otherwise the GUI/tray/launcher show one vault (via ST_VAULT_*) while destroy/reset/open
 # hit the hardcoded default. Parity with bash securetrash.

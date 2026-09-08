@@ -211,6 +211,16 @@ windows\install.cmd -Uninstall             # Windows: то же самое, вм
 PowerShell 7. Внутри инструменты работают на PowerShell 7, но запускает его за них
 `.cmd`-обёртка, которая лежит в PATH. Выбирать оболочку и трогать ExecutionPolicy не нужно.
 
+**А вот редакция Windows важна — для сейфа, и только для него.** `securetrash vault` —
+это VHDX под BitLocker, а *управление* BitLocker (`manage-bde` и командлеты) идёт в
+**Pro, Enterprise и Education**, но не в Home. На Home сейф не работает вовсе, и
+`securetrash check` называет причину прямо, вместо того чтобы отправлять искать
+несуществующую галочку. Речь именно про команды управления, а не про твой диск: системный
+диск на Home вполне может быть защищён Device Encryption — она просто не даёт того, на чём
+построен сейф. Остальным четырём инструментам (`panic`, `ghostdraft`, `seedsplit`,
+`vaultwatch`) BitLocker не нужен, хотя `vaultwatch` сторожит сейф — и без сейфа сторожить
+ему нечего.
+
 **1. Поставь PowerShell 7 и Git.** Нажми `Win`, набери «PowerShell», Enter и выполни:
 
 ```powershell

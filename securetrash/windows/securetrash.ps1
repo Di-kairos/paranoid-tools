@@ -107,6 +107,13 @@ Flags:
     'en:vault_none'         = 'Vault: unavailable — enable BitLocker or install VeraCrypt.'
     'ru:vault_none'         = 'Vault: недоступен — включи BitLocker или поставь VeraCrypt.'
 
+    # Why BitLocker management is missing. The edition is named ONLY when the registry says so:
+    # a missing cmdlet alone does not prove Home (a removed module or a policy looks the same).
+    'en:bl_home'            = 'This Windows edition (Home) does not ship BitLocker MANAGEMENT: manage-bde and the BitLocker cmdlets come with Pro, Enterprise and Education. That is what the vault is built on, so the vault cannot run here. This says nothing about your system drive: Device Encryption may well be protecting it — it just does not expose the commands this vault needs.'
+    'ru:bl_home'            = 'Эта редакция Windows (Home) не поставляет УПРАВЛЕНИЕ BitLocker: manage-bde и командлеты BitLocker идут в Pro, Enterprise и Education. Сейф построен именно на них, поэтому здесь он не работает. Про системный диск это ничего не говорит: его вполне может защищать Device Encryption — просто нужных сейфу команд она не даёт.'
+    'en:bl_absent'          = 'The BitLocker management commands are not available in this environment, and the edition is not reported as Home. Something else is in the way: the BitLocker feature or its PowerShell module is not installed, or a policy blocks it.'
+    'ru:bl_absent'          = 'Командлеты управления BitLocker в этой среде недоступны, при этом редакция не определяется как Home. Мешает что-то другое: не установлен компонент BitLocker или его модуль PowerShell, либо доступ закрыт политикой.'
+
     'en:check_verdict'      = "Verdict: for secrets, use 'securetrash vault' (preventively)."
     'ru:check_verdict'      = "Итог: для секретов используй 'securetrash vault' (превентивно)."
 
@@ -431,6 +438,28 @@ function Get-StBitLockerCapable {
     } catch {
         return $false
     }
+}
+
+# Windows edition id from the registry (Home = Core / CoreN / CoreSingleLanguage /
+# CoreCountrySpecific; Pro = Professional). Wrapper for Mock; empty string when unreadable.
+function Get-StWindowsEdition {
+    try {
+        $key = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' `
+            -Name EditionID -ErrorAction Stop
+        return [string]$key.EditionID
+    } catch {
+        return ''
+    }
+}
+
+# WHY the BitLocker cmdlets are missing: 'home' (the edition genuinely does not ship management)
+# or 'absent' (they are gone for some other reason - feature not installed, module removed,
+# policy). The distinction is the difference between "buy a different Windows" and "fix this
+# machine", and the user cannot guess it from a cmdlet that simply is not there. Never called
+# when Get-StBitLockerCapable is true.
+function Get-StBitLockerAbsentReason {
+    if ((Get-StWindowsEdition) -like 'Core*') { return 'home' }
+    return 'absent'
 }
 
 # Path to VeraCrypt: on PATH or in the standard Program Files.
@@ -946,8 +975,13 @@ function Invoke-StCheck {
         # simply refuses, so name the missing ingredient instead of a dead-end "could not
         # determine" — the shadow-copy line below has said it that way all along.
         default {
-            if (Test-StElevated) { Write-StWarn (T 'bl_unknown_check') }
-            else                 { Write-StWarn (T 'bl_unknown_elevate') }
+            # On Home the cmdlet is absent, so the state is permanently 'unknown' - and "could
+            # not determine" sends the user hunting for a setting that does not exist here.
+            if (-not (Get-StBitLockerCapable) -and (Get-StBitLockerAbsentReason) -eq 'home') {
+                Write-StWarn (T 'bl_home')
+            }
+            elseif (Test-StElevated) { Write-StWarn (T 'bl_unknown_check') }
+            else                     { Write-StWarn (T 'bl_unknown_elevate') }
         }
     }
 
@@ -967,13 +1001,16 @@ function Invoke-StCheck {
         }
     }
 
-    # Vault availability: native BitLocker / VeraCrypt fallback / none.
+    # Vault availability: native BitLocker / VeraCrypt fallback / none. When BitLocker is out,
+    # the REASON comes first: "unavailable - enable BitLocker" is advice a Home user cannot act
+    # on, and it is the whole vault that is unavailable to them, not a switch they forgot.
     if (Get-StBitLockerCapable) {
         Write-StInfo (T 'vault_native')
-    } elseif (Get-StVeraCryptPath) {
-        Write-StInfo (T 'vault_veracrypt')
     } else {
-        Write-StWarn (T 'vault_none')
+        $blWhy = if ((Get-StBitLockerAbsentReason) -eq 'home') { 'bl_home' } else { 'bl_absent' }
+        Write-StWarn (T $blWhy)
+        if (Get-StVeraCryptPath) { Write-StInfo (T 'vault_veracrypt') }
+        else                     { Write-StWarn (T 'vault_none') }
     }
 
     Write-StSnapshotNote
@@ -1266,6 +1303,8 @@ function Invoke-StVaultCreateNow {
         # #2: automated VeraCrypt is disabled (the password would leak via argv). Use the GUI.
         Write-StWarn (T 'vault_vc_manual'); Stop-StCommand
     } else {
+        $blWhy = if ((Get-StBitLockerAbsentReason) -eq 'home') { 'bl_home' } else { 'bl_absent' }
+        Write-StErr (T $blWhy)
         Write-StErr (T 'vault_unavailable'); Stop-StCommand
     }
 }
@@ -1399,6 +1438,8 @@ function Invoke-StVault {
                 # Reveal — after the hook and regardless of its outcome (mirror of the macOS order).
                 Show-StVaultInExplorer -Mount "$($letter):\"
             } else {
+                $blWhy = if ((Get-StBitLockerAbsentReason) -eq 'home') { 'bl_home' } else { 'bl_absent' }
+                Write-StErr (T $blWhy)
                 Write-StErr (T 'vault_unavailable'); Stop-StCommand
             }
         }
