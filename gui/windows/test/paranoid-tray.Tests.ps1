@@ -388,6 +388,8 @@ Describe 'Invoke-PtTool — привилегированные команды и
         Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $null -eq $Verb }
     }
     It 'отказ в правах = честный $false, а не «сделано»' {
+        # Даже если и бесправный запуск не удался (здесь падает КАЖДЫЙ Start-Process),
+        # вызывающий получает $false, а не исключение из обработчика хоткея.
         Mock Start-Process { throw 'UAC declined' }
         Invoke-PtTool -Command 'panic now --hard' | Should -BeFalse
     }
@@ -505,7 +507,7 @@ Describe 'Cross-platform l10n parity' {
         # Windows-only keys: UAC is a Windows mechanism, and macOS has no counterpart to mirror
         # (its vault is hdiutil, which needs no elevation). Mirroring them into ParanoidBar.swift
         # would add strings the macOS UI can never show. Everything else stays 1:1.
-        $winOnly = @('uac_suffix', 'notif_uac_declined')
+        $winOnly = @('uac_suffix', 'notif_uac_declined', 'notif_uac_declined_panic')
         foreach ($k in $winOnly) { $swiftKeys | Should -Not -Contain $k }
         $psKeys = $PtStrings.en.Keys | Where-Object { $_ -notin $winOnly } | Sort-Object -Unique
         ($psKeys -join ',') | Should -Be ($swiftKeys -join ',')

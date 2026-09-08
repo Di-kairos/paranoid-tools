@@ -457,7 +457,10 @@ function Invoke-PtTool {
             # (live Windows run, s45). $false is still returned: the caller says the volumes
             # were not closed.
             if ($Command -match '^panic\s+now\b') {
-                Start-Process -FilePath 'pwsh' -ArgumentList $argv | Out-Null
+                # Best effort, and it must not turn into an exception of its own: if even the
+                # plain start fails there is nothing further to try, and the caller still has to
+                # get its honest $false rather than a crash out of the hotkey handler.
+                try { Start-Process -FilePath 'pwsh' -ArgumentList $argv | Out-Null } catch { }
             }
             return $false
         }
