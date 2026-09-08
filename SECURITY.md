@@ -71,10 +71,12 @@ from. Stated plainly, because the honesty is the point:
   a tag here can therefore produce a correctly signed artifact — the release process
   and the source sit in the same trust zone. That is the honest boundary of what the
   signature buys you.
-- **`main` carries no branch protection today.** Anything that can push with the
-  maintainer's credentials can also rewrite or delete history here. Requiring pull
-  requests would be ceremony with one maintainer, but blocking force-pushes and
-  deletion would not be — it is a known gap, not a decision.
+- **`main` blocks force-pushes and deletion; it does not require review.** A repository
+  ruleset denies non-fast-forward pushes and branch deletion, with no bypass for anyone,
+  the maintainer included: credentials that leak can still add a commit, but they cannot
+  quietly rewrite what is already published or erase the branch. Requiring pull requests
+  or review would be ceremony with one maintainer, and is deliberately not enabled — that
+  part remains what it looks like, a project with a single pair of eyes.
 
 ### If the signing key is compromised
 
