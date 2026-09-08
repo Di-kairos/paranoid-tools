@@ -166,7 +166,10 @@ Describe 'vault raises the rights prompt itself (s45)' {
         $out | Should -Not -Match 'NOTHING was changed'
     }
 
-    It 'exits with the elevated run’s own code, not a blanket success' {
+    # A typographic apostrophe would not survive here: PowerShell accepts U+2019 as a
+    # single-quote DELIMITER, so it opens a string that runs to the next one, hundreds of
+    # lines away, and the file stops parsing.
+    It 'exits with the code of the elevated run, not a blanket success' {
         Mock Test-StElevated { $false }
         Mock Invoke-StSelfElevated { 3 }
 
