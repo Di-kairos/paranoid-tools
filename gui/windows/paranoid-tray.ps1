@@ -75,6 +75,10 @@ $script:PtStrings = @{
         vault_menu='Vault'; vault_close='Close the vault'; vault_open='Open the vault'; vault_create='Create a vault'
         vault_empty='Empty — wipe contents, keep the vault'; vault_destroy='Destroy the vault (irreversible)'
         launcher_item='Open the full launcher (paranoid)'; settings_item='Settings…'; login_item='Start at login'
+        login_admin_item='Start at login WITH admin rights (no UAC for vault and PANIC)'
+        login_admin_on='Autostart now runs the tray as administrator: the panic hotkey fires with no prompt. The tray also holds administrator rights for the whole session - anything that compromises it is compromised with them.'
+        login_admin_off='Elevated autostart removed. The tray starts as a normal user again, and vault actions and PANIC ask for rights when you use them.'
+        login_admin_declined='Rights declined - the autostart setting was not changed.'
         setup_item='Setup guide…'; quit_item='Quit Paranoid Bar'
         ttl_expired='TTL expired'; auto_exit_in='auto-exit in'; watching_no_ttl='watching (no TTL)'
         tip_open='Vault is OPEN — at risk while open'; tip_closed='Vault closed'
@@ -101,6 +105,10 @@ $script:PtStrings = @{
         vault_menu='Сейф'; vault_close='Закрыть сейф'; vault_open='Открыть сейф'; vault_create='Создать сейф'
         vault_empty='Очистить — стереть содержимое, сейф оставить'; vault_destroy='Уничтожить сейф (необратимо)'
         launcher_item='Открыть полный лаунчер (paranoid)'; settings_item='Настройки…'; login_item='Запускать при входе'
+        login_admin_item='Запускать при входе С ПРАВАМИ администратора (без UAC для сейфа и ПАНИКИ)'
+        login_admin_on='Автозапуск теперь поднимает трей администратором: хоткей паники срабатывает без диалога. Всю сессию трей держит права администратора — что скомпрометирует его, скомпрометирует с правами.'
+        login_admin_off='Элевированный автозапуск убран. Трей снова стартует обычным пользователем, а сейф и ПАНИКА запрашивают права в момент использования.'
+        login_admin_declined='В правах отказано — настройка автозапуска не изменена.'
         setup_item='Гид по настройке…'; quit_item='Выйти из Paranoid Bar'
         ttl_expired='TTL истёк'; auto_exit_in='авто-выход через'; watching_no_ttl='наблюдение (без TTL)'
         tip_open='Сейф ОТКРЫТ — под риском, пока открыт'; tip_closed='Сейф закрыт'
@@ -177,6 +185,10 @@ function Get-PtMenuSpec {
         [pscustomobject]@{ Label = (Get-PtL 'launcher_item' -Lang $Lang); Command = 'paranoid';       Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'login_item' -Lang $Lang);    Command = '__autostart__';     Enabled = $true }
+        # Deliberately a second, separate item rather than a third state of the first one: this
+        # one changes the security posture of the machine, and a switch like that should be
+        # picked, not cycled into by clicking the same line twice.
+        [pscustomobject]@{ Label = (Get-PtL 'login_admin_item' -Lang $Lang); Command = '__autostart_admin__'; Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'settings_item' -Lang $Lang); Command = '__settings__';      Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'setup_item' -Lang $Lang);    Command = '__setup__';         Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
@@ -213,6 +225,94 @@ function Enable-PtAutostart {
 function Disable-PtAutostart {
     $s = Get-PtAutostartSpec
     Remove-ItemProperty -LiteralPath $s.Path -Name $s.Name -ErrorAction SilentlyContinue
+}
+
+# --- autostart WITH administrator rights (Task Scheduler, RunLevel Highest) ---
+# Why a task and not HKCU Run: a Run entry starts the tray as a plain user, and every vault
+# action and PANIC then costs a UAC prompt. A scheduled task registered at the highest run
+# level starts it already elevated, so the panic hotkey fires with no dialog at all - which is
+# the whole point of a panic hotkey (live Windows run, s45).
+#
+# The price is real and belongs next to the switch, not in a footnote: the tray then runs as
+# administrator for the whole session, and anything that compromises it is compromised with
+# administrator rights. That is why this is off by default and has to be turned on by hand.
+#
+# Registering and removing the task both need rights themselves, so both go through one UAC
+# prompt via the `_autostart_admin_*` sentinels below - the same re-entry trick the launcher
+# uses, with no command line to quote.
+function Get-PtAutostartTaskSpec {
+    $script = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
+    $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+    if (-not $pwshPath) { $pwshPath = 'pwsh' }
+    return [pscustomobject]@{
+        TaskName = 'ParanoidTools-Tray'
+        Execute  = $pwshPath
+        Argument = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$script`""
+        UserId   = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    }
+}
+
+# Wrapper for Mock: the tests must never touch the real Task Scheduler.
+function Get-PtScheduledTask {
+    param([string]$TaskName)
+    try { return Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop } catch { return $null }
+}
+
+# ON only when a task exists AND its action still matches the current spec - a task pointing at
+# a moved script or a moved pwsh is a broken autostart, not an enabled one. Same rule as the
+# registry check above, for the same reason.
+function Test-PtAutostartTask {
+    $spec = Get-PtAutostartTaskSpec
+    $task = Get-PtScheduledTask -TaskName $spec.TaskName
+    if (-not $task) { return $false }
+    foreach ($a in @($task.Actions)) {
+        if ($a.Execute -eq $spec.Execute -and $a.Arguments -eq $spec.Argument) { return $true }
+    }
+    return $false
+}
+
+# The privileged half, executed inside the elevated child. Interactive logon (not S4U): the tray
+# draws a menu and balloons, so it needs the logged-on session to exist.
+function Register-PtAutostartTask {
+    $spec = Get-PtAutostartTaskSpec
+    $action    = New-ScheduledTaskAction -Execute $spec.Execute -Argument $spec.Argument
+    $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $spec.UserId
+    $principal = New-ScheduledTaskPrincipal -UserId $spec.UserId -LogonType Interactive -RunLevel Highest
+    $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+    Register-ScheduledTask -TaskName $spec.TaskName -Action $action -Trigger $trigger `
+        -Principal $principal -Settings $settings -Force | Out-Null
+}
+
+function Unregister-PtAutostartTask {
+    $spec = Get-PtAutostartTaskSpec
+    Unregister-ScheduledTask -TaskName $spec.TaskName -Confirm:$false -ErrorAction SilentlyContinue
+}
+
+# Re-enter this script through UAC to do one of those two things. $true = the prompt was
+# accepted and the child finished; $false = declined, and then nothing changed.
+# Wrapper for Mock: Pester must never open a real UAC prompt.
+function Invoke-PtAutostartAdminElevated {
+    param([ValidateSet('install', 'remove')][string]$Action)
+    $self = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
+    $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $self, "_autostart_admin_$Action")
+    try {
+        Start-Process -FilePath 'pwsh' -Verb RunAs -Wait -ArgumentList $argv -ErrorAction Stop | Out-Null
+        return $true
+    } catch { return $false }
+}
+
+# The two mechanisms must never both be armed: the tray would start twice at logon, once with
+# rights and once without, and the plain copy would keep asking for UAC while the elevated one
+# is already running. Switching in either direction clears the other.
+function Set-PtAutostartAdmin {
+    param([bool]$On)
+    if ($On) {
+        if (-not (Invoke-PtAutostartAdminElevated -Action 'install')) { return $false }
+        Disable-PtAutostart
+        return $true
+    }
+    if (-not (Invoke-PtAutostartAdminElevated -Action 'remove')) { return $false }
+    return $true
 }
 
 # --- vaultwatch status (read-only over the same session files the vaultwatch CLI writes) ---
@@ -432,7 +532,7 @@ function Test-PtNeedsAdmin {
 # process could not start) — in which case NOTHING was done, and the caller says so.
 function Invoke-PtTool {
     param([string]$Command)
-    if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__' -or $Command -eq '__settings__' -or $Command -eq '__setup__') { return $true }
+    if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__' -or $Command -eq '__autostart_admin__' -or $Command -eq '__settings__' -or $Command -eq '__setup__') { return $true }
     # The moment of the click/press goes with the command, so panic can report the whole path -
     # this tray, the new console and the UAC prompt included - and not just its own tail
     # (audit 2026-09-07, §16.4). Added here rather than in the menu spec: the spec is a pure
@@ -744,7 +844,27 @@ public class PtHotkeyWindow : NativeWindow {
                 $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
             } elseif ($cmd -eq '__autostart__') {
                 $it.Checked = [bool](Test-PtAutostart)
-                $it.Add_Click({ if (Test-PtAutostart) { Disable-PtAutostart } else { Enable-PtAutostart } }.GetNewClosure())
+                $it.Add_Click({
+                    if (Test-PtAutostart) { Disable-PtAutostart }
+                    else {
+                        # Plain autostart and the elevated one cannot both be armed, or the tray
+                        # starts twice at logon - once with rights, once without.
+                        if (Test-PtAutostartTask) { [void](Set-PtAutostartAdmin -On $false) }
+                        Enable-PtAutostart
+                    }
+                }.GetNewClosure())
+            } elseif ($cmd -eq '__autostart_admin__') {
+                $it.Checked = [bool](Test-PtAutostartTask)
+                $it.Add_Click({
+                    $wasOn = [bool](Test-PtAutostartTask)
+                    if (Set-PtAutostartAdmin -On (-not $wasOn)) {
+                        $msg = if ($wasOn) { Get-PtL login_admin_off } else { Get-PtL login_admin_on }
+                        $icon = if ($wasOn) { [System.Windows.Forms.ToolTipIcon]::Info } else { [System.Windows.Forms.ToolTipIcon]::Warning }
+                        $notify.ShowBalloonTip(8000, 'Paranoid Tools', $msg, $icon)
+                    } else {
+                        $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL login_admin_declined), [System.Windows.Forms.ToolTipIcon]::Error)
+                    }
+                }.GetNewClosure())
             } elseif ($cmd -eq '__settings__') {
                 $it.Add_Click({
                     $s = Show-PtSettingsForm
@@ -797,6 +917,10 @@ public class PtHotkeyWindow : NativeWindow {
 }
 
 if (-not $env:ST_NO_MAIN) {
+    # Internal: this copy was started through UAC only to register or remove the elevated
+    # autostart task. It does the one thing and exits - it never draws a tray.
+    if ($args.Count -ge 1 -and $args[0] -eq '_autostart_admin_install') { Register-PtAutostartTask; exit 0 }
+    if ($args.Count -ge 1 -and $args[0] -eq '_autostart_admin_remove')  { Unregister-PtAutostartTask; exit 0 }
     # The tray is pwsh 7 and pwsh 7 only: the hotkey helper compiles with a reference to
     # System.Windows.Forms.Primitives, and .NET Framework (Windows PowerShell 5.1) has no such
     # assembly. Without this check a 5.1 launch dumped a C# compiler error instead of an answer.

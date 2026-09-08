@@ -21,7 +21,7 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
 | Platform | File | Status |
 |----------|------|--------|
 | macOS | `macos/ParanoidBar.swift` + `macos/build.sh` | **Signed + notarized** (Developer ID, hardened runtime, ticket stapled); source compiles with `swiftc` (Command Line Tools). AppKit `NSStatusItem` menu-bar agent: monochrome SF-Symbol status glyph (adapts to light/dark menu bar), live vault/FileVault status, **vaultwatch session + TTL countdown** (in the glyph + menu), Status/PANIC/Vault▸(open·close·empty·destroy)/launcher, **Start at login** toggle (LaunchAgent), runs CLIs via Terminal. |
-| Windows | `windows/paranoid-tray.ps1` (+ Pester) | **Runnable PowerShell** (no compile). `NotifyIcon` tray, same menu + **vaultwatch TTL countdown** (tooltip + menu headers) + **Start at login** toggle (HKCU Run), runs CLIs in a new console. Menu/status/autostart/vaultwatch logic Pester-tested. |
+| Windows | `windows/paranoid-tray.ps1` (+ Pester) | **Runnable PowerShell** (no compile). `NotifyIcon` tray, same menu + **vaultwatch TTL countdown** (tooltip + menu headers) + two **Start at login** toggles (HKCU Run, or a Task Scheduler task at the highest run level — see below), runs CLIs in a new console. Menu/status/autostart/vaultwatch logic Pester-tested. |
 
 **Phase B polish (product-grade UX, both platforms, full feature parity):**
 
@@ -55,6 +55,24 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
 Verified here: macOS source compiles cleanly (`swiftc -O`) and passes `./ParanoidBar --selftest`
 (pure-logic checks: hotkey preset parsing, notification decision engine, localization-dictionary
 completeness, onboarding-checklist state — `gui/macos/test.sh` runs both as the build gate).
+### Windows: the two autostarts, and why the second one exists
+
+The tray offers **Start at login** (an `HKCU\…\Run` entry, no rights needed) and **Start at
+login WITH admin rights**, which registers a Task Scheduler task at the highest run level
+instead. They are mutually exclusive — turning one on removes the other, or the tray would
+start twice at logon.
+
+The second one exists because of the panic path. On Windows every vault action and `panic now`
+needs administrator rights, so an unelevated tray raises one UAC prompt each time — including
+when the panic hotkey fires, which is precisely the moment a dialog is unwelcome. Started from
+the task, the tray already holds the rights and the hotkey fires with no prompt at all.
+
+The price is stated on the switch itself and in the balloon that confirms it: the tray then
+runs as administrator for the whole session, and whatever compromises it is compromised with
+administrator rights. That is why it is off by default, why it is a separate menu item rather
+than a third state of the first one, and why turning it on or off costs one UAC prompt of its
+own. Declining that prompt changes nothing.
+
 Windows tray menu/dispatch/autostart/hotkey/notification/localization/onboarding logic is
 Pester-tested in CI (`gui/windows/test` runs on `windows-latest`). The two mirror each other and
 the bash launcher's grouping.

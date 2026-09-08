@@ -59,8 +59,20 @@ Describe 'Get-PtMenuSpec — структура меню' {
         ($none | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeFalse
     }
     It 'содержит пункт автостарта (Start at login / __autostart__)' {
-        $auto = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Label -match 'Start at login' }
-        $auto.Command | Should -Be '__autostart__'
+        # Пунктов автостарта теперь два — обычный и с правами; матчим по команде, а не по слову
+        # в подписи, иначе фильтр ловит оба и сравнение уходит в массив.
+        $auto = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Command -eq '__autostart__' }
+        @($auto).Count | Should -Be 1
+        $auto.Label | Should -Match 'Start at login'
+    }
+
+    It 'содержит отдельный пункт автостарта с правами (__autostart_admin__)' {
+        # Отдельный пункт, а не третье состояние первого: он меняет модель безопасности машины,
+        # такой переключатель выбирают осознанно, а не доклацывают по той же строке.
+        $adm = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Command -eq '__autostart_admin__' }
+        @($adm).Count | Should -Be 1
+        $adm.Label | Should -Match 'admin rights'
+        $adm.Label | Should -Match 'no UAC'
     }
     It 'содержит пункт настроек (Settings / __settings__)' {
         $set = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Label -match 'Settings' }
@@ -268,6 +280,79 @@ Describe 'отказ в правах: panic всё равно делает бе�
         (Get-PtL notif_uac_declined_panic -Lang 'en') | Should -Match 'screen locked'
         (Get-PtL notif_uac_declined_panic -Lang 'en') | Should -Match 'NOT closed'
         (Get-PtL notif_uac_declined_panic -Lang 'ru') | Should -Match 'экран заперт'
+    }
+}
+
+# --- s45: автозапуск с правами. HKCU Run поднимает трей обычным пользователем, и тогда каждое
+# действие сейфа и ПАНИКА стоят диалога UAC. Задача планировщика с RunLevel Highest поднимает
+# его уже с правами — хоткей паники срабатывает без диалога. Цена (трей администратором всю
+# сессию) названа в самом пункте меню и в уведомлении, а не в сноске. ---
+Describe 'автозапуск с правами администратора (s45)' {
+
+    It 'спецификация задачи несёт скрытый запуск текущего пользователя' {
+        $spec = Get-PtAutostartTaskSpec
+        $spec.TaskName | Should -Be 'ParanoidTools-Tray'
+        $spec.Argument | Should -Match 'WindowStyle Hidden'
+        $spec.Argument | Should -Match 'ExecutionPolicy Bypass'
+        $spec.Argument | Should -Match 'paranoid-tray\.ps1'
+        $spec.UserId   | Should -Not -BeNullOrEmpty
+    }
+
+    It 'регистрация просит наивысший уровень прав — иначе смысла в ней нет' {
+        # Проверяем контракт регистрации по исходнику: Register-ScheduledTask на раннере не
+        # выполнить, а потеря -RunLevel Highest молча вернула бы диалог UAC на каждую панику.
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        $src | Should -Match 'New-ScheduledTaskPrincipal[^\n]*-RunLevel Highest'
+        $src | Should -Match 'New-ScheduledTaskTrigger -AtLogOn'
+        $src | Should -Match 'LogonType Interactive'
+    }
+
+    It 'считает автозапуск включённым только если задача совпадает с текущей спецификацией' {
+        $spec = Get-PtAutostartTaskSpec
+        Mock Get-PtScheduledTask { [pscustomobject]@{ Actions = @([pscustomobject]@{ Execute = $spec.Execute; Arguments = $spec.Argument }) } }
+        Test-PtAutostartTask | Should -BeTrue
+        # Устаревшая задача (скрипт переехал) — это сломанный автозапуск, а не включённый.
+        Mock Get-PtScheduledTask { [pscustomobject]@{ Actions = @([pscustomobject]@{ Execute = 'pwsh'; Arguments = '-File C:\old\paranoid-tray.ps1' }) } }
+        Test-PtAutostartTask | Should -BeFalse
+        Mock Get-PtScheduledTask { $null }
+        Test-PtAutostartTask | Should -BeFalse
+    }
+
+    It 'включение снимает обычный автозапуск — иначе трей стартует дважды' {
+        Mock Invoke-PtAutostartAdminElevated { $true }
+        Mock Disable-PtAutostart { }
+        Set-PtAutostartAdmin -On $true | Should -BeTrue
+        Should -Invoke Invoke-PtAutostartAdminElevated -Times 1 -Exactly -ParameterFilter { $Action -eq 'install' }
+        Should -Invoke Disable-PtAutostart -Times 1 -Exactly
+    }
+
+    It 'отказ в правах ничего не меняет и честно возвращает $false' {
+        Mock Invoke-PtAutostartAdminElevated { $false }
+        Mock Disable-PtAutostart { }
+        Set-PtAutostartAdmin -On $true | Should -BeFalse
+        Should -Invoke Disable-PtAutostart -Times 0 -Exactly
+    }
+
+    It 'выключение снимает задачу и обычный автозапуск не трогает' {
+        Mock Invoke-PtAutostartAdminElevated { $true }
+        Mock Disable-PtAutostart { }
+        Set-PtAutostartAdmin -On $false | Should -BeTrue
+        Should -Invoke Invoke-PtAutostartAdminElevated -Times 1 -Exactly -ParameterFilter { $Action -eq 'remove' }
+        Should -Invoke Disable-PtAutostart -Times 0 -Exactly
+    }
+
+    It 'сентинелы обрабатываются до запуска трея — элевированная копия не рисует меню' {
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        $src | Should -Match '_autostart_admin_install'
+        $src | Should -Match 'Register-PtAutostartTask; exit 0'
+        $src | Should -Match 'Unregister-PtAutostartTask; exit 0'
+    }
+
+    It 'текст пункта и уведомления называют цену, а не только выгоду' {
+        (Get-PtL login_admin_item -Lang 'en') | Should -Match 'no UAC'
+        (Get-PtL login_admin_on -Lang 'en')   | Should -Match 'compromised'
+        (Get-PtL login_admin_on -Lang 'ru')   | Should -Match 'скомпрометирует'
+        (Get-PtL login_admin_off -Lang 'ru')  | Should -Match 'обычным пользователем'
     }
 }
 
@@ -507,7 +592,8 @@ Describe 'Cross-platform l10n parity' {
         # Windows-only keys: UAC is a Windows mechanism, and macOS has no counterpart to mirror
         # (its vault is hdiutil, which needs no elevation). Mirroring them into ParanoidBar.swift
         # would add strings the macOS UI can never show. Everything else stays 1:1.
-        $winOnly = @('uac_suffix', 'notif_uac_declined', 'notif_uac_declined_panic')
+        $winOnly = @('uac_suffix', 'notif_uac_declined', 'notif_uac_declined_panic',
+                     'login_admin_item', 'login_admin_on', 'login_admin_off', 'login_admin_declined')
         foreach ($k in $winOnly) { $swiftKeys | Should -Not -Contain $k }
         $psKeys = $PtStrings.en.Keys | Where-Object { $_ -notin $winOnly } | Sort-Object -Unique
         ($psKeys -join ',') | Should -Be ($swiftKeys -join ',')
