@@ -1,4 +1,4 @@
-# Pester 5 — the logic of paranoid.ps1 (the Windows mirror of the launcher). Dot-sourced under
+﻿# Pester 5 — the logic of paranoid.ps1 (the Windows mirror of the launcher). Dot-sourced under
 # ST_NO_MAIN=1: defines the functions without starting the interactive loop. paranoid is a thin
 # launcher: it does nothing with secrets itself, it only dispatches the five CLIs. So the seams
 # are MOCKED (Invoke-PnTool, Read-PnLine, *-State), and the tests verify the orchestration: which

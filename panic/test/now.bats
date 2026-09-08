@@ -72,7 +72,9 @@ run_now() { run env PATH="$STUBS:$PATH" PANIC_CGSESSION="$STUBS/cgsession" bash 
     bash "$SCRIPT" now
   [ "$status" -eq 0 ]
   grep -qF -- "osascript" "$VW_STUB_LOG"
-  [[ "$output" == *"locked"* ]] || [[ "$output" == *"заблокирован"* ]]
+  # The lock line claims a REQUEST now (the system draws the screen afterwards), so the success
+  # wording is checked by that verb rather than by "locked".
+  [[ "$output" == *"REQUESTED"* ]] || [[ "$output" == *"ЗАПРОШЕНА"* ]]
 }
 
 @test "now honestly warns when the screen could NOT be locked" {
@@ -91,7 +93,7 @@ run_now() { run env PATH="$STUBS:$PATH" PANIC_CGSESSION="$STUBS/cgsession" bash 
     bash "$SCRIPT" now
   [ "$status" -eq 0 ]
   grep -qF -- "osascript" "$VW_STUB_LOG"     # the fallback was actually invoked
-  [[ "$output" == *"locked"* ]] || [[ "$output" == *"заблокирован"* ]]
+  [[ "$output" == *"REQUESTED"* ]] || [[ "$output" == *"ЗАПРОШЕНА"* ]]
 }
 
 @test "now exit code survives a closed pipe (no SIGPIPE 141 from multi-line report)" {

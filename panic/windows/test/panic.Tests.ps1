@@ -75,9 +75,11 @@ Describe 'panic now — orchestration' {
         Should -Invoke Invoke-PnLockScreen -Times 1 -Exactly
     }
 
-    It 'honestly reports a locked screen on success' {
+    It 'reports an accepted lock REQUEST on success, not a locked screen' {
+        # LockWorkStation returns when the request is taken; Windows draws the screen a moment
+        # later and never says when. The verb has to match what was actually observed (s45).
         $out = Invoke-PnNow -ArgList @()
-        ($out -join "`n") | Should -Match 'screen locked'
+        ($out -join "`n") | Should -Match 'REQUESTED'
     }
 
     It 'does NOT claim a locked screen when the lock fails — and warns instead' {
@@ -87,7 +89,7 @@ Describe 'panic now — orchestration' {
         Mock Invoke-PnLockScreen { $false }
         Mock Write-PnWarn { }
         $out = Invoke-PnNow -ArgList @()
-        ($out -join "`n") | Should -Not -Match 'screen locked\.'
+        ($out -join "`n") | Should -Not -Match 'REQUESTED'
         Should -Invoke Write-PnWarn -Times 1 -Exactly -ParameterFilter { $Msg -match 'could NOT lock' }
     }
 }
