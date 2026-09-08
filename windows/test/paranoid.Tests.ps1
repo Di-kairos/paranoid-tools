@@ -1,4 +1,4 @@
-﻿# Pester 5 — the logic of paranoid.ps1 (the Windows mirror of the launcher). Dot-sourced under
+# Pester 5 — the logic of paranoid.ps1 (the Windows mirror of the launcher). Dot-sourced under
 # ST_NO_MAIN=1: defines the functions without starting the interactive loop. paranoid is a thin
 # launcher: it does nothing with secrets itself, it only dispatches the five CLIs. So the seams
 # are MOCKED (Invoke-PnTool, Read-PnLine, *-State), and the tests verify the orchestration: which
@@ -388,6 +388,16 @@ Describe 'dispatch — panic (choice 2)' {
         Invoke-PnDispatch '2' | Should -BeFalse
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'panic' -and ($ToolArgs -contains 'now') -and ($ToolArgs -contains '--hard')
+        }
+    }
+
+    It 'hands panic the moment of the press, so its report covers the UAC prompt too (s45)' {
+        # panic's own stopwatch starts inside the command - after this launcher, after the
+        # elevated re-launch and after the rights prompt. Only the caller knows when the person
+        # actually pressed the key (audit 2026-09-07, §16.4).
+        Invoke-PnDispatch '2' | Should -BeFalse
+        Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
+            ($ToolArgs -join ' ') -match '--trigger-ms \d{13}'
         }
     }
 

@@ -97,10 +97,14 @@ function T {
         'ru:now_hard'         { return 'panic --hard: cloud-демоны убиты, recent items очищены.' }
         'en:now_report'       { return "panic: locked/dismounted $A encrypted volume(s), cleared clipboard." }
         'ru:now_report'       { return "panic: заперто/размонтировано шифр-томов: $A, буфер очищен." }
-        'en:now_timing'       { return "timing: volumes closed after $A s, lock step finished after $B s (measured on this run; the line below says whether the lock itself succeeded)." }
-        'ru:now_timing'       { return "время: тома закрыты за $A с, шаг блокировки завершён за $B с (замер этого запуска; удалась ли сама блокировка — в строке ниже)." }
-        'en:lock_ok'          { return 'screen locked.' }
-        'ru:lock_ok'          { return 'экран заперт.' }
+        'en:now_timing'       { return "timing (inside this run): volumes closed after $A s, lock requested after $B s. Getting here is NOT in these numbers - see the lines below." }
+        'ru:now_timing'       { return "время (внутри этого запуска): тома закрыты за $A с, блокировка запрошена через $B с. Путь ДО этого сюда не входит — см. строки ниже." }
+        'en:now_startup'      { return "process start to first action: $A s - PowerShell loading and parsing this script, before anything could be closed." }
+        'ru:now_startup'      { return "от старта процесса до первого действия: $A с — PowerShell грузился и разбирал этот скрипт, до того как что-то можно было закрыть." }
+        'en:now_trigger'      { return "from the trigger to the lock request: $A s - the whole path the person waited through, including the launcher and any rights prompt they had to confirm." }
+        'ru:now_trigger'      { return "от нажатия до запроса блокировки: $A с — весь путь, который ждал человек, включая лаунчер и запрос прав, который пришлось подтвердить." }
+        'en:lock_ok'          { return 'screen lock REQUESTED and accepted by Windows. LockWorkStation returns as soon as the request is taken - Windows draws the lock screen a moment later, so this is not a measurement of the screen going dark. Glance at it.' }
+        'ru:lock_ok'          { return 'блокировка экрана ЗАПРОШЕНА и принята Windows. LockWorkStation возвращается сразу, как запрос принят, — сам экран Windows рисует чуть позже, так что это не замер момента, когда экран погас. Взгляни на него.' }
         'en:lock_fail'        { return 'could NOT lock the screen — lock it now (Win+L).' }
         'ru:lock_fail'        { return 'НЕ удалось заблокировать экран — заблокируйте вручную (Win+L).' }
         default               { return $Key }
@@ -260,6 +264,37 @@ public static extern bool LockWorkStation();
     } catch { return $false }
 }
 
+# Seconds from this process starting to now: PowerShell startup plus parsing this script, all of
+# it spent before a single volume could be closed. Wrapper for Mock; $null when the OS will not
+# say (a process object is not guaranteed to expose StartTime), and a missing number is better
+# than an invented one.
+function Get-PnSecondsSinceProcessStart {
+    try {
+        $started = [System.Diagnostics.Process]::GetCurrentProcess().StartTime
+        $sec = ([DateTime]::Now - $started).TotalSeconds
+        if ($sec -lt 0 -or $sec -gt 3600) { return $null }
+        return $sec
+    } catch { return $null }
+}
+
+# Seconds since PANIC_TRIGGER_MS - wall-clock milliseconds of the moment the PERSON asked, set
+# by whoever launched us (tray hotkey, launcher). This is the only number that contains the UAC
+# prompt, and the prompt is the part with no upper bound: it waits for a human. $null when the
+# variable is absent or the value cannot be trusted.
+function Get-PnSecondsSinceTrigger {
+    param([string]$TriggerMs)
+    $raw = if ($TriggerMs) { $TriggerMs } else { $env:PANIC_TRIGGER_MS }
+    if (-not $raw) { return $null }
+    [double]$ms = 0
+    if (-not [double]::TryParse($raw, [ref]$ms)) { return $null }
+    try {
+        $trigger = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$ms).LocalDateTime
+        $sec = ([DateTime]::Now - $trigger).TotalSeconds
+        if ($sec -lt 0 -or $sec -gt 3600) { return $null }
+        return $sec
+    } catch { return $null }
+}
+
 # Administrator rights in THIS session (wrapper for Mock). Lock-BitLocker is administrator-only,
 # and without rights Get-BitLockerVolume throws — which the enumeration catches and reports as
 # "no unlocked volumes". So an unelevated `panic now` printed "locked 0 volumes" over a vault
@@ -313,7 +348,16 @@ function Invoke-PnClearRecentItems {
 function Invoke-PnNow {
     param([string[]]$ArgList)
     $hard = $false
-    foreach ($a in $ArgList) { if ($a -eq '--hard') { $hard = $true } }
+    # --trigger-ms <epoch_ms>: the moment the person asked, handed over by whoever launched us.
+    # A flag rather than only an environment variable, because the elevated re-launch that a
+    # tray hotkey goes through is exactly the case where the number matters most - it is the one
+    # that contains the UAC prompt - and an inherited environment across that boundary is not
+    # something to bet an honest measurement on.
+    $trigArg = $null
+    for ($i = 0; $i -lt $ArgList.Count; $i++) {
+        if ($ArgList[$i] -eq '--hard') { $hard = $true }
+        elseif ($ArgList[$i] -eq '--trigger-ms' -and $i + 1 -lt $ArgList.Count) { $trigArg = $ArgList[$i + 1] }
+    }
 
     $n = 0
     # "Instantly" is a claim about time, and a claim about time is measured or dropped
@@ -322,6 +366,13 @@ function Invoke-PnNow {
     # while a closed vault survives the lock being bypassed. The price is the seconds the screen
     # stays visible — so that duration is reported instead of promised away.
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    # This stopwatch starts INSIDE the command - after pwsh started, after the script was
+    # parsed, and after any UAC prompt the caller had to raise. On its own it measures our own
+    # tail of the path and flatters us (audit 2026-09-07, §16.4). Two more numbers fix that:
+    # how long this process took to reach here, and - when the caller passes it - how long ago
+    # the person actually pressed the key.
+    $tStartup = Get-PnSecondsSinceProcessStart
+    $tTrigger = $null
 
     # Said BEFORE the attempt, not after: panic is read in a hurry, and the one thing the user
     # must not carry away is "0 volumes locked" read as "there was nothing to lock".
@@ -349,6 +400,9 @@ function Invoke-PnNow {
     $histCleared = Invoke-PnClearClipboardHistory
     $locked = Invoke-PnLockScreen
     $tLock = $sw.Elapsed.TotalSeconds
+    # Wall clock, necessarily: the trigger comes from another process, which has no access to
+    # our stopwatch origin. A clock jump would make it nonsense, and nonsense is dropped.
+    $tTrigger = Get-PnSecondsSinceTrigger -TriggerMs $trigArg
 
     # 5. --hard: kill cloud daemons + clear Recent items and jump lists.
     if ($hard) {
@@ -359,6 +413,8 @@ function Invoke-PnNow {
 
     Write-PnInfo (T 'now_report' "$n")
     Write-PnInfo (T 'now_timing' ('{0:0.00}' -f $tVols) ('{0:0.00}' -f $tLock))
+    if ($null -ne $tStartup) { Write-PnInfo (T 'now_startup' ('{0:0.00}' -f $tStartup)) }
+    if ($null -ne $tTrigger) { Write-PnInfo (T 'now_trigger' ('{0:0.00}' -f $tTrigger)) }
     # The report says how many volumes were locked; unelevated that number is zero for a reason
     # the user has to see next to it, not twenty lines above.
     if (-not $elevated) { Write-PnWarn (T 'no_admin_lock') }

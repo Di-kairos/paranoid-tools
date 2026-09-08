@@ -264,10 +264,12 @@ EOF
     ru:now_hard) echo 'panic --hard: cloud-демоны убиты, recent items очищены.' ;;
     en:now_report) printf 'panic: detached %s disk image(s), cleared clipboard.' "$1" ;;
     ru:now_report) printf 'panic: размонтировано образов: %s, буфер очищен.' "$1" ;;
-    en:now_timing) printf 'timing: images detached after %s s, lock step finished after %s s (measured on this run; the line below says whether the lock itself succeeded).' "$1" "$2" ;;
-    ru:now_timing) printf 'время: образы отсоединены за %s с, шаг блокировки завершён за %s с (замер этого запуска; удалась ли сама блокировка — в строке ниже).' "$1" "$2" ;;
-    en:lock_ok)    echo 'screen locked.' ;;
-    ru:lock_ok)    echo 'экран заблокирован.' ;;
+    en:now_timing) printf 'timing (inside this run, monotonic): images detached after %s s, lock requested after %s s. This does NOT include getting here — see the line below when the caller passed its trigger time.' "$1" "$2" ;;
+    ru:now_timing) printf 'время (внутри этого запуска, монотонные часы): образы отсоединены за %s с, блокировка запрошена через %s с. Путь ДО этого сюда не входит — см. строку ниже, если вызывающий передал время нажатия.' "$1" "$2" ;;
+    en:now_trigger) printf 'from the trigger to the lock request: %s s — the whole path the person waited through, launcher and process start included.' "$1" ;;
+    ru:now_trigger) printf 'от нажатия до запроса блокировки: %s с — весь путь, который ждал человек, вместе с запуском лаунчера и процесса.' "$1" ;;
+    en:lock_ok)    echo 'screen lock REQUESTED and accepted by the system. macOS draws the lock screen itself, a moment later — this is the request succeeding, not a measurement of the screen going dark. Glance at it.' ;;
+    ru:lock_ok)    echo 'блокировка экрана ЗАПРОШЕНА и принята системой. Сам экран macOS рисует чуть позже — это успех запроса, а не замер момента, когда экран погас. Взгляни на него.' ;;
     en:lock_fail)  echo 'could NOT lock the screen — lock it now (Ctrl+Cmd+Q). Grant Accessibility to your terminal so panic can lock it next time.' ;;
     ru:lock_fail)  echo 'НЕ удалось заблокировать экран — запри сам (Ctrl+Cmd+Q). Дай терминалу доступ Accessibility, чтобы panic запирал в следующий раз.' ;;
     en:hk_no_skhd) echo 'skhd not found. Install it: brew install skhd (a tiny global-hotkey daemon).' ;;
@@ -342,6 +344,18 @@ _now_ms() {
   printf '%d' "$(( $(date +%s) * 1000 ))"
 }
 
+# Monotonic milliseconds, for measuring OUR OWN steps. The wall clock above can be dragged
+# backwards by NTP mid-panic and turn a duration negative; a duration must not depend on
+# somebody else's clock discipline (audit 2026-09-07, §16.4). Falls back to the wall clock when
+# CLOCK_MONOTONIC is unavailable — a panic must never fail over a clock helper.
+_mono_ms() {
+  if command -v perl >/dev/null 2>&1; then
+    perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
+      -e 'printf "%d", clock_gettime(CLOCK_MONOTONIC)*1000' 2>/dev/null && return 0
+  fi
+  _now_ms
+}
+
 # ms → seconds with 2 decimals, without bc/awk (integer arithmetic only).
 _fmt_s() { printf '%d.%02d' $(( $1 / 1000 )) $(( ($1 % 1000) / 10 )); }
 
@@ -350,13 +364,27 @@ _fmt_s() { printf '%d.%02d' $(( $1 / 1000 )) $(( ($1 % 1000) / 10 )); }
 # files may corrupt data: a deliberate trade-off (see README "Scope & limitations").
 cmd_now() {
   require_macos
-  local hard=0 a
+  local hard=0 a trig_arg=""
+  local want_trig=0
   for a in "$@"; do
-    case "$a" in --hard) hard=1 ;; esac
+    if (( want_trig )); then trig_arg="$a"; want_trig=0; continue; fi
+    case "$a" in
+      --hard)       hard=1 ;;
+      --trigger-ms) want_trig=1 ;;
+    esac
   done
 
   local t0 t_detach t_lock
-  t0="$(_now_ms)"
+  t0="$(_mono_ms)"
+  # PANIC_TRIGGER_MS: wall-clock milliseconds of the moment the PERSON asked — set by whoever
+  # launched us (menu-bar app, launcher). Our own stopwatch starts here, long after their key
+  # press: the terminal, the shell and this script all had to start first, and on Windows a
+  # rights prompt can sit in the middle. Without it we can only ever report our own tail of the
+  # path, which is the shorter and more flattering half.
+  # The flag wins over the variable: it survives a re-launch (an elevated one on Windows, a
+  # fresh Terminal on macOS) where an environment variable may not.
+  local trig_ms="${trig_arg:-${PANIC_TRIGGER_MS:-}}"
+  case "$trig_ms" in (*[!0-9]*|'') trig_ms="" ;; esac
 
   # 1. Detach all mounted disk images (force — panic outranks open files).
   # Volumes go FIRST, screen lock second, deliberately: a locked screen with the vault still
@@ -373,13 +401,21 @@ cmd_now() {
     fi
   done < <(_mounted_images)
 
-  t_detach=$(( $(_now_ms) - t0 ))
+  t_detach=$(( $(_mono_ms) - t0 ))
 
   # 2. Clear the clipboard. 3. Lock the screen (status kept for an honest report).
   pbcopy </dev/null >/dev/null 2>&1 || true
   local locked=0
   if _lock_screen; then locked=1; fi
-  t_lock=$(( $(_now_ms) - t0 ))
+  t_lock=$(( $(_mono_ms) - t0 ))
+  # The trigger delta crosses process boundaries, so it has to be wall clock: the other process
+  # has no access to our monotonic origin. A clock jump can make it nonsense - a negative or
+  # absurd value is dropped rather than printed.
+  local t_trigger=""
+  if [[ -n "$trig_ms" ]]; then
+    t_trigger=$(( $(_now_ms) - trig_ms ))
+    (( t_trigger >= 0 && t_trigger < 3600000 )) || t_trigger=""
+  fi
 
   # 4. --hard: kill cloud daemons + clear Recent items.
   if [[ "$hard" == "1" ]]; then
@@ -394,6 +430,7 @@ cmd_now() {
   trap '' PIPE
   info "$(t now_report "$n")" || true
   info "$(t now_timing "$(_fmt_s "$t_detach")" "$(_fmt_s "$t_lock")")" || true
+  [[ -n "$t_trigger" ]] && { info "$(t now_trigger "$(_fmt_s "$t_trigger")")" || true; }
   if [[ "$locked" == "1" ]]; then info "$(t lock_ok)" || true; else warn "$(t lock_fail)" || true; fi
   if [[ "$hard" == "1" ]]; then info "$(t now_hard)" || true; fi
 }

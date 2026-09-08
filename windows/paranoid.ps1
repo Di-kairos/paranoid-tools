@@ -564,7 +564,10 @@ function Invoke-PnActPanic {
     # Panic is reversible: it is hide & lock, NOT data destruction (for destruction — securetrash).
     # Panic goes through the same path: without rights it cannot lock a single encrypted
     # volume, and a kill-switch that quietly does half its job is worse than one extra click.
-    Invoke-PnToolAdmin 'panic' @('now', '--hard')
+    # The moment of the press, handed to panic so its report covers the whole path the person
+    # waited through - this launcher, the elevated re-launch and the UAC prompt included.
+    # panic's own stopwatch starts after all of that and would flatter us (audit §16.4).
+    Invoke-PnToolAdmin 'panic' @('now', '--hard', '--trigger-ms', (Get-PnTriggerMs))
     Invoke-PnPause
 }
 # Ask for the size cap of the new vault (Windows: whole MB for diskpart). Returns the size
@@ -669,6 +672,12 @@ function Invoke-PnActWatch {
     if ($ttl) { Invoke-PnToolAdmin 'vaultwatch' @('start', '--ttl', $ttl, $script:VAULT_VOLUME) }
     else { Invoke-PnToolAdmin 'vaultwatch' @('start', $script:VAULT_VOLUME) }
     Invoke-PnPause
+}
+
+# Wall-clock milliseconds, for handing `panic` the moment the person actually asked.
+# Wall clock and not a stopwatch: the number has to survive into another process.
+function Get-PnTriggerMs {
+    return [string][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 }
 
 # pwsh for the elevated re-launch. The tools are supported on PowerShell 7, and the shim on

@@ -722,6 +722,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // environment → we prefix `ST_VAULT_VOLUME=<quoted>`, otherwise securetrash/paranoid would work
     // with the default vault while the GUI shows a custom one (parity with the Windows tray, which sets $env beforehand).
     private func runInTerminal(_ command: String) {
+        // The moment of the click or hotkey travels with the panic command: panic's own
+        // stopwatch starts after Terminal, the shell and the script have all started, so on its
+        // own it reports our tail of the path and flatters us (audit 2026-09-07, §16.4).
+        // Wall-clock milliseconds, because it is read in another process.
+        var command = command
+        if command.hasPrefix("panic now"), !command.contains("--trigger-ms") {
+            command += " --trigger-ms \(Int(Date().timeIntervalSince1970 * 1000))"
+        }
         let full = terminalEnvPrefix(volume: vaultVolume, path: vaultPath) + command
         // AppleScript string: escape backslashes BEFORE quotes (shQuote may introduce a `\`).
         let escaped = full

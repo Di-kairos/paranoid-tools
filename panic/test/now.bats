@@ -109,7 +109,7 @@ run_now() { run env PATH="$STUBS:$PATH" PANIC_CGSESSION="$STUBS/cgsession" bash 
   STUB_MOUNTS="/Volumes/SecretVault" run_now
   [ "$status" -eq 0 ]
   [[ "$output" =~ images\ detached\ after\ [0-9]+\.[0-9][0-9]\ s ]]
-  [[ "$output" =~ lock\ step\ finished\ after\ [0-9]+\.[0-9][0-9]\ s ]]
+  [[ "$output" =~ lock\ requested\ after\ [0-9]+\.[0-9][0-9]\ s ]]
 }
 
 @test "the volumes are closed BEFORE the screen is locked, not after" {
@@ -132,6 +132,50 @@ run_now() { run env PATH="$STUBS:$PATH" PANIC_CGSESSION="$STUBS/cgsession" bash 
         STUB_MOUNTS="/Volumes/SecretVault" \
         bash -c "perl() { return 127; }; export -f perl 2>/dev/null; bash '$SCRIPT' now"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"timing:"* ]]
+  [[ "$output" == *"images detached after"* ]]
   rm -rf "$fake"
+}
+
+# --- s45: the timing line measured only our own tail of the path. The stopwatch started inside
+# `now`, i.e. after the terminal, the shell and this script had already started (and on Windows,
+# after a rights prompt) — the shorter and more flattering half of what the person waited
+# through. Whoever launches panic can now pass the moment of the key press, and the wall-clock
+# delta to it is reported next to the monotonic internal one (audit 2026-09-07, §16.4). ---
+@test "now reports the delta to the trigger the caller passed" {
+  STUB_MOUNTS="/Volumes/SecretVault" \
+    PANIC_TRIGGER_MS="$(( $(date +%s) * 1000 - 2000 ))" run_now
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"from the trigger"* ]]
+  # 2 s ago, so the reported total is at least that and not an absurdity
+  [[ "$output" =~ from\ the\ trigger\ to\ the\ lock\ request:\ ([0-9]+)\.[0-9]+\ s ]]
+  [ "${BASH_REMATCH[1]}" -ge 2 ]
+  [ "${BASH_REMATCH[1]}" -lt 60 ]
+}
+
+@test "without a trigger time the line is absent, not guessed" {
+  STUB_MOUNTS="/Volumes/SecretVault" run_now
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"from the trigger"* ]]
+  [[ "$output" == *"timing"* ]]
+}
+
+@test "a trigger time from a jumped clock is dropped, not printed as nonsense" {
+  # NTP can drag the wall clock backwards mid-panic; a negative or absurd total is worse than
+  # no total, because the reader has no way to tell it is wrong.
+  STUB_MOUNTS="/Volumes/SecretVault" \
+    PANIC_TRIGGER_MS="$(( $(date +%s) * 1000 + 600000 ))" run_now
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"from the trigger"* ]]
+}
+
+@test "a non-numeric trigger time is ignored" {
+  STUB_MOUNTS="/Volumes/SecretVault" PANIC_TRIGGER_MS="not-a-number" run_now
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"from the trigger"* ]]
+}
+
+@test "the lock line claims a request, not a locked screen" {
+  STUB_MOUNTS="/Volumes/SecretVault" run_now
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"REQUESTED"* ]]
 }

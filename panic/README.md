@@ -139,11 +139,21 @@ but:
   locked — it warns loudly and tells you to lock it yourself. Overridable via
   `PANIC_CGSESSION` / `PANIC_OSASCRIPT`.
 - It does not pretend to "fully wipe in a second" — that would be a lie.
-- **"Instantly" is not promised; the run is measured.** The steps are external commands
-  (`hdiutil detach`, the screen lock) with no overall time guarantee: a busy volume, a
-  hung system command or a missing lock mechanism all take as long as they take. So
-  `panic now` reports the measured duration of two things on that run — the detach of the
-  images, and the lock step — and says separately whether the lock itself succeeded.
+- **"Instantly" is not promised; the run is measured — and the measurement says what it
+  covers.** The steps are external commands (`hdiutil detach`, the screen lock) with no
+  overall time guarantee: a busy volume, a hung system command or a missing lock mechanism
+  all take as long as they take. `panic now` reports, on a monotonic clock, how long the
+  detach took and when the lock was requested. Those numbers start *inside* the command,
+  so they exclude everything before it — the terminal, the shell, and on Windows a UAC
+  prompt that waits for a human and has no upper bound. When the caller passes
+  `--trigger-ms <epoch_ms>` (the menu-bar app, the Windows tray and the launcher all do),
+  a second line reports the whole path from the key press. Without it, that line is absent
+  rather than guessed.
+- **The lock line claims a request, not a locked screen.** `LockWorkStation` on Windows
+  and the macOS lock both return as soon as the request is accepted; the screen is drawn a
+  moment later, and neither reports when. So the tool says the lock was requested and
+  accepted, and tells you to glance at the screen — an honest verb costs nothing and a
+  false one costs trust.
 - **Order is deliberate: volumes first, screen second.** A locked screen over a mounted
   vault protects nothing from someone who takes the machine away; a closed vault survives
   the lock being bypassed. The cost is that the screen stays visible while the detaching

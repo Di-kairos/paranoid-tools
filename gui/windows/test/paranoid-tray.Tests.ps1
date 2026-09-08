@@ -237,6 +237,41 @@ Describe 'Invoke-PtTool — диспетчер CLI' {
     }
 }
 
+# --- s45: собственный секундомер panic стартует уже внутри команды — после нового окна, после
+# запуска pwsh и после диалога UAC. Момент нажатия знает только тот, кто запускал, поэтому трей
+# передаёт его флагом (аудит 2026-09-07, §16.4). ---
+Describe 'Invoke-PtTool — момент нажатия уходит в panic (s45)' {
+    BeforeEach { Mock Start-Process { }; Mock Test-PtAdmin { $true } }
+
+    It 'дописывает --trigger-ms к panic now' {
+        Invoke-PtTool -Command 'panic now --hard'
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
+            ($ArgumentList -join ' ') -match 'panic now --hard --trigger-ms \d{13}'
+        }
+    }
+
+    It 'не трогает команду, где момент уже проставлен' {
+        Invoke-PtTool -Command 'panic now --hard --trigger-ms 1757000000000'
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
+            ($ArgumentList -join ' ') -notmatch 'trigger-ms.*trigger-ms'
+        }
+    }
+
+    It 'непаническим командам ничего не дописывает' {
+        Invoke-PtTool -Command 'securetrash check'
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
+            ($ArgumentList -join ' ') -notmatch 'trigger-ms'
+        }
+    }
+
+    It 'спецификация меню остаётся чистой функцией — метки без времени' {
+        $a = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en' -Elevated $true | ForEach-Object { $_.Command }) -join '|'
+        $b = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en' -Elevated $true | ForEach-Object { $_.Command }) -join '|'
+        $a | Should -Be $b
+        $a | Should -Not -Match 'trigger-ms'
+    }
+}
+
 # Аудит 2026-09-07, F02: трей запускал сейф и PANIC обычным Start-Process — без прав команды
 # сейфа отказывают, а panic печатает предупреждение над открытым сейфом. Терминальный лаунчер
 # уже ходил через UAC; здесь тот же маршрут.

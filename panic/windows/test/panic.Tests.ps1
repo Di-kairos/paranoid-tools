@@ -315,3 +315,72 @@ Describe 'CLI surface (child pwsh)' {
         $LASTEXITCODE | Should -Not -Be 0
     }
 }
+
+# --- s45: the stopwatch inside `now` starts after pwsh started, after the script was parsed and
+# after any UAC prompt - our own tail of the path, and the flattering half of it. Two more
+# numbers are reported: this process's startup, and the delta to the moment the person actually
+# pressed the key, handed over by the caller (audit 2026-09-07, §16.4). ---
+Describe 'panic now — honest timing (s45)' {
+    BeforeEach {
+        $script:PnLines = @()
+        Mock Get-PnBitLockerUnlocked { @() }
+        Mock Get-PnVeraCryptMounted  { @() }
+        Mock Invoke-PnClearClipboard { }
+        Mock Invoke-PnClearClipboardHistory { $true }
+        Mock Invoke-PnLockScreen { $true }
+        Mock Test-PnElevated { $true }
+        Mock Write-PnInfo { $script:PnLines += $Msg }
+        Mock Write-PnWarn { $script:PnLines += $Msg }
+        $script:PN_LOCALE = 'en'
+        Remove-Item Env:\PANIC_TRIGGER_MS -ErrorAction SilentlyContinue
+    }
+    AfterEach { Remove-Item Env:\PANIC_TRIGGER_MS -ErrorAction SilentlyContinue }
+
+    It 'reports the delta to a --trigger-ms handed over by the caller' {
+        $ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - 2000
+        Invoke-PnNow -ArgList @('--trigger-ms', "$ms") | Out-Null
+        ($script:PnLines -join ' ') | Should -Match 'from the trigger'
+    }
+
+    It 'takes the same moment from PANIC_TRIGGER_MS when no flag was passed' {
+        $env:PANIC_TRIGGER_MS = [string]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - 1500)
+        Invoke-PnNow -ArgList @() | Out-Null
+        ($script:PnLines -join ' ') | Should -Match 'from the trigger'
+    }
+
+    It 'prints no trigger line at all when nobody passed one - a missing number beats an invented one' {
+        Invoke-PnNow -ArgList @() | Out-Null
+        ($script:PnLines -join ' ') | Should -Not -Match 'from the trigger'
+    }
+
+    It 'drops a trigger from a jumped clock instead of printing nonsense' {
+        $ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + 600000
+        Invoke-PnNow -ArgList @('--trigger-ms', "$ms") | Out-Null
+        ($script:PnLines -join ' ') | Should -Not -Match 'from the trigger'
+    }
+
+    It 'drops a non-numeric trigger' {
+        Invoke-PnNow -ArgList @('--trigger-ms', 'soon') | Out-Null
+        ($script:PnLines -join ' ') | Should -Not -Match 'from the trigger'
+    }
+
+    It 'always reports how long this process took to reach the first action' {
+        Invoke-PnNow -ArgList @() | Out-Null
+        ($script:PnLines -join ' ') | Should -Match 'process start to first action'
+    }
+
+    It 'claims a lock REQUEST, not a locked screen - LockWorkStation returns before the screen is drawn' {
+        Invoke-PnNow -ArgList @() | Out-Null
+        ($script:PnLines -join ' ') | Should -Match 'REQUESTED'
+        ($script:PnLines -join ' ') | Should -Match 'not a measurement'
+    }
+
+    It 'still honours --hard when a trigger flag sits in the same argument list' {
+        Mock Invoke-PnKillCloudDaemons { }
+        Mock Invoke-PnClearRecentItems { }
+        Mock Invoke-PnClearJumpLists { }
+        $ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        Invoke-PnNow -ArgList @('--trigger-ms', "$ms", '--hard') | Out-Null
+        Should -Invoke Invoke-PnKillCloudDaemons -Times 1 -Exactly
+    }
+}

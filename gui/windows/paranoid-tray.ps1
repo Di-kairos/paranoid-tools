@@ -165,6 +165,8 @@ function Get-PtMenuSpec {
         # The label says up front that the button will ask for rights: a user who expects an
         # instant lock should know a UAC prompt stands between the press and the vault closing.
         [pscustomobject]@{ Label = ((Get-PtL 'panic_item' -Lang $Lang) + $(if ($Elevated) { '' } else { ' ' + (Get-PtL 'uac_suffix' -Lang $Lang) })); Command = 'panic now --hard';  Enabled = $true }
+        # The menu spec is a pure function (it is compared in tests), so the timestamp is added
+        # at launch time in Invoke-PtTool, not baked into the label here.
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = $vaultLabel;                      Command = $vaultToggle;        Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'vault_empty' -Lang $Lang);   Command = 'securetrash vault reset';   Enabled = $hasVault }
@@ -397,6 +399,12 @@ function Set-PtSettings {
                        PanicHotkey = $PanicHotkey; Onboarded = $Onboarded } | ConvertTo-Json | Set-Content -LiteralPath $f
 }
 
+# Wall-clock milliseconds for panic's --trigger-ms. Wall clock, because the number is read in
+# another process, which has no access to a stopwatch of ours.
+function Get-PtTriggerMs {
+    return [string][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+}
+
 # Is THIS process already running as administrator? A separate function so Pester can mock it
 # (a test run must never depend on how the CI agent was started).
 function Test-PtAdmin {
@@ -423,6 +431,13 @@ function Test-PtNeedsAdmin {
 function Invoke-PtTool {
     param([string]$Command)
     if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__' -or $Command -eq '__settings__' -or $Command -eq '__setup__') { return $true }
+    # The moment of the click/press goes with the command, so panic can report the whole path -
+    # this tray, the new console and the UAC prompt included - and not just its own tail
+    # (audit 2026-09-07, §16.4). Added here rather than in the menu spec: the spec is a pure
+    # function the tests compare, and a moving timestamp inside it would make it unstable.
+    if ($Command -match '^panic\s+now\b' -and $Command -notmatch '--trigger-ms') {
+        $Command = "$Command --trigger-ms $(Get-PtTriggerMs)"
+    }
     # The command is fixed (from Get-PtMenuSpec), not from user input → no injection possible.
     $argv = @('-NoExit', '-Command', $Command)
     if ((Test-PtNeedsAdmin $Command) -and -not (Test-PtAdmin)) {
@@ -634,7 +649,7 @@ public class PtHotkeyWindow : NativeWindow {
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
         if (Test-PtPanicShouldFire -Now $now -ArmedAt $script:panicArmedAt) {
             $script:panicArmedAt = $null
-            if (-not (Invoke-PtTool -Command 'panic now --hard')) {
+            if (-not (Invoke-PtTool -Command ('panic now --hard --trigger-ms ' + (Get-PtTriggerMs)))) {
                 # The panic hotkey is the one place where a silent no-op is unacceptable: the
                 # user pressed it twice believing the vault is being closed.
                 $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_uac_declined), [System.Windows.Forms.ToolTipIcon]::Error)
