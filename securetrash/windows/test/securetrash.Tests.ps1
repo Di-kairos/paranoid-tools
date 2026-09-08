@@ -9,6 +9,9 @@ BeforeAll {
     # where the elevation probe cannot answer at all — so the precheck is skipped file-wide.
     # The gate's own behavior is tested in its Describe, which clears this hook.
     $env:ST_ASSUME_ELEVATED = '1'
+    # And the unelevated paths they DO drive must not reach for UAC: Start-Process -Verb RunAs
+    # would open a real prompt on a Windows runner and hang the suite on it.
+    $env:ST_NO_SELF_ELEVATE = '1'
     $script:ScriptPath = Join-Path $PSScriptRoot '..\securetrash.ps1'
     . $script:ScriptPath
 
@@ -28,6 +31,7 @@ BeforeAll {
 AfterAll {
     Remove-Item Env:\ST_NO_MAIN -ErrorAction SilentlyContinue
     Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue
+    Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
 }
 
 # --- P0-2: on Windows the whole vault runs on diskpart + BitLocker, and both are
@@ -125,6 +129,101 @@ Describe 'vault refuses an unelevated console (P0-2)' {
 
         $out = Get-StCombinedOutput { Invoke-StCheck }
         $out | Should -Match 'Administrator rights: present'
+    }
+}
+
+# --- s45: a direct `securetrash vault ...` raises UAC itself, the way the launcher and the
+# tray have since s43. The refusal is not gone - it is what is left when the prompt is declined
+# or cannot be raised, and it must still be the ONLY outcome for a non-interactive caller. ---
+Describe 'vault raises the rights prompt itself (s45)' {
+
+    BeforeEach {
+        Remove-Item Env:\ST_ASSUME_ELEVATED -ErrorAction SilentlyContinue
+        Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
+        Remove-Item Env:\ST_LANG -ErrorAction SilentlyContinue
+        $script:ST_LOCALE = 'en'
+        $env:ST_ASSUME_YES = '1'
+        $script:ST_ELEVATED_CHILD = $false
+        $script:ST_ARGV = @('vault', 'open')
+        # UserInteractive cannot be mocked - the gate asks it through a wrapper.
+        Mock Test-StSelfElevateAllowed { $true }
+    }
+    AfterEach {
+        $env:ST_ASSUME_ELEVATED = '1'
+        $env:ST_NO_SELF_ELEVATE = '1'
+    }
+
+    It 're-runs itself elevated with the arguments it was given, instead of refusing' {
+        Mock Test-StElevated { $false }
+        Mock Invoke-StSelfElevated { 0 }
+        Mock Invoke-StDiskpart { throw 'the unelevated copy must not touch diskpart' }
+
+        $out = Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('open') } catch { } }
+        Should -Invoke Invoke-StSelfElevated -Times 1 -Exactly -ParameterFilter {
+            ($ToolArgs -join ' ') -eq 'vault open'
+        }
+        $out | Should -Match 'Windows will ask now'
+        $out | Should -Not -Match 'NOTHING was changed'
+    }
+
+    It 'exits with the elevated run’s own code, not a blanket success' {
+        Mock Test-StElevated { $false }
+        Mock Invoke-StSelfElevated { 3 }
+
+        $code = $null
+        try { Invoke-StVault -VaultArgs @('open') 6>$null 3>$null } catch { $code = $_.Exception.Code }
+        $code | Should -Be 3
+    }
+
+    It 'says nothing was changed when the prompt is declined' {
+        Mock Test-StElevated { $false }
+        Mock Invoke-StSelfElevated { $null }
+        Mock Invoke-StDiskpart { throw 'a declined prompt must change nothing' }
+
+        $out = Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('open') } catch { } }
+        $out | Should -Match 'declined'
+        $out | Should -Match 'NOTHING was changed'
+        Should -Invoke Invoke-StDiskpart -Times 0 -Exactly
+    }
+
+    It 'keeps the plain refusal when UAC cannot be raised' {
+        Mock Test-StSelfElevateAllowed { $false }
+        Mock Test-StElevated { $false }
+        Mock Invoke-StSelfElevated { throw 'a non-interactive caller must never be prompted' }
+
+        $out = Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('open') } catch { } }
+        $out | Should -Match 'administrator'
+        $out | Should -Match 'NOTHING was changed'
+        Should -Invoke Invoke-StSelfElevated -Times 0 -Exactly
+    }
+}
+
+# The guard that decides whether the prompt may be raised at all. Its three refusals are the
+# difference between one UAC dialog and an endless loop / a scheduled task hanging on a dialog
+# nobody can see.
+Describe 'Test-StSelfElevateAllowed (s45)' {
+    AfterEach {
+        Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
+        $env:ST_NO_SELF_ELEVATE = '1'
+        $script:ST_ELEVATED_CHILD = $false
+    }
+
+    It 'refuses inside the elevated child - a second prompt would never end' {
+        Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
+        $script:ST_ELEVATED_CHILD = $true
+        Test-StSelfElevateAllowed | Should -BeFalse
+    }
+
+    It 'refuses when ST_NO_SELF_ELEVATE=1' {
+        $script:ST_ELEVATED_CHILD = $false
+        $env:ST_NO_SELF_ELEVATE = '1'
+        Test-StSelfElevateAllowed | Should -BeFalse
+    }
+
+    It 'otherwise answers with the interactivity of the session' {
+        Remove-Item Env:\ST_NO_SELF_ELEVATE -ErrorAction SilentlyContinue
+        $script:ST_ELEVATED_CHILD = $false
+        Test-StSelfElevateAllowed | Should -Be ([Environment]::UserInteractive)
     }
 }
 

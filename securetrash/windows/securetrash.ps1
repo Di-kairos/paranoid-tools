@@ -308,11 +308,18 @@ Flags:
     'en:need_admin'         = 'vault {0} needs an elevated console: it works through diskpart and BitLocker, and Windows hands those to administrators only. NOTHING was changed. Open "PowerShell 7" with a right-click -> "Run as administrator", then run the command again.'
     'ru:need_admin'         = 'vault {0} требует консоли администратора: команда работает через diskpart и BitLocker, а их Windows отдаёт только администратору. НИЧЕГО не изменено. Открой «PowerShell 7» правой кнопкой → «Запуск от имени администратора» и повтори команду.'
 
+    'en:elev_ask'           = 'vault {0} needs administrator rights - Windows will ask now. Confirm, and the command runs in its own window; type the vault password there.'
+    'ru:elev_ask'           = 'vault {0} требует прав администратора — Windows сейчас спросит. Подтверди, и команда выполнится в отдельном окне; пароль сейфа вводи там.'
+    'en:elev_declined'      = 'The rights prompt was declined - NOTHING was changed.'
+    'ru:elev_declined'      = 'Запрос прав отклонён — НИЧЕГО не изменено.'
+    'en:elev_close'         = 'Press Enter to close this window'
+    'ru:elev_close'         = 'Нажми Enter, чтобы закрыть это окно'
+
     'en:vault_status_need_admin' = 'Container exists, but its state cannot be READ without an elevated console (Get-DiskImage is administrator-only): {0}. Do NOT assume it is closed — re-run from an administrator PowerShell for a verdict.'
     'ru:vault_status_need_admin' = 'Контейнер есть, но состояние НЕ прочитать без консоли администратора (Get-DiskImage доступен только ему): {0}. НЕ считай его закрытым — для вердикта повтори из PowerShell от имени администратора.'
 
-    'en:check_admin_needed' = 'This console has NO administrator rights: vault create/open/close/destroy/reset will refuse to run (diskpart and BitLocker are administrator-only, and panic cannot lock the vault either). Open PowerShell as administrator when you need them.'
-    'ru:check_admin_needed' = 'Эта консоль БЕЗ прав администратора: vault create/open/close/destroy/reset работать откажутся (diskpart и BitLocker доступны только администратору, и panic сейф тоже не запрёт). Понадобятся — запусти PowerShell от имени администратора.'
+    'en:check_admin_needed' = 'This console has NO administrator rights: vault create/open/close/destroy/reset will ask Windows for them (diskpart and BitLocker are administrator-only) and run in a separate elevated window - decline the prompt and nothing happens. panic cannot lock the vault from here at all. Start PowerShell as administrator to keep everything in this window.'
+    'ru:check_admin_needed' = 'Эта консоль БЕЗ прав администратора: vault create/open/close/destroy/reset попросят их у Windows (diskpart и BitLocker доступны только администратору) и выполнятся в отдельном окне с правами — откажешь в запросе, не произойдёт ничего. panic отсюда сейф не запрёт вовсе. Чтобы всё шло в этом окне, запусти PowerShell от имени администратора.'
     'en:check_admin_ok'     = 'Administrator rights: present — the vault commands are available.'
     'ru:check_admin_ok'     = 'Права администратора: есть — команды vault доступны.'
 
@@ -847,8 +854,62 @@ function Assert-StVaultElevated {
     param([string]$Action)
     if ($env:ST_ASSUME_ELEVATED -eq '1') { return }
     if (Test-StElevated) { return }
+    # One UAC prompt beats the instruction to close the window and reopen PowerShell by
+    # right-click: the launcher and the tray have raised it themselves since s43, and a direct
+    # `securetrash vault open` is the same act by the same user. Refusal stays the fallback -
+    # it is what the user gets when the prompt is declined or cannot be raised at all.
+    if (Test-StSelfElevateAllowed) {
+        Write-StWarn (T 'elev_ask' $Action)
+        $code = Invoke-StSelfElevated -ToolArgs $script:ST_ARGV
+        # $null = the prompt was declined or the process could not start. Anything else is the
+        # elevated run's own exit code, and it becomes ours: a script that checks $LASTEXITCODE
+        # must not read "success" out of a vault command that failed in the other window.
+        if ($null -ne $code) { Stop-StCommand -Code $code }
+        Write-StErr (T 'elev_declined')
+        Stop-StCommand
+    }
     Write-StErr (T 'need_admin' $Action)
     Stop-StCommand
+}
+
+# May we raise UAC for this run at all?
+# - the elevated child must never prompt again: without real rights the loop would be endless;
+# - a non-interactive caller (scheduled task, CI, a script in a pipeline) has nobody to click
+#   the dialog, and a fast honest refusal beats a run that hangs on an invisible prompt;
+# - ST_NO_SELF_ELEVATE=1 turns it off explicitly - the hook the test suite and automation use.
+function Test-StSelfElevateAllowed {
+    if ($script:ST_ELEVATED_CHILD) { return $false }
+    if ($env:ST_NO_SELF_ELEVATE -eq '1') { return $false }
+    return [Environment]::UserInteractive
+}
+
+# pwsh for the elevated re-launch. The tools are supported on PowerShell 7 and the shim on PATH
+# starts it anyway, so the elevated copy must be the same one (mirror of windows/paranoid.ps1).
+function Get-StPwshPath {
+    $cmd = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    return 'pwsh'
+}
+
+# Re-launch THIS script through UAC with the arguments it was given, and wait for it to finish.
+# Returns the elevated run's exit code, or $null when the prompt was declined / nothing started.
+#
+# The `_elevated` sentinel goes in front: it tells the child it is already the elevated copy
+# (so it never prompts again) and makes it hold the window open at the end, so its output stays
+# readable and the vault password has somewhere to be typed. -File takes one known path
+# ($PSCommandPath) plus plain word arguments - nothing has to survive a second round of quoting.
+# Wrapper for Mock: Pester must never open a real UAC prompt.
+function Invoke-StSelfElevated {
+    param([string[]]$ToolArgs = @())
+    $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '_elevated') + $ToolArgs
+    try {
+        $p = Start-Process -FilePath (Get-StPwshPath) -Verb RunAs -Wait -PassThru -ArgumentList $argv -ErrorAction Stop
+        return $p.ExitCode
+    } catch {
+        # Declining the UAC prompt surfaces here as a terminating error. Not an anomaly: it is
+        # the user saying no, and the honest answer is that nothing was done.
+        return $null
+    }
 }
 
 # How many shadow copies (VSS) the system holds — the Windows analog of local APFS snapshots.
@@ -1504,6 +1565,15 @@ function Show-StUsage {
 function Invoke-Main {
     param([string[]]$Argv)
     try {
+        # Internal: this is the script re-entered through UAC by Invoke-StSelfElevated. The
+        # sentinel is cut here and never reaches the dispatch, so `_elevated` is not a command.
+        $script:ST_ELEVATED_CHILD = $false
+        if ($Argv -and $Argv.Count -ge 1 -and $Argv[0] -eq '_elevated') {
+            $script:ST_ELEVATED_CHILD = $true
+            $Argv = @(if ($Argv.Count -ge 2) { $Argv[1..($Argv.Count - 1)] } else { @() })
+        }
+        # The arguments as given, before --yes is cut: this is what the elevated copy re-runs.
+        $script:ST_ARGV = @($Argv)
         # #14: --yes is the global confirmation flag. Cut it from args, set script scope.
         $script:ST_ASSUME_YES_FLAG = $false
         if ($Argv -and ($Argv -contains '--yes')) {
@@ -1534,6 +1604,14 @@ function Invoke-Main {
         }
     } catch [StExit] {
         exit $_.Exception.Code
+    } finally {
+        # The elevated copy owns its console window, and that window dies with the process -
+        # taking the output with it. Held open in `finally`, so a command that ENDED IN AN ERROR
+        # gets read too: that is the message the user needs most.
+        if ($script:ST_ELEVATED_CHILD) {
+            [Console]::Out.Write("$(T 'elev_close') ")
+            [Console]::In.ReadLine() | Out-Null
+        }
     }
 }
 
