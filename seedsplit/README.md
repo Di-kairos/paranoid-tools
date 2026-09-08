@@ -219,16 +219,28 @@ oversell. So here are the honest limits:
   passphrase. The core `split`/`combine` stay dependency-free; only `-p` calls openssl
   (present by default on macOS/Linux). The Windows port reconstructs the sealed container and
   tells you to decrypt it with an `openssl enc -d` pipeline.
-  **The container is authenticated.** `openssl enc` has no AEAD mode, and its PKCS#7 padding
-  check is *not* a passphrase check — on its own, a wrong passphrase passes it with probability
-  a little above 1/256 and hands back plausible garbage. So the plaintext carries a 16-byte
-  sha256 tag over the secret *inside* the ciphertext, and the container is prefixed with the
-  5 ASCII bytes `SSPP1`. A wrong passphrase now fails the tag (≈2⁻¹²⁸) and gets an honest
-  refusal — the same "exact secret or refusal" promise the Shamir layer makes.
-  **Legacy shares** cut before this format (a bare `Salted__` container) still combine, but
-  `combine` warns that the old format cannot distinguish a wrong passphrase from the right one;
-  re-split with `-p` to move them onto the authenticated format.
-  **Edge:** a non-encrypted secret that happens to begin with the literal bytes `SSPP1`
+  **The container is checked, not merely padded.** `openssl enc` has no AEAD mode, and its
+  PKCS#7 padding check is *not* a passphrase check — on its own, a wrong passphrase passes it
+  with probability a little above 1/256 and hands back plausible garbage. So the plaintext
+  carries a 16-byte sha256 tag over the secret *inside* the ciphertext, and the container is
+  prefixed with 5 ASCII magic bytes. A wrong passphrase fails that tag (≈2⁻¹²⁸) and gets an
+  honest refusal — the same "exact secret or refusal" promise the Shamir layer makes. Being
+  precise about what this is: the tag is a **wrong-passphrase check, not a MAC**. It is not a
+  proof of authenticity against someone who rewrites your shares; that would take a real AEAD
+  or an Encrypt-then-MAC construction with separated keys.
+  **Two versions, and the magic says which.** `SSPP2` (current) is written with
+  `-pbkdf2 -md sha256 -iter 600000`, the work factor OWASP gives for PBKDF2-HMAC-SHA256:
+  an attacker who has collected a threshold of shares grinds the passphrase offline, and paper
+  controls where the shares are, not how fast they can be tried. `SSPP1` was written with
+  `-iter 200000` and is still **read** at 200000 — `openssl enc` does not record the count in
+  its header, so it has to travel with the version, and a share already on paper cannot be
+  rewritten. Nothing you hold stops working; only new containers get the higher count. The step
+  costs the same attacker roughly three times the work (~1.6 bits) — real, and not a rescue for
+  a weak passphrase.
+  **Legacy shares** cut before this format (a bare `Salted__` container) still combine at
+  200000, but `combine` warns that the old format cannot distinguish a wrong passphrase from
+  the right one; re-split with `-p` to move them onto the current format.
+  **Edge:** a non-encrypted secret that happens to begin with the literal bytes `SSPP2`/`SSPP1`
   (≈2⁻⁴⁰) or `Salted__` (≈2⁻⁶⁴) — for arbitrary data; not a concern for real seed phrases —
   is mis-read by `combine` as encrypted: you'd get a "wrong passphrase" error instead of the
   secret (no leak); re-split with `-p` or decrypt by hand.

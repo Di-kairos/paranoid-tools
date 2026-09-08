@@ -311,8 +311,8 @@ EOF
     ru:pp_dec_fail)         printf 'combine: неверный passphrase или зашифрованный секрет повреждён.' ;;
     en:pp_legacy_unauth)    printf 'combine: these shares use the LEGACY passphrase format (no authentication). openssl cannot tell a wrong passphrase from the right one here — a wrong one can return plausible garbage. Check the secret, then re-split with -p to move it to the authenticated format.' ;;
     ru:pp_legacy_unauth)    printf 'combine: доли в СТАРОМ формате passphrase (без аутентификации). openssl здесь не отличает неверный passphrase от верного — при неверном может вернуться правдоподобный мусор. Проверь секрет и пересобери его через split -p, чтобы перейти на аутентифицированный формат.' ;;
-    en:pp_locked_noss)      printf 'combine: these shares are passphrase-encrypted but openssl is not on PATH. Decrypt elsewhere: the reconstructed bytes are a standard openssl enc -aes-256-cbc -pbkdf2 container (the authenticated format prefixes it with the 5 ASCII bytes SSPP1 and appends a 16-byte sha256 tag to the plaintext).' ;;
-    ru:pp_locked_noss)      printf 'combine: доли зашифрованы passphrase, но openssl нет в PATH. Расшифруй в другом месте: восстановленные байты — стандартный контейнер openssl enc -aes-256-cbc -pbkdf2 (в аутентифицированном формате перед ним стоят 5 ASCII-байт SSPP1, а к открытому тексту добавлен 16-байтовый sha256-тег).' ;;
+    en:pp_locked_noss)      printf 'combine: these shares are passphrase-encrypted but openssl is not on PATH. Decrypt elsewhere: the reconstructed bytes are a standard openssl enc -aes-256-cbc -pbkdf2 container. The authenticated format prefixes it with 5 ASCII bytes and appends a 16-byte sha256 tag to the plaintext: SSPP2 was written with -iter 600000 -md sha256, SSPP1 with -iter 200000. Strip the 5 magic bytes before decrypting.' ;;
+    ru:pp_locked_noss)      printf 'combine: доли зашифрованы passphrase, но openssl нет в PATH. Расшифруй в другом месте: восстановленные байты — стандартный контейнер openssl enc -aes-256-cbc -pbkdf2. В аутентифицированном формате перед ним стоят 5 ASCII-байт, а к открытому тексту добавлен 16-байтовый sha256-тег: SSPP2 записан с -iter 600000 -md sha256, SSPP1 — с -iter 200000. Пять байт магии убери перед расшифровкой.' ;;
 
     *) echo "$key" ;;
   esac
@@ -542,16 +542,28 @@ _rs_repair_hex() {
 # still behind the passphrase. The split/combine core is untouched (it cuts/assembles arbitrary
 # bytes). openssl is needed ONLY for this mode — the core stays zero-dep. Parameters are fixed →
 # decryption is compatible anywhere openssl exists.
-PP_ITER=200000
-# Container magic for the AUTHENTICATED passphrase format: ASCII "SSPP1" (hex 53 53 50 50 31),
-# written in front of the openssl container. `openssl enc` offers no AEAD mode, and a PKCS#7
+# PBKDF2 work factor. New containers use 600000, the figure OWASP gives for PBKDF2-HMAC-SHA256:
+# once an attacker holds a threshold of shares they can grind the passphrase offline, and paper
+# guards where the shares are, not how fast they can be tried. SSPP1 containers were written at
+# 200000 and are still READ at 200000 — `openssl enc` does not record the count in its header, so
+# the number has to travel with the format version, and a share already on paper cannot be
+# rewritten. The step from 200k to 600k costs the same attacker three times the work (~1.6 bits);
+# it strengthens a decent passphrase and does not rescue a weak one.
+PP_ITER=600000
+PP_ITER_V1=200000
+# Container magic for the AUTHENTICATED passphrase format: ASCII "SSPP2" (hex 53 53 50 50 32),
+# written in front of the openssl container; "SSPP1" (…31) is the same construction at 200000
+# iterations and is accepted on read. `openssl enc` offers no AEAD mode, and a PKCS#7
 # padding check is NOT a passphrase check: a wrong passphrase passes it with probability a bit
 # above 1/256 and `combine` would hand back plausible garbage as if it were the secret. So the
 # PLAINTEXT carries its own 16-byte tag (sha256 of the secret, truncated) inside the ciphertext:
 # a wrong passphrase now fails that tag (~2^-128) and gets an honest refusal instead of garbage.
+# The tag is a wrong-passphrase check, not a MAC: it is not a proof of authenticity against an
+# attacker who rewrites shares.
 # The magic makes the format explicit — legacy shares (bare "Salted__" container) still combine,
 # with a warning that the old format cannot tell a wrong passphrase from a right one.
-PP_MAGIC_HEX="5353505031"
+PP_MAGIC_HEX="5353505032"
+PP_MAGIC_V1_HEX="5353505031"
 
 # Read the passphrase for encryption (with confirmation). Env SEEDSPLIT_PASSPHRASE — for tests/
 # automation; otherwise hidden input from /dev/tty (stdin is occupied by the secret in a pipe).
@@ -584,16 +596,22 @@ _pp_encrypt_hex() {
   [[ ${#tag_hex} -eq 32 ]] || return 1
   # Passphrase via fd:3 from a process substitution (a pipe, NOT the on-disk here-string `<<<`,
   # which would materialize the passphrase into a temporary file in $TMPDIR → carving/leak). See P1-5.
-  ct_hex="$(_from_hex "${sec_hex}${tag_hex}" | openssl enc -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -salt -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null | _to_hex)" || return 1
+  # -md sha256 is pinned rather than left to the local default: the container has to open on
+  # someone else's machine years from now, and an implicit default is not a promise.
+  ct_hex="$(_from_hex "${sec_hex}${tag_hex}" | openssl enc -aes-256-cbc -pbkdf2 -md sha256 -iter "$PP_ITER" -salt -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null | _to_hex)" || return 1
   [[ -n "$ct_hex" ]] || return 1
   printf '%s' "${PP_MAGIC_HEX}${ct_hex}"
 }
 
 # Decrypt an authenticated container (magic already stripped) → secret_hex, or return 1.
 # Nothing is printed until the tag matches: a refusal must never leak a byte of the attempt.
+# $3 = the iteration count the container was written with (SSPP2 → 600000, SSPP1 → 200000).
+# The digest is NOT pinned here: SSPP1 containers were written with whatever `openssl enc`
+# defaulted to on the machine that made them, and forcing a value now could lock out a share
+# that opens today. New containers pin it at write time instead.
 _pp_decrypt_hex() {
-  local ct_hex="$1" pp="$2" pt_hex sec_hex tag_have tag_want
-  pt_hex="$(_from_hex "$ct_hex" | openssl enc -d -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null | _to_hex)" || return 1
+  local ct_hex="$1" pp="$2" iter="${3:-$PP_ITER}" pt_hex sec_hex tag_have tag_want
+  pt_hex="$(_from_hex "$ct_hex" | openssl enc -d -aes-256-cbc -pbkdf2 -iter "$iter" -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null | _to_hex)" || return 1
   (( ${#pt_hex} >= 34 )) || return 1                    # >=1 secret byte + 16 tag bytes
   sec_hex="${pt_hex:0:$(( ${#pt_hex} - 32 ))}"
   tag_have="${pt_hex: -32}"
@@ -863,17 +881,21 @@ cmd_combine() {
   # combine will mistakenly ask for a passphrase. Not a leak — it just returns "wrong passphrase"
   # instead of the secret; work around by re-splitting with -p or decrypting manually via openssl.
   local sec_hex
-  if [[ "${sh:0:10}" == "$PP_MAGIC_HEX" ]]; then
+  if [[ "${sh:0:10}" == "$PP_MAGIC_HEX" || "${sh:0:10}" == "$PP_MAGIC_V1_HEX" ]]; then
     command -v openssl >/dev/null 2>&1 || { err "$(t pp_locked_noss)"; exit 1; }
+    # The version picks the work factor: it is not stored in the openssl header, and trying the
+    # wrong one is indistinguishable from a wrong passphrase.
+    local iter="$PP_ITER"
+    [[ "${sh:0:10}" == "$PP_MAGIC_V1_HEX" ]] && iter="$PP_ITER_V1"
     local pp; pp="$(_pp_read_unlock)"
-    sec_hex="$(_pp_decrypt_hex "${sh:10}" "$pp")" || { pp=""; err "$(t pp_dec_fail)"; exit 1; }
+    sec_hex="$(_pp_decrypt_hex "${sh:10}" "$pp" "$iter")" || { pp=""; err "$(t pp_dec_fail)"; exit 1; }
     pp=""
     _from_hex "$sec_hex"
   elif [[ "${sh:0:16}" == "53616c7465645f5f" ]]; then
     command -v openssl >/dev/null 2>&1 || { err "$(t pp_locked_noss)"; exit 1; }
     local pp; pp="$(_pp_read_unlock)"
     # fd:3 from a process substitution (a pipe, NOT the on-disk `<<<`) — the passphrase does not spill to disk (P1-5).
-    _from_hex "$sh" | openssl enc -d -aes-256-cbc -pbkdf2 -iter "$PP_ITER" -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null || { pp=""; err "$(t pp_dec_fail)"; exit 1; }
+    _from_hex "$sh" | openssl enc -d -aes-256-cbc -pbkdf2 -iter "$PP_ITER_V1" -pass fd:3 3< <(printf '%s' "$pp") 2>/dev/null || { pp=""; err "$(t pp_dec_fail)"; exit 1; }
     pp=""
     warn "$(t pp_legacy_unauth)"
   else

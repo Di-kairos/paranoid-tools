@@ -309,3 +309,41 @@ Describe 'SSS3 — parity и коррекция опечаток' {
         { Get-SsRecoveredSecret (("$body-$chk") + "`n" + $sh[1]) 6>$null } | Should -Throw
     }
 }
+
+# --- s45: число итераций PBKDF2 в заголовке openssl не хранится, поэтому его несёт версия
+# контейнера: SSPP2 записан с 600000, SSPP1 — с 200000. Windows-порт сам не расшифровывает,
+# он выдаёт команду для openssl — и назвать в ней неверное число значит отправить человека
+# получать «неверный passphrase» на верном пароле. ---
+Describe 'подсказка для запечатанного контейнера называет итерации своей версии (s45)' {
+
+    BeforeEach {
+        $script:SsWarned = @()
+        Mock Write-SsWarn { $script:SsWarned += $Msg }
+        Mock Write-SsStdoutBytes { }
+        Mock Read-SsCombineInput { '' }
+    }
+
+    It 'для SSPP2 выдаёт 600000 и закреплённый sha256' {
+        $body = [byte[]](0x53,0x53,0x50,0x50,0x32) + [System.Text.Encoding]::ASCII.GetBytes('Salted__rest')
+        Mock Get-SsRecoveredSecret { $body }.GetNewClosure()
+        Invoke-SsCombine -ArgList @()
+        ($script:SsWarned -join ' ') | Should -Match '600000'
+        ($script:SsWarned -join ' ') | Should -Match 'md sha256'
+    }
+
+    It 'для SSPP1 продолжает выдавать 200000 — доля на бумаге не переписывается' {
+        $body = [byte[]](0x53,0x53,0x50,0x50,0x31) + [System.Text.Encoding]::ASCII.GetBytes('Salted__rest')
+        Mock Get-SsRecoveredSecret { $body }.GetNewClosure()
+        Invoke-SsCombine -ArgList @()
+        ($script:SsWarned -join ' ') | Should -Match '200000'
+        ($script:SsWarned -join ' ') | Should -Not -Match '600000'
+    }
+
+    It 'голый Salted__ остаётся legacy-подсказкой без обещания аутентичности' {
+        $body = [System.Text.Encoding]::ASCII.GetBytes('Salted__abcdefgh')
+        Mock Get-SsRecoveredSecret { $body }.GetNewClosure()
+        Invoke-SsCombine -ArgList @()
+        ($script:SsWarned -join ' ') | Should -Match 'SEALED|ЗАПЕЧАТАННЫЙ'
+        ($script:SsWarned -join ' ') | Should -Not -Match 'SSPP'
+    }
+}

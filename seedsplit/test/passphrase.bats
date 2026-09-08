@@ -89,14 +89,47 @@ _need_openssl() { command -v openssl >/dev/null 2>&1 || skip "openssl not on PAT
   [ "$accepted" -eq 0 ]
 }
 
-@test "the -p container carries the authenticated magic SSPP1" {
+@test "the -p container carries the authenticated magic SSPP2" {
   _need_openssl
   shares="$(printf '%s' "topsecretvalue" | SEEDSPLIT_PASSPHRASE=pw bash "$SCRIPT" split -p -n 3 -t 2)"
   sel="$(printf '%s\n' "$shares" | sed -n '1p;2p')"
   sh="$(printf '%s\n' "$sel" | bash -c "ST_NO_MAIN=1 source '$SCRIPT' 2>/dev/null; _recover_secret_hex \"\$(cat)\"")"
-  [[ "${sh:0:10}" == "5353505031" ]]
+  [[ "${sh:0:10}" == "5353505032" ]]
   # and the openssl container proper begins right after the magic
   [[ "${sh:10:16}" == "53616c7465645f5f" ]]
+}
+
+# The work factor moved 200000 → 600000 (OWASP for PBKDF2-HMAC-SHA256) and `openssl enc` does not
+# record it, so the number travels with the magic. A share printed on paper under SSPP1 cannot be
+# rewritten — it has to keep opening, at ITS count, forever.
+@test "an SSPP1 container written at 200000 iterations still combines" {
+  _need_openssl
+  secret="v1 paper share secret"
+  tag="$(printf '%s' "$secret" | shasum -a 256 | cut -c1-32)"
+  v1="${BATS_TEST_TMPDIR:-/tmp}/v1.bin"
+  { printf 'SSPP1'
+    { printf '%s' "$secret"; printf '%s' "$tag" | xxd -r -p; } \
+      | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass pass:hunter2
+  } > "$v1"
+  sel="$(bash "$SCRIPT" split --file "$v1" -n 3 -t 2 | sed -n '1p;2p')"
+  run bash -c "printf '%s\n' \"$sel\" | SEEDSPLIT_PASSPHRASE=hunter2 bash '$SCRIPT' combine"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$secret"* ]]
+}
+
+@test "an SSPP1 container is refused on a wrong passphrase, exactly like SSPP2" {
+  _need_openssl
+  secret="v1 paper share secret"
+  tag="$(printf '%s' "$secret" | shasum -a 256 | cut -c1-32)"
+  v1="${BATS_TEST_TMPDIR:-/tmp}/v1w.bin"
+  { printf 'SSPP1'
+    { printf '%s' "$secret"; printf '%s' "$tag" | xxd -r -p; } \
+      | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass pass:hunter2
+  } > "$v1"
+  sel="$(bash "$SCRIPT" split --file "$v1" -n 3 -t 2 | sed -n '1p;2p')"
+  run bash -c "printf '%s\n' \"$sel\" | SEEDSPLIT_PASSPHRASE=nothunter2 bash '$SCRIPT' combine"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"$secret"* ]]
 }
 
 @test "legacy passphrase shares still combine, with the no-authentication warning" {

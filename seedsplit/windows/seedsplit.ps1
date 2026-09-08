@@ -100,6 +100,8 @@ function T {
         'ru:combine_integrity'    { return 'combine: восстановление не прошло проверку целостности (повреждение долей или несовместимый набор)' }
         'en:verify_ok'            { return "verify: shares are consistent, the secret is recoverable ($A bytes). The secret is NOT shown." }
         'ru:verify_ok'            { return "verify: доли согласованы, секрет восстановим ($A байт). Секрет НЕ показан." }
+        'en:pp_sealed_win_v2'     { return 'These shares are passphrase-encrypted in the authenticated format (magic SSPP2). The bytes below are the SEALED container, NOT the secret — strip the first 5 bytes, decrypt with: ... | openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -iter 600000 ; the last 16 bytes of the result are a sha256 tag over the secret - they must match, or the passphrase was wrong.' }
+        'ru:pp_sealed_win_v2'     { return 'Доли зашифрованы passphrase в аутентифицированном формате (магия SSPP2). Байты ниже — ЗАПЕЧАТАННЫЙ контейнер, НЕ секрет: убери первые 5 байт и расшифруй ... | openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -iter 600000 ; последние 16 байт результата — sha256-тег секрета, он обязан совпасть, иначе passphrase неверный.' }
         'en:pp_sealed_win_v1'     { return 'These shares are passphrase-encrypted in the authenticated format (magic SSPP1). The bytes below are the SEALED container, NOT the secret — strip the first 5 bytes, decrypt with: ... | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 ; the last 16 bytes of the result are a sha256 tag over the secret - they must match, or the passphrase was wrong.' }
         'ru:pp_sealed_win_v1'     { return 'Доли зашифрованы passphrase в аутентифицированном формате (магия SSPP1). Байты ниже — ЗАПЕЧАТАННЫЙ контейнер, НЕ секрет: убери первые 5 байт и расшифруй ... | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 ; последние 16 байт результата — sha256-тег секрета, он обязан совпасть, иначе passphrase неверный.' }
         'en:pp_sealed_win'        { return 'These shares are passphrase-encrypted (openssl AES-256-CBC/PBKDF2, created with -p). The bytes below are the SEALED container, NOT the secret — decrypt them: ... | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000' }
@@ -660,8 +662,12 @@ function Invoke-SsCombine {
     # openssl pipeline.
     if ($secret.Length -ge 5 -and
         $secret[0] -eq 0x53 -and $secret[1] -eq 0x53 -and $secret[2] -eq 0x50 -and $secret[3] -eq 0x50 -and
-        $secret[4] -eq 0x31) {
-        Write-SsWarn (T 'pp_sealed_win_v1')
+        ($secret[4] -eq 0x32 -or $secret[4] -eq 0x31)) {
+        # The version byte is the work factor: SSPP2 was written with 600000 iterations, SSPP1
+        # with 200000, and openssl stores neither. Handing over the wrong number would look
+        # exactly like a wrong passphrase to whoever decrypts this container elsewhere.
+        $k = if ($secret[4] -eq 0x32) { 'pp_sealed_win_v2' } else { 'pp_sealed_win_v1' }
+        Write-SsWarn (T $k)
     }
     elseif ($secret.Length -ge 8 -and
         $secret[0] -eq 0x53 -and $secret[1] -eq 0x61 -and $secret[2] -eq 0x6C -and $secret[3] -eq 0x74 -and
