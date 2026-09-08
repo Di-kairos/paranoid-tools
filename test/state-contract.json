@@ -1,0 +1,97 @@
+{
+  "_comment": [
+    "One truth table for 'is the vault open?', shared by every adapter that answers it.",
+    "The rules live here because they are duplicated by construction: bash decides in",
+    "securetrash/lib/common.sh (_volume_mounted), the macOS menu-bar app in Swift",
+    "(vaultVerdict) and the Windows tray in PowerShell (Get-PtVaultState). Nothing forces",
+    "three separate implementations to agree, and the one time they drifted the GUI showed a",
+    "green OPEN over a closed vault (AUDIT_2026-08-03 P2-10). Audit 2026-09-07 §16.3 asks for",
+    "the same scenarios checked in every adapter rather than for a rewrite of working GUIs.",
+    "",
+    "Each rule is abstract evidence plus the verdict it must produce. A suite maps the evidence",
+    "onto its own mocks; test/state-contract.bats then checks that EVERY rule id is exercised",
+    "in EVERY adapter's suite, so a rule added here cannot stay unchecked anywhere."
+  ],
+  "verdicts": {
+    "open": "the volume is mounted right now and holds decrypted data",
+    "closed": "the container exists and is demonstrably not mounted",
+    "none": "there is no container at this path",
+    "unknown": "the answer could not be established - never to be shown as 'closed'"
+  },
+  "rules": [
+    {
+      "id": "R1-mounted",
+      "evidence": "the system's volume table lists the vault mount point",
+      "verdict": "open",
+      "why": "the only evidence that actually means open: data is reachable now"
+    },
+    {
+      "id": "R2-path-exists-not-mounted",
+      "evidence": "the mount point exists as a directory, but the volume table does not list it",
+      "verdict": "closed",
+      "why": "ejecting leaves the folder behind; treating the leftover as OPEN was P2-10"
+    },
+    {
+      "id": "R3-table-unreadable",
+      "evidence": "the volume table cannot be read (no tool, empty output, an exception)",
+      "verdict": "unknown",
+      "why": "a green 'closed' over an open vault is the worst possible lie; say we do not know"
+    },
+    {
+      "id": "R4-no-container",
+      "evidence": "the container file itself is absent",
+      "verdict": "none",
+      "why": "nothing to open is a different answer from closed, and it needs a different offer"
+    },
+    {
+      "id": "R5-attached-not-usable",
+      "evidence": "the container is attached but locked or not encrypted at all",
+      "verdict": "not-open",
+      "why": "attached is not open: a failed unlock leaves it locked, a died create leaves plaintext"
+    },
+    {
+      "id": "R6-unknown-is-not-an-alarm",
+      "evidence": "the verdict is unknown",
+      "verdict": "no-alarm-but-named",
+      "why": "no ground to raise the warning glyph or a notification, and no ground to hide it in the menu"
+    }
+  ],
+  "adapters": {
+    "bash": {
+      "implementation": "securetrash/lib/common.sh:_volume_mounted",
+      "suite": "securetrash/test/common.bats",
+      "covers": [
+        "R1-mounted",
+        "R2-path-exists-not-mounted",
+        "R3-table-unreadable",
+        "R4-no-container",
+        "R5-attached-not-usable",
+        "R6-unknown-is-not-an-alarm"
+      ]
+    },
+    "swift": {
+      "implementation": "gui/macos/ParanoidBar.swift:vaultVerdict",
+      "suite": "gui/macos/ParanoidBar.swift (--selftest)",
+      "covers": [
+        "R1-mounted",
+        "R2-path-exists-not-mounted",
+        "R3-table-unreadable",
+        "R4-no-container",
+        "R5-attached-not-usable",
+        "R6-unknown-is-not-an-alarm"
+      ]
+    },
+    "powershell": {
+      "implementation": "gui/windows/paranoid-tray.ps1:Get-PtVaultState",
+      "suite": "gui/windows/test/paranoid-tray.Tests.ps1",
+      "covers": [
+        "R1-mounted",
+        "R2-path-exists-not-mounted",
+        "R3-table-unreadable",
+        "R4-no-container",
+        "R5-attached-not-usable",
+        "R6-unknown-is-not-an-alarm"
+      ]
+    }
+  }
+}

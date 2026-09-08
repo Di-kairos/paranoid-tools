@@ -239,3 +239,94 @@ EOF
   [ "$status" -eq 1 ]
   rm -rf "$tmp"
 }
+
+# --- state contract (test/state-contract.json) ---
+# Three adapters answer "is the vault open?" — this library, the macOS menu-bar app and the
+# Windows tray — and nothing but a shared table keeps them saying the same thing. The rule ids
+# below are spelled out so test/state-contract.bats can check this suite covers every rule.
+
+@test "state contract R1-mounted: a listed mount point is open" {
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/mount" <<'MOUNTEOF'
+#!/usr/bin/env bash
+echo "/dev/disk4s1 on /Volumes/SecretVault (apfs, local, nobrowse)"
+MOUNTEOF
+  chmod +x "$tmp/bin/mount"
+  run env PATH="$tmp/bin:$PATH" bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault; echo \$?"
+  [[ "$output" == *"0"* ]]
+  rm -rf "$tmp"
+}
+
+@test "state contract R2-path-exists-not-mounted: a leftover directory is closed, not open" {
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/bin" "$tmp/Volumes/SecretVault"
+  cat >"$tmp/bin/mount" <<'MOUNTEOF'
+#!/usr/bin/env bash
+echo "/dev/disk1s5 on / (apfs, local, read-only, journaled)"
+MOUNTEOF
+  chmod +x "$tmp/bin/mount"
+  run env PATH="$tmp/bin:$PATH" bash -c "source '$LIB'; _volume_mounted '$tmp/Volumes/SecretVault'; echo \$?"
+  [[ "$output" == *"1"* ]]
+  rm -rf "$tmp"
+}
+
+@test "state contract R3-table-unreadable: no table at all is unknown, never closed" {
+  # Two ways the table can be missing: no `mount` on PATH, and `mount` printing nothing.
+  # Both must return 2 (unknown) — the exit code the callers turn into "cannot say".
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
+  run env PATH="$tmp/bin:/bin:/usr/bin" bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault; echo \$?"
+  [[ "$output" == *"2"* ]]
+  cat >"$tmp/bin/mount" <<'MOUNTEOF'
+#!/usr/bin/env bash
+exit 0
+MOUNTEOF
+  chmod +x "$tmp/bin/mount"
+  run env PATH="$tmp/bin:$PATH" bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault; echo \$?"
+  [[ "$output" == *"2"* ]]
+  rm -rf "$tmp"
+}
+
+@test "state contract R4-no-container: an absent container is not reported as a closed vault" {
+  # The library answers about the MOUNT; the caller decides "closed" vs "no vault at all" from
+  # the container. What must never happen is a missing container reading as a mounted volume.
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/mount" <<'MOUNTEOF'
+#!/usr/bin/env bash
+echo "/dev/disk1s5 on / (apfs, local, read-only, journaled)"
+MOUNTEOF
+  chmod +x "$tmp/bin/mount"
+  [ ! -e "$tmp/SecureVault.sparsebundle" ]
+  run env PATH="$tmp/bin:$PATH" bash -c "source '$LIB'; _volume_mounted '$tmp/Volumes/SecretVault'; echo \$?"
+  [[ "$output" == *"1"* ]]
+  rm -rf "$tmp"
+}
+
+@test "state contract R5-attached-not-usable: an attachment that is not a mounted volume is not open" {
+  # A sparsebundle can be attached with its volume unmounted (a failed unlock leaves exactly
+  # that). The device shows up, the mount point does not — and only the mount point counts.
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/mount" <<'MOUNTEOF'
+#!/usr/bin/env bash
+echo "/dev/disk1s5 on / (apfs, local, read-only, journaled)"
+echo "devfs on /dev (devfs, local, nobrowse)"
+MOUNTEOF
+  chmod +x "$tmp/bin/mount"
+  run env PATH="$tmp/bin:$PATH" bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault; echo \$?"
+  [[ "$output" == *"1"* ]]
+  rm -rf "$tmp"
+}
+
+@test "state contract R6-unknown-is-not-an-alarm: unknown is distinguishable from both answers" {
+  # The whole point of the third state: a caller must be able to tell "not mounted" (1) from
+  # "could not look" (2). Collapsing them is what turns an open vault into a green "closed".
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/mount" <<'MOUNTEOF'
+#!/usr/bin/env bash
+echo "/dev/disk1s5 on / (apfs, local, read-only, journaled)"
+MOUNTEOF
+  chmod +x "$tmp/bin/mount"
+  run env PATH="$tmp/bin:$PATH" bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault; echo \$?"
+  [[ "$output" == *"1"* ]]
+  run env PATH="$tmp/bin:/bin:/usr/bin" bash -c "source '$LIB'; _volume_mounted /Volumes/SecretVault; echo \$?"
+  [[ "$output" == *"2"* ]]
+  rm -rf "$tmp"
+}

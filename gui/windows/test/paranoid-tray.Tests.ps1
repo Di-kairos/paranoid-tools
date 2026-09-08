@@ -237,6 +237,53 @@ Describe 'Invoke-PtTool — диспетчер CLI' {
     }
 }
 
+# --- Контракт состояний (test/state-contract.json). На вопрос «сейф открыт?» отвечают три
+# независимые реализации — bash `_volume_mounted`, приложение macOS и этот трей, — и совпадать
+# их заставляет только общая таблица. Идентификаторы правил выписаны буквально: их ищет
+# test/state-contract.bats, чтобы новое правило не осталось непокрытым ни в одном адаптере. ---
+Describe 'контракт состояний сейфа (s45)' {
+
+    BeforeEach {
+        Mock Get-PtVaultMount { 'X:\' }
+        Mock Get-PtVaultContainer { 'C:\Users\me\SecureVault.vhdx' }
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -and $LiteralPath -match 'vhdx' }
+    }
+
+    It 'R1-mounted: точка монтирования есть в таблице томов → open' {
+        Mock Get-PtMountPoints { @('C:\', 'X:\') }
+        Get-PtVaultState | Should -Be 'open'
+    }
+
+    It 'R2-path-exists-not-mounted: тома в таблице нет, контейнер есть → closed' {
+        Mock Get-PtMountPoints { @('C:\') }
+        Get-PtVaultState | Should -Be 'closed'
+    }
+
+    It 'R3-table-unreadable: таблицу прочитать не удалось → unknown, и никогда closed' {
+        Mock Get-PtMountPoints { $null }
+        Get-PtVaultState | Should -Be 'unknown'
+    }
+
+    It 'R4-no-container: контейнера нет → none, а не closed' {
+        Mock Get-PtMountPoints { @('C:\') }
+        Mock Get-PtVaultContainer { $null }
+        Get-PtVaultState | Should -Be 'none'
+    }
+
+    It 'R5-attached-not-usable: буква занята чужим томом → не open' {
+        # Присоединённый, но не разблокированный VHDX буквы не даёт: в таблице стоит чужой том.
+        Mock Get-PtMountPoints { @('C:\', 'Y:\') }
+        Get-PtVaultState | Should -Not -Be 'open'
+    }
+
+    It 'R6-unknown-is-not-an-alarm: unknown не выдаётся за открытый и назван в меню' {
+        Mock Get-PtMountPoints { $null }
+        Get-PtVaultState | Should -Not -Be 'open'
+        $spec = Get-PtMenuSpec -VaultState 'unknown' -Lang 'en' -Elevated $true
+        ($spec | ForEach-Object { $_.Command }) -join ' ' | Should -Match 'vault status'
+    }
+}
+
 # --- s45: собственный секундомер panic стартует уже внутри команды — после нового окна, после
 # запуска pwsh и после диалога UAC. Момент нажатия знает только тот, кто запускал, поэтому трей
 # передаёт его флагом (аудит 2026-09-07, §16.4). ---

@@ -299,12 +299,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // possible lie (mirrors lib/common.sh:_volume_mounted and the launcher's dashboard). This branch
     // used to hold fileExists — i.e. exactly the directory check the ecosystem moved away from.
     private func vaultMountState() -> String {
-        let target = URL(fileURLWithPath: vaultVolume).standardizedFileURL
-        guard let vols = FileManager.default.mountedVolumeURLs(
-                includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) else {
-            return "unknown"
-        }
-        return vols.contains { $0.standardizedFileURL == target } ? "open" : "closed"
+        let vols = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes])
+        return vaultVerdict(mountedVolumes: vols?.map { $0.path }, mountPoint: vaultVolume)
     }
     // For the glyph and notifications "don't know" = "not open": there is no ground to alarm
     // with ⚠ or send long_open over an unknown state. The menu, though, must call unknown by its name.
@@ -408,9 +405,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         let mountState = vaultMountState()
         let vaultStatusText: String
-        if mountState == "open" { vaultStatusText = L("vault_open_risk") }
-        else if mountState == "unknown" { vaultStatusText = L("vault_unknown") }
-        else { vaultStatusText = vaultExists() ? L("vault_closed") : L("vault_not_setup") }
+        switch vaultLabelState(verdict: mountState, containerExists: vaultExists()) {
+        case "open":    vaultStatusText = L("vault_open_risk")
+        case "unknown": vaultStatusText = L("vault_unknown")
+        case "closed":  vaultStatusText = L("vault_closed")
+        default:        vaultStatusText = L("vault_not_setup")
+        }
         menu.addItem(header(L("vault_label") + "      " + vaultStatusText))
         menu.addItem(header(L("fv_label") + "  " + (fileVaultOn() ? L("fv_on") : L("fv_off"))))
         // Active vaultwatch sessions: mount point + TTL countdown (or "no TTL").
@@ -755,6 +755,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// The state rules themselves, as pure functions: three adapters answer "is the vault open?"
+// (bash `_volume_mounted`, this app, the Windows tray) and nothing but a shared table keeps
+// them saying the same thing. That table is test/state-contract.json; these two functions are
+// this adapter's side of it, and --selftest drives every rule id in it.
+//
+// R1-mounted: the volume table lists the mount point → open.
+// R2-path-exists-not-mounted: it does not → closed, even though the folder may still be there.
+// R3-table-unreadable: no table at all → unknown, NEVER closed.
+func vaultVerdict(mountedVolumes: [String]?, mountPoint: String) -> String {
+    guard let vols = mountedVolumes else { return "unknown" }        // R3
+    let target = URL(fileURLWithPath: mountPoint).standardizedFileURL
+    if vols.contains(where: { URL(fileURLWithPath: $0).standardizedFileURL == target }) {
+        return "open"                                                // R1
+    }
+    return "closed"                                                  // R2
+}
+
+// R4-no-container: nothing to open is not the same answer as closed — the menu has to offer
+// "create", not "open". Composed here rather than inline in the menu builder so the rule is in
+// one place and can be exercised without a GUI.
+func vaultLabelState(verdict: String, containerExists: Bool) -> String {
+    if verdict == "open" || verdict == "unknown" { return verdict }
+    return containerExists ? "closed" : "none"                       // R4
+}
+
 // --- selftest: pure logic without the GUI (analog of the Windows tray's ST_NO_MAIN). `./ParanoidBar --selftest`
 // runs the asserts and exits; in CI/locally it is a gate together with compilation. ---
 private func runSelfTests() -> Never {
@@ -762,6 +787,28 @@ private func runSelfTests() -> Never {
     func expect(_ cond: Bool, _ what: String) {
         if !cond { FileHandle.standardError.write(Data("selftest FAIL: \(what)\n".utf8)); exit(1) }
     }
+    // --- state contract (test/state-contract.json): every rule id, driven through the pure
+    // rules above. The ids are spelled out because test/state-contract.bats greps this file for
+    // them: a rule added to the table cannot quietly stay unchecked in this adapter.
+    expect(vaultVerdict(mountedVolumes: ["/Volumes/SecretVault", "/"], mountPoint: "/Volumes/SecretVault")
+           == "open", "R1-mounted")
+    expect(vaultVerdict(mountedVolumes: ["/"], mountPoint: "/Volumes/SecretVault")
+           == "closed", "R2-path-exists-not-mounted")
+    expect(vaultVerdict(mountedVolumes: nil, mountPoint: "/Volumes/SecretVault")
+           == "unknown", "R3-table-unreadable")
+    expect(vaultLabelState(verdict: "closed", containerExists: false) == "none", "R4-no-container")
+    expect(vaultLabelState(verdict: "closed", containerExists: true) == "closed", "R4-no-container container present")
+    // R5-attached-not-usable: this adapter cannot see a locked or plaintext attachment, and the
+    // rule only forbids calling such a thing open. A mount point absent from the table is not open.
+    expect(vaultVerdict(mountedVolumes: ["/Volumes/Other"], mountPoint: "/Volumes/SecretVault")
+           != "open", "R5-attached-not-usable")
+    // R6-unknown-is-not-an-alarm: unknown is not open (no ⚠, no notification), yet the menu
+    // still has to name it rather than pass it off as closed.
+    expect(vaultVerdict(mountedVolumes: nil, mountPoint: "/Volumes/SecretVault") != "open",
+           "R6-unknown-is-not-an-alarm")
+    expect(vaultLabelState(verdict: "unknown", containerExists: true) == "unknown",
+           "R6-unknown-is-not-an-alarm named in the menu")
+
     // localization: the key exists in both tables, an unknown key is returned as-is
     expect(L("vault_closed", lang: "en") == "closed", "L vault_closed en")
     expect(L("vault_closed", lang: "ru") == "закрыт", "L vault_closed ru")
