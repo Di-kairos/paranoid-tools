@@ -344,6 +344,28 @@ Describe 'panic now — honest timing (s45)' {
         ($script:PnLines -join ' ') | Should -Match 'from the trigger'
     }
 
+    # s46: 6.44 s from the trigger, 1.53 s of it inside the run - and no line saying where the
+    # other five went. The acceptance ceiling is about our latency, so the wait that happened
+    # before this process existed (UAC and the click on it) gets named separately.
+    It 'names the wait that happened before this process existed' {
+        Mock Get-PnSecondsSinceProcessStart { 0.30 }
+        $ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - 2000
+        Invoke-PnNow -ArgList @('--trigger-ms', "$ms") | Out-Null
+        ($script:PnLines -join ' ') | Should -Match 'BEFORE this process existed'
+    }
+
+    It 'drops that line when the arithmetic goes negative instead of printing a nonsense wait' {
+        Mock Get-PnSecondsSinceProcessStart { 99.0 }
+        $ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - 2000
+        Invoke-PnNow -ArgList @('--trigger-ms', "$ms") | Out-Null
+        ($script:PnLines -join ' ') | Should -Not -Match 'BEFORE this process existed'
+    }
+
+    It 'says nothing about it when nobody handed over a trigger' {
+        Invoke-PnNow -ArgList @() | Out-Null
+        ($script:PnLines -join ' ') | Should -Not -Match 'BEFORE this process existed'
+    }
+
     It 'takes the same moment from PANIC_TRIGGER_MS when no flag was passed' {
         $env:PANIC_TRIGGER_MS = [string]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - 1500)
         Invoke-PnNow -ArgList @() | Out-Null

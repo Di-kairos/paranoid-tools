@@ -103,6 +103,8 @@ function T {
         'ru:now_startup'      { return "от старта процесса до первого действия: $A с — PowerShell грузился и разбирал этот скрипт, до того как что-то можно было закрыть." }
         'en:now_trigger'      { return "from the trigger to the lock request: $A s - the whole path the person waited through, including the launcher and any rights prompt they had to confirm." }
         'ru:now_trigger'      { return "от нажатия до запроса блокировки: $A с — весь путь, который ждал человек, включая лаунчер и запрос прав, который пришлось подтвердить." }
+        'en:now_before'       { return "of which BEFORE this process existed: $A s - the launcher, the rights prompt and the wait for someone to confirm it. Nothing here is ours to make faster." }
+        'ru:now_before'       { return "из них ДО появления этого процесса: $A с — лаунчер, запрос прав и ожидание, пока его подтвердят. Ускорить это с нашей стороны нечем." }
         'en:lock_ok'          { return 'screen lock REQUESTED and accepted by Windows. LockWorkStation returns as soon as the request is taken - Windows draws the lock screen a moment later, so this is not a measurement of the screen going dark. Glance at it.' }
         'ru:lock_ok'          { return 'блокировка экрана ЗАПРОШЕНА и принята Windows. LockWorkStation возвращается сразу, как запрос принят, — сам экран Windows рисует чуть позже, так что это не замер момента, когда экран погас. Взгляни на него.' }
         'en:lock_fail'        { return 'could NOT lock the screen — lock it now (Win+L).' }
@@ -421,7 +423,18 @@ function Invoke-PnNow {
     Write-PnInfo (T 'now_report' "$n")
     Write-PnInfo (T 'now_timing' ('{0:0.00}' -f $tVols) ('{0:0.00}' -f $tLock))
     if ($null -ne $tStartup) { Write-PnInfo (T 'now_startup' ('{0:0.00}' -f $tStartup)) }
-    if ($null -ne $tTrigger) { Write-PnInfo (T 'now_trigger' ('{0:0.00}' -f $tTrigger)) }
+    if ($null -ne $tTrigger) {
+        Write-PnInfo (T 'now_trigger' ('{0:0.00}' -f $tTrigger))
+        # The acceptance criteria are about OUR latency, and the trigger figure buries it under
+        # the UAC prompt and however long the person took to click it (audit 2026-09-07, §16.4
+        # asks for the prompt on a line of its own). Everything from this process's start to the
+        # lock request is $tStartup + $tLock; what is left over happened before we existed.
+        # Dropped when the arithmetic goes negative - a clock artifact is not a measurement.
+        if ($null -ne $tStartup) {
+            $tBefore = $tTrigger - ($tStartup + $tLock)
+            if ($tBefore -ge 0) { Write-PnInfo (T 'now_before' ('{0:0.00}' -f $tBefore)) }
+        }
+    }
     # The report says how many volumes were locked; unelevated that number is zero for a reason
     # the user has to see next to it, not twenty lines above.
     if (-not $elevated) { Write-PnWarn (T 'no_admin_lock') }
