@@ -781,14 +781,21 @@ public class PtHotkeyWindow : NativeWindow {
 '@
     $script:hotkeyWin = New-Object PtHotkeyWindow
     $script:hotkeyWin.ArmedAtSeconds = 0
+    # A LOCAL handle to the same object, because the handler below cannot see $script: variables.
+    # It runs from the hidden window's WndProc, where the scriptblock reaches the locals of this
+    # function - which is why $notify's balloons work - and finds $script:hotkeyWin empty. Reading
+    # a property off $null gives $null and writing one is silently dropped, so every press armed
+    # and none ever fired (live Windows run, s46; the first attempt at this bug moved the state
+    # into the object but kept reaching it through the invisible variable, and changed nothing).
+    $hkWin = $script:hotkeyWin
     # Honest registration status (mirror of macOS hotkeyRegistered, T4/T9): the Welcome checklist
     # (Show-PtWelcomeForm) reads it — the readiness gate = a valid preset AND a registration that really stuck.
     $script:hotkeyRegistered = $false
     $script:hotkeyWin.add_HotkeyPressed({
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
-        $armed = if ($script:hotkeyWin.ArmedAtSeconds -gt 0) { $script:hotkeyWin.ArmedAtSeconds } else { $null }
+        $armed = if ($hkWin.ArmedAtSeconds -gt 0) { $hkWin.ArmedAtSeconds } else { $null }
         if (Test-PtPanicShouldFire -Now $now -ArmedAt $armed) {
-            $script:hotkeyWin.ArmedAtSeconds = 0
+            $hkWin.ArmedAtSeconds = 0
             if (-not (Invoke-PtTool -Command ('panic now --hard --trigger-ms ' + (Get-PtTriggerMs)))) {
                 # The panic hotkey is the one place where a silent no-op is unacceptable: the
                 # user pressed it twice believing the vault is being closed.
@@ -797,7 +804,7 @@ public class PtHotkeyWindow : NativeWindow {
                 $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_uac_declined_panic), [System.Windows.Forms.ToolTipIcon]::Error)
             }
         } else {
-            $script:hotkeyWin.ArmedAtSeconds = $now
+            $hkWin.ArmedAtSeconds = $now
             $notify.ShowBalloonTip(3000, 'Paranoid Tools', (Get-PtL notif_panic_arm), [System.Windows.Forms.ToolTipIcon]::Warning)
         }
     })
@@ -827,7 +834,12 @@ public class PtHotkeyWindow : NativeWindow {
     # Periodic polling — the tooltip used to refresh only when the menu opened; now it is live.
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = [math]::Max(5, $settings.PollSeconds) * 1000
-    $script:notifyState = New-PtNotifyState
+    # Local, and an object rather than a value: the rebuild below runs from the timer's Tick and
+    # from the icon's MouseDown, and a handler sees this function's locals but not $script:
+    # variables. Reading $script:notifyState there gave $null, which Get-PtNotifyEvents takes as
+    # a Mandatory parameter - so the rebuild threw instead of drawing (live Windows run, s46).
+    $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false }
+    $script:notifyState = $trayState.Notify
 
     $rebuild = {
         $menu.Items.Clear()
@@ -900,11 +912,12 @@ public class PtHotkeyWindow : NativeWindow {
                         # (honesty, T9): fail → the same balloon as at tray startup.
                         $hkSpec = Get-PtHotkeySpec -Preset $s.PanicHotkey
                         if ($hkSpec) {
-                            $script:hotkeyRegistered = $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
-                            if (-not $script:hotkeyRegistered) {
+                            $trayState.HotkeyRegistered = $hkWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
+                            $script:hotkeyRegistered = $trayState.HotkeyRegistered
+                            if (-not $trayState.HotkeyRegistered) {
                                 $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
                             }
-                        } else { $script:hotkeyWin.Unregister(); $script:hotkeyRegistered = $false }
+                        } else { $hkWin.Unregister(); $trayState.HotkeyRegistered = $false; $script:hotkeyRegistered = $false }
                         # Language change: & $rebuild below re-reads Get-PtSettings.Language into
                         # $lang at the start of the block by itself — no separate step needed.
                     }
@@ -919,8 +932,8 @@ public class PtHotkeyWindow : NativeWindow {
         }
         # notifications: the engine decides, BalloonTip delivers (10s; text carries no secrets)
         $now = [int64][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        $nr = Get-PtNotifyEvents -Open ($state -eq 'open') -Ttl $ttl -HasSessions ($vaultSessions.Count -gt 0) -Now $now -State $script:notifyState
-        $script:notifyState = $nr.State
+        $nr = Get-PtNotifyEvents -Open ($state -eq 'open') -Ttl $ttl -HasSessions ($vaultSessions.Count -gt 0) -Now $now -State $trayState.Notify
+        $trayState.Notify = $nr.State
         foreach ($e in $nr.Events) {
             $text = switch ($e) {
                 'ttl_warn'    { (Get-PtL notif_ttl_warn -Lang $lang) -replace '\{0\}', (Format-PtDuration $ttl) }
