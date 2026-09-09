@@ -926,7 +926,12 @@ public class PtHotkeyWindow : NativeWindow {
     }
     $timer.Add_Tick($rebuild)     # live status/TTL polling at the interval from settings
     & $rebuild
-    $menu.Add_Opening($rebuild)   # plus an immediate rebuild when the menu opens
+    # Refreshed on the click, NOT in the menu's own Opening event. $rebuild starts by emptying
+    # Items, and a ContextMenuStrip that is empty when Windows goes to draw it is a strip whose
+    # display gets cancelled - the menu then opens on some right-clicks and not on others, which
+    # is exactly how it behaved in the live run (s46). MouseDown lands before the strip is shown,
+    # so by drawing time the items are back.
+    $notify.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) { & $rebuild } })
     $notify.ContextMenuStrip = $menu
     $timer.Start()
 
