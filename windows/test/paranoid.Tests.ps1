@@ -243,6 +243,9 @@ Describe 'Format-PnMenuItem' {
 }
 
 Describe 'Get-PnVaultState (4-state: open / closed / none / unknown)' {
+    # The usability probe talks to a real drive; these cases are about the table, so it is
+    # mocked open and gets its own tests below.
+    BeforeEach { Mock Test-PnMountUsable { $true } }
     AfterEach { Remove-Item Env:\ST_VAULT_PATH -ErrorAction SilentlyContinue }
 
     It 'reports open when the volume is in the volume table' {
@@ -291,6 +294,26 @@ Describe 'Get-PnVaultState (4-state: open / closed / none / unknown)' {
         $script:VAULT_VOLUME = 'D:\'
         Mock Get-PnMountPoints { $null }
         (Get-PnVaultState) | Should -Be 'unknown'
+    }
+    # R5 as the live system actually presents it: locking a BitLocker volume takes the data
+    # away and leaves the letter and the table entry untouched. The fixtures here used to
+    # assume a locked volume drops out of the table, so the dashboard announced OPEN over a
+    # volume panic had just locked (live Windows run, s46).
+    It 'a locked volume keeps its letter in the table and is still not open' {
+        $script:VAULT_VOLUME = 'D:\'
+        $container = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_c_" + [Guid]::NewGuid().ToString('N') + ".vhdx")
+        Set-Content -LiteralPath $container -Value 'x' -NoNewline
+        $env:ST_VAULT_PATH = $container
+        Mock Get-PnMountPoints { @('C:\', 'D:\') }
+        Mock Test-PnMountUsable { $false }
+        try { (Get-PnVaultState) | Should -Be 'closed' }
+        finally { Remove-Item -LiteralPath $container -Force -ErrorAction SilentlyContinue }
+    }
+    It 'a drive that cannot be probed at all stays open — never a false all-clear' {
+        $script:VAULT_VOLUME = 'D:\'
+        Mock Get-PnMountPoints { @('D:\') }
+        Mock Test-PnMountUsable { $true }
+        (Get-PnVaultState) | Should -Be 'open'
     }
 }
 

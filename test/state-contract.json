@@ -45,9 +45,9 @@
     },
     {
       "id": "R5-attached-not-usable",
-      "evidence": "the container is attached but locked or not encrypted at all",
+      "evidence": "the container is attached but locked or not encrypted at all - on Windows this KEEPS the drive letter and the volume-table entry, so presence in the table is not evidence of open and the mount has to be probed for usability",
       "verdict": "not-open",
-      "why": "attached is not open: a failed unlock leaves it locked, a died create leaves plaintext"
+      "why": "attached is not open: a failed unlock leaves it locked, a died create leaves plaintext. The Windows suites read this rule as 'a locked volume drops out of the table' and mocked it that way; on the live machine the tray and the dashboard both announced OPEN over a volume panic had just locked (s46)"
     },
     {
       "id": "R6-unknown-is-not-an-alarm",

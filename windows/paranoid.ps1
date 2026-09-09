@@ -269,6 +269,23 @@ function Get-PnMountPoints {
         return @($vols | ForEach-Object { $_.Name } | Where-Object { $_ })
     } catch { return $null }
 }
+# A letter in the volume table does not mean the vault is open. Locking a BitLocker volume
+# leaves the letter and the table entry exactly where they were - the data goes, the letter
+# stays. That is the contract's R5, and the Windows suites had it backwards: their fixtures
+# assumed a locked volume drops out of the table. On the live run the dashboard and the tray
+# both announced an OPEN vault over a volume panic had just locked (s46).
+# One DriveInfo probe of the vault's own letter answers it. .IsReady is the call the table
+# enumeration deliberately avoids - it polls the device and can block on an empty optical or a
+# dead network drive - but that argument is about asking it of EVERY drive on every redraw, not
+# once about the one letter we already care about. Unreadable -> treated as open: announcing
+# 'closed' over a live vault is the one direction we are never allowed to be wrong in.
+function Test-PnMountUsable {
+    param([string]$Mount)
+    try {
+        if ($Mount -notmatch '^[A-Za-z]:\\?$') { return $true }   # folder mount: nothing cheap to ask
+        return ([System.IO.DriveInfo]::new($Mount)).IsReady
+    } catch { return $true }
+}
 function Get-PnVaultState {
     # Four states: open = the volume is actually in the volume table; closed = the container
     # exists but is not mounted; none = no container yet; unknown = the table could not be read.
@@ -280,7 +297,10 @@ function Get-PnVaultState {
         if ($null -eq $points) { return 'unknown' }
         $needle = ([string]$script:VAULT_VOLUME).TrimEnd('\', '/')
         foreach ($p in $points) {
-            if ($p.TrimEnd('\', '/') -ieq $needle) { return 'open' }
+            if ($p.TrimEnd('\', '/') -ieq $needle) {
+                if (Test-PnMountUsable -Mount $script:VAULT_VOLUME) { return 'open' }
+                break   # attached but locked — R5, and the container check below answers 'closed'
+            }
         }
     }
     $container = Get-PnVaultContainer

@@ -366,6 +366,9 @@ Describe 'контракт состояний сейфа (s45)' {
         Mock Get-PtVaultMount { 'X:\' }
         Mock Get-PtVaultContainer { 'C:\Users\me\SecureVault.vhdx' }
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -and $LiteralPath -match 'vhdx' }
+        # Проба готовности тома обращается к настоящему диску; остальные правила — про таблицу,
+        # поэтому здесь она отвечает «том живой», а её собственные случаи стоят в R5.
+        Mock Test-PtMountUsable { $true }
     }
 
     It 'R1-mounted: точка монтирования есть в таблице томов → open' {
@@ -390,9 +393,18 @@ Describe 'контракт состояний сейфа (s45)' {
     }
 
     It 'R5-attached-not-usable: буква занята чужим томом → не open' {
-        # Присоединённый, но не разблокированный VHDX буквы не даёт: в таблице стоит чужой том.
         Mock Get-PtMountPoints { @('C:\', 'Y:\') }
         Get-PtVaultState | Should -Not -Be 'open'
+    }
+
+    # Так это выглядит на живой машине, и прежняя фикстура утверждала обратное: «присоединённый,
+    # но не разблокированный VHDX буквы не даёт». Даёт. Запертый BitLocker-том сохраняет и букву,
+    # и запись в таблице томов — уходят только данные, — поэтому трей писал «Vault is OPEN» над
+    # томом, который панику назад запёрла (живой Windows-прогон, s46).
+    It 'R5-attached-not-usable: запертый том остаётся в таблице со своей буквой → не open' {
+        Mock Get-PtMountPoints { @('C:\', 'X:\') }
+        Mock Test-PtMountUsable { $false }
+        Get-PtVaultState | Should -Be 'closed'
     }
 
     It 'R6-unknown-is-not-an-alarm: unknown не выдаётся за открытый и назван в меню' {

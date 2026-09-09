@@ -36,6 +36,21 @@ function Get-PtMountPoints {
         return @($vols | ForEach-Object { $_.Name } | Where-Object { $_ })
     } catch { return $null }
 }
+# A drive letter in the volume table is not evidence that the vault is open. Locking a
+# BitLocker volume keeps its letter and its Win32_Volume entry — the data is gone but the
+# letter stays, which is exactly what R5 is about and exactly what the R5 test believed could
+# not happen ("a locked VHDX gives no letter"). It does. On the live run the tray wrote
+# "Vault is OPEN — at risk while open" over a volume panic had just locked (s46).
+# One DriveInfo probe of the vault's own letter settles it; .IsReady is the call the mount
+# table enumeration avoids, and avoiding it for every drive is not a reason to skip it here.
+# Unreadable → treated as open: the contract's worst lie is 'closed' over a live vault.
+function Test-PtMountUsable {
+    param([string]$Mount)
+    try {
+        if ($Mount -notmatch '^[A-Za-z]:\\?$') { return $true }   # folder mount: nothing cheap to ask
+        return ([System.IO.DriveInfo]::new($Mount)).IsReady
+    } catch { return $true }
+}
 function Get-PtVaultState {
     # open / closed / none / unknown. We ask the volume table, not `Test-Path`: a vault
     # mounted into a folder leaves that folder in place after eject — the tray would write
@@ -46,7 +61,10 @@ function Get-PtVaultState {
         if ($null -eq $points) { return 'unknown' }
         $needle = ([string]$m).TrimEnd('\', '/')
         foreach ($p in $points) {
-            if ($p.TrimEnd('\', '/') -ieq $needle) { return 'open' }
+            if ($p.TrimEnd('\', '/') -ieq $needle) {
+                if (Test-PtMountUsable -Mount $m) { return 'open' }
+                break   # attached but locked — R5, and the container below answers 'closed'
+            }
         }
     }
     $container = Get-PtVaultContainer
