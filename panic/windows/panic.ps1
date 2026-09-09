@@ -151,6 +151,13 @@ destroy). Forced locking may corrupt open files — a deliberate panic trade-off
 # Unlocked BitLocker data volumes that can be locked (not the system drive,
 # protection on, status Unlocked). Empty if the module/access is missing (best-effort).
 function Get-PnBitLockerUnlocked {
+    # Without rights the answer is known before the call: Lock-BitLocker is administrator-only,
+    # so nothing here could be locked anyway. Asking regardless costs the kill-switch five
+    # seconds — Get-BitLockerVolume goes through the BitLocker WMI namespace, which spends
+    # ~5.2 s on a cold session before answering Access denied (measured on the live Windows
+    # run, s46: `panic now` reported "volumes closed after 5.29 s" over zero volumes, and the
+    # whole path came to 8.84 s against an acceptance ceiling of 5 s).
+    if (-not (Test-PnElevated)) { return @() }
     try {
         $vols = Get-BitLockerVolume -ErrorAction Stop
     } catch { return @() }

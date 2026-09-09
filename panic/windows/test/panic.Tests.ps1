@@ -386,3 +386,32 @@ Describe 'panic now — honest timing (s45)' {
         Should -Invoke Invoke-PnKillCloudDaemons -Times 1 -Exactly
     }
 }
+
+# --- s46 (live Windows run): an unelevated `panic now` spent 5.29 s "closing" zero volumes.
+# Get-BitLockerVolume reaches the BitLocker WMI namespace, which takes ~5.2 s on a cold session
+# before refusing without rights - five seconds of a kill-switch buying an answer we already
+# have, and the run came to 8.84 s against an acceptance ceiling of 5 s. ---
+Describe 'unelevated enumeration does not pay the BitLocker WMI toll (s46)' {
+
+    BeforeAll {
+        # The cmdlet ships with Windows' BitLocker module only; on a run without it a stub
+        # gives Mock something to attach to (same trick as the securetrash suite).
+        if (-not (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue)) {
+            function script:Get-BitLockerVolume { [CmdletBinding()] param($MountPoint) }
+        }
+    }
+
+    It 'returns nothing without asking BitLocker at all' {
+        Mock Test-PnElevated { $false }
+        Mock Get-BitLockerVolume { throw 'Access denied' }
+        @(Get-PnBitLockerUnlocked).Count | Should -Be 0
+        Should -Invoke Get-BitLockerVolume -Times 0 -Exactly
+    }
+
+    It 'still asks when the console has the rights to act on the answer' {
+        Mock Test-PnElevated { $true }
+        Mock Get-BitLockerVolume { @() }
+        Get-PnBitLockerUnlocked | Out-Null
+        Should -Invoke Get-BitLockerVolume -Times 1 -Exactly
+    }
+}
