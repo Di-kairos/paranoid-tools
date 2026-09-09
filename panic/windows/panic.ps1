@@ -103,8 +103,8 @@ function T {
         'ru:now_startup'      { return "от старта процесса до первого действия: $A с — PowerShell грузился и разбирал этот скрипт, до того как что-то можно было закрыть." }
         'en:now_trigger'      { return "from the trigger to the lock request: $A s - the whole path the person waited through, including the launcher and any rights prompt they had to confirm." }
         'ru:now_trigger'      { return "от нажатия до запроса блокировки: $A с — весь путь, который ждал человек, включая лаунчер и запрос прав, который пришлось подтвердить." }
-        'en:now_before'       { return "of which BEFORE this process existed: $A s - the launcher, the rights prompt and the wait for someone to confirm it. Nothing here is ours to make faster." }
-        'ru:now_before'       { return "из них ДО появления этого процесса: $A с — лаунчер, запрос прав и ожидание, пока его подтвердят. Ускорить это с нашей стороны нечем." }
+        'en:now_before'       { return "of which BEFORE this process existed: $A s - the rights prompt, the wait for someone to confirm it, and the relaunch through it. Only the last part is ours." }
+        'ru:now_before'       { return "из них ДО появления этого процесса: $A с — запрос прав, ожидание подтверждения и перезапуск через него. Наша здесь только последняя часть." }
         'en:lock_ok'          { return 'screen lock REQUESTED and accepted by Windows. LockWorkStation returns as soon as the request is taken - Windows draws the lock screen a moment later, so this is not a measurement of the screen going dark. Glance at it.' }
         'ru:lock_ok'          { return 'блокировка экрана ЗАПРОШЕНА и принята Windows. LockWorkStation возвращается сразу, как запрос принят, — сам экран Windows рисует чуть позже, так что это не замер момента, когда экран погас. Взгляни на него.' }
         'en:lock_fail'        { return 'could NOT lock the screen — lock it now (Win+L).' }
