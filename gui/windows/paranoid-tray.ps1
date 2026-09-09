@@ -763,6 +763,11 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 public class PtHotkeyWindow : NativeWindow {
     public event EventHandler HotkeyPressed;
+    // When the first press armed the double-press, in seconds since the epoch; 0 = not armed.
+    // It lives here, in the object, and not in a PowerShell $script: variable: the handler runs
+    // from WndProc, and what it assigned there was not what it read back on the next press -
+    // every press re-armed and the panic never fired (live Windows run, s46).
+    public double ArmedAtSeconds;
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mods, uint vk);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
     public PtHotkeyWindow() { CreateHandle(new CreateParams()); }
@@ -775,14 +780,15 @@ public class PtHotkeyWindow : NativeWindow {
 }
 '@
     $script:hotkeyWin = New-Object PtHotkeyWindow
-    $script:panicArmedAt = $null
+    $script:hotkeyWin.ArmedAtSeconds = 0
     # Honest registration status (mirror of macOS hotkeyRegistered, T4/T9): the Welcome checklist
     # (Show-PtWelcomeForm) reads it — the readiness gate = a valid preset AND a registration that really stuck.
     $script:hotkeyRegistered = $false
     $script:hotkeyWin.add_HotkeyPressed({
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
-        if (Test-PtPanicShouldFire -Now $now -ArmedAt $script:panicArmedAt) {
-            $script:panicArmedAt = $null
+        $armed = if ($script:hotkeyWin.ArmedAtSeconds -gt 0) { $script:hotkeyWin.ArmedAtSeconds } else { $null }
+        if (Test-PtPanicShouldFire -Now $now -ArmedAt $armed) {
+            $script:hotkeyWin.ArmedAtSeconds = 0
             if (-not (Invoke-PtTool -Command ('panic now --hard --trigger-ms ' + (Get-PtTriggerMs)))) {
                 # The panic hotkey is the one place where a silent no-op is unacceptable: the
                 # user pressed it twice believing the vault is being closed.
@@ -791,7 +797,7 @@ public class PtHotkeyWindow : NativeWindow {
                 $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_uac_declined_panic), [System.Windows.Forms.ToolTipIcon]::Error)
             }
         } else {
-            $script:panicArmedAt = $now
+            $script:hotkeyWin.ArmedAtSeconds = $now
             $notify.ShowBalloonTip(3000, 'Paranoid Tools', (Get-PtL notif_panic_arm), [System.Windows.Forms.ToolTipIcon]::Warning)
         }
     })
