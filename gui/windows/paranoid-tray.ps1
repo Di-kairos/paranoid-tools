@@ -371,6 +371,13 @@ function Format-PtDuration {
 # NotifyIcon.Text on .NET Framework (PS 5.1) throws ArgumentException at >63 characters
 # (on .NET Core the limit is 127, but we keep 63 — the common denominator). RU worst-case
 # tooltip («…под риском… - авто-выход через 23h 59m 59s») = 68 chars. Truncate with ellipsis.
+# '&' in a ToolStripMenuItem is the mnemonic marker: Windows eats it and underlines the next
+# letter instead. 'PANIC NOW - hide & lock' therefore reached the live menu as 'hide  lock',
+# with the word missing and a stray double space (live Windows run, s47). Doubling it prints one.
+function ConvertTo-PtMenuLabel {
+    param([string]$Label)
+    return ($Label -replace '&', '&&')
+}
 function Limit-PtTrayText {
     param([string]$Text, [int]$Max = 63)
     if ($Text.Length -le $Max) { return $Text }
@@ -949,7 +956,7 @@ public class PtHotkeyWindow : NativeWindow {
         foreach ($s in $sessions) {
             $name = Split-Path -Leaf $s.Mount
             $detail = if ($null -ne $s.Remaining) { "$(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $s.Remaining)" } else { (Get-PtL 'watching_no_ttl' -Lang $lang) }
-            $h = New-Object System.Windows.Forms.ToolStripMenuItem("vaultwatch: $name - $detail")
+            $h = New-Object System.Windows.Forms.ToolStripMenuItem((ConvertTo-PtMenuLabel "vaultwatch: $name - $detail"))
             $h.Enabled = $false
             $menu.Items.Add($h) | Out-Null
         }
@@ -957,7 +964,7 @@ public class PtHotkeyWindow : NativeWindow {
         foreach ($entry in (Get-PtMenuSpec -VaultState $state -Lang $lang)) {
             if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
             $cmd = $entry.Command
-            $it = New-Object System.Windows.Forms.ToolStripMenuItem($entry.Label)
+            $it = New-Object System.Windows.Forms.ToolStripMenuItem((ConvertTo-PtMenuLabel $entry.Label))
             if ($null -ne $entry.Enabled) { $it.Enabled = [bool]$entry.Enabled }   # grey-out per spec (P2-7)
             if ($cmd -eq '__quit__') {
                 $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
@@ -1038,7 +1045,7 @@ public class PtHotkeyWindow : NativeWindow {
             foreach ($entry in (Get-PtFallbackMenuSpec -Message $failure -Lang $lang)) {
                 if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
                 $cmd = $entry.Command
-                $it = New-Object System.Windows.Forms.ToolStripMenuItem($entry.Label)
+                $it = New-Object System.Windows.Forms.ToolStripMenuItem((ConvertTo-PtMenuLabel $entry.Label))
                 $it.Enabled = [bool]$entry.Enabled
                 if ($cmd -eq '__quit__') {
                     $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
@@ -1057,10 +1064,11 @@ public class PtHotkeyWindow : NativeWindow {
     # is exactly how it behaved in the live run (s46). MouseDown lands before the strip is shown,
     # so by drawing time the items are back.
     # param($sender, $e), not $_: a scriptblock on a .NET event never gets $_ filled in - PowerShell
-    # hands the sender and the event args in through param()/$args and leaves $_ empty. $_.Button
-    # was therefore $null on every click, the comparison was always false, and the refresh below
-    # never ran once (live Windows run, s47). The right button still opened a menu because the
-    # strip is attached to the icon - it just showed whatever the last successful rebuild left.
+    # hands the sender and the event args in through param()/$args and leaves $_ empty. Asking
+    # that empty $_ for .Button gave $null on every click, the comparison was always false, and
+    # the refresh below never ran once (live Windows run, s47). The right button still opened a
+    # menu because the strip is attached to the icon - it just showed whatever the last
+    # successful rebuild had left in it.
     $notify.Add_MouseDown({
         param($sender, $e)
         if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) { & $rebuild }

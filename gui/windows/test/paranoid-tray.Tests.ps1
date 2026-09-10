@@ -571,6 +571,15 @@ Describe 'Localization' {
         Resolve-PtLang -Override 'system' -SystemLang 'ru' | Should -Be 'ru'
         Resolve-PtLang -Override 'system' -SystemLang 'fr' | Should -Be 'en'
     }
+    It 'menu labels escape the ampersand the mnemonic parser would eat' {
+        ConvertTo-PtMenuLabel 'PANIC NOW - hide & lock' | Should -Be 'PANIC NOW - hide && lock'
+        ConvertTo-PtMenuLabel 'Settings...' | Should -Be 'Settings...'
+    }
+    It 'every menu-spec label goes through the escaper before it is drawn' {
+        # A new item constructed straight from $entry.Label would lose its ampersand again.
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        @([regex]::Matches($src, 'ToolStripMenuItem\(\$entry\.Label\)')) | Should -BeNullOrEmpty
+    }
     It 'no event handler reads $_ for its event args' {
         # $_ is empty inside a scriptblock attached to a .NET event - the sender and args arrive
         # through param()/$args. `$_.Button` therefore compared $null and the mouse handlers
