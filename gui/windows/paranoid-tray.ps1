@@ -376,6 +376,58 @@ function Limit-PtTrayText {
     if ($Text.Length -le $Max) { return $Text }
     return $Text.Substring(0, $Max - 1) + [char]0x2026
 }
+
+# The tray icon used to be [System.Drawing.SystemIcons]::Shield - the very artwork Windows draws
+# for UAC and for Windows Security. In the overflow flyout it sat one icon away from Windows
+# Security's own shield and could not be told apart, so a click meant for us could land on
+# Microsoft's icon and do nothing we could answer for (live Windows run, s47).
+# Our own glyph instead, and it carries the vault state the way the macOS status bar does:
+# a closed padlock when the vault is closed, an open one while it is open and at risk.
+function Get-PtTrayGlyph {
+    # Segoe MDL2 Assets / Segoe Fluent Icons: E72E Lock, E785 Unlock. Same codepoints in both
+    # fonts, so Windows 10 and 11 draw the same picture.
+    param([bool]$Open)
+    if ($Open) { return [char]0xE785 } else { return [char]0xE72E }
+}
+function Get-PtIconFontFamily {
+    # Fluent (Windows 11) first, MDL2 (Windows 10) after it. Neither present -> $null, and the
+    # caller keeps the system shield: a wrong-looking icon still beats no icon at all.
+    $installed = (New-Object System.Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }
+    foreach ($f in @('Segoe Fluent Icons', 'Segoe MDL2 Assets')) { if ($installed -contains $f) { return $f } }
+    return $null
+}
+function Test-PtLightTaskbar {
+    # The taskbar follows SystemUsesLightTheme, not the app theme. Missing value = dark, which is
+    # the Windows default. Read once at startup: a theme switched mid-session keeps the old glyph
+    # colour until the next start.
+    # ponytail: read once; re-read on WM_SETTINGCHANGE if anyone ever complains.
+    try {
+        return ((Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' `
+                    -Name 'SystemUsesLightTheme' -ErrorAction Stop).SystemUsesLightTheme -eq 1)
+    } catch { return $false }
+}
+function New-PtGlyphIcon {
+    param([Parameter(Mandatory)][char]$Glyph, [string]$Family, [bool]$Light = $false)
+    if (-not $Family) { return $null }
+    try {
+        $size = 32
+        $bmp = New-Object System.Drawing.Bitmap $size, $size
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.Clear([System.Drawing.Color]::Transparent)
+        $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+        $font = New-Object System.Drawing.Font($Family, 26, [System.Drawing.GraphicsUnit]::Pixel)
+        $brush = if ($Light) { [System.Drawing.Brushes]::Black } else { [System.Drawing.Brushes]::White }
+        $fmt = New-Object System.Drawing.StringFormat
+        $fmt.Alignment = [System.Drawing.StringAlignment]::Center
+        $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
+        $g.DrawString([string]$Glyph, $font, $brush, (New-Object System.Drawing.RectangleF(0, 0, $size, $size)), $fmt)
+        $g.Dispose(); $font.Dispose(); $fmt.Dispose()
+        # GetHicon hands out an unmanaged icon handle that Icon.Dispose does not free. We make
+        # exactly two of these for the life of the process (open and closed), so there is nothing
+        # to leak: no DestroyIcon dance, no icon rebuilt on every redraw.
+        return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    } catch { return $null }
+}
 # Parse key=value session files (mount/started/ttl_secs). remaining = started+ttl_secs-now;
 # $null when ttl_secs=0 (a session without TTL). -Now is parameterized for deterministic tests.
 function Get-PtVaultwatchSessions {
@@ -771,8 +823,14 @@ function Start-PtTray {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
 
+    # Two icons, built once: the redraw only picks between them (see Get-PtTrayGlyph for why the
+    # system shield is not used). No icon font on the machine -> the shield, as before.
+    $iconFamily = Get-PtIconFontFamily
+    $lightBar = Test-PtLightTaskbar
+    $iconClosed = New-PtGlyphIcon -Glyph (Get-PtTrayGlyph -Open $false) -Family $iconFamily -Light $lightBar
+    $iconOpen   = New-PtGlyphIcon -Glyph (Get-PtTrayGlyph -Open $true)  -Family $iconFamily -Light $lightBar
     $notify = New-Object System.Windows.Forms.NotifyIcon
-    $notify.Icon = [System.Drawing.SystemIcons]::Shield
+    $notify.Icon = if ($iconClosed) { $iconClosed } else { [System.Drawing.SystemIcons]::Shield }
     $notify.Text = 'Paranoid Tools'
     $notify.Visible = $true
 
@@ -878,6 +936,10 @@ public class PtHotkeyWindow : NativeWindow {
         $ttl = if ($state -eq 'open') {
             ($vaultSessions | Where-Object { $null -ne $_.Remaining } | ForEach-Object { $_.Remaining } | Measure-Object -Minimum).Minimum
         } else { $null }
+        # The glyph says what the tooltip says, for the eye that never hovers: open padlock while
+        # the vault is open and at risk, closed one otherwise.
+        $wantIcon = if ($state -eq 'open') { $iconOpen } else { $iconClosed }
+        if ($wantIcon -and -not [object]::ReferenceEquals($notify.Icon, $wantIcon)) { $notify.Icon = $wantIcon }
         $notify.Text = Limit-PtTrayText $(
             if ($state -eq 'open' -and $null -ne $ttl -and $ttl -eq 0) { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'ttl_expired' -Lang $lang)" }
             elseif ($state -eq 'open' -and $null -ne $ttl)              { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $ttl)" }

@@ -571,6 +571,12 @@ Describe 'Localization' {
         Resolve-PtLang -Override 'system' -SystemLang 'ru' | Should -Be 'ru'
         Resolve-PtLang -Override 'system' -SystemLang 'fr' | Should -Be 'en'
     }
+    It 'tray glyph differs by vault state and uses the icon-font codepoints' {
+        # Same glyph for both states would put us back where we started: an icon that says nothing
+        # and looks like every other shield in the tray.
+        [int](Get-PtTrayGlyph -Open $false) | Should -Be 0xE72E   # Lock
+        [int](Get-PtTrayGlyph -Open $true)  | Should -Be 0xE785   # Unlock
+    }
     It 'fallback menu is never empty and always offers a way out' {
         # The click that returns nothing is the bug this guards: whatever the rebuild failed on,
         # the strip must still carry items, or Windows draws no menu at all.
