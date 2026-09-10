@@ -928,11 +928,10 @@ public class PtHotkeyWindow : NativeWindow {
     # from the icon's MouseDown, and a handler sees this function's locals but not $script:
     # variables. Reading $script:notifyState there gave $null, which Get-PtNotifyEvents takes as
     # a Mandatory parameter - so the rebuild threw instead of drawing (live Windows run, s46).
-    $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false }
+    $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false; Rebuilding = $false }
     $script:notifyState = $trayState.Notify
 
     $rebuildCore = {
-        $menu.Items.Clear()
         # One language resolve for the whole rebuild (one settings read), then -Lang $lang everywhere.
         $lang = Resolve-PtLang -Override ((Get-PtSettings).Language)
         $state = Get-PtVaultState
@@ -956,6 +955,16 @@ public class PtHotkeyWindow : NativeWindow {
             elseif ($state -eq 'open' -and $null -ne $ttl)              { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $ttl)" }
             elseif ($state -eq 'open')                                  { (Get-PtL 'tip_open' -Lang $lang) }
             else                                                        { (Get-PtL 'tip_closed' -Lang $lang) })
+        # Every question that can wait is asked BEFORE the strip is emptied. Some of them wait on
+        # WMI (the volume table, BitLocker, the scheduled task), and a COM call on this STA thread
+        # pumps window messages while it waits - so the timer, or a click, ran a second rebuild in
+        # the middle of the first. The second emptied the strip and filled it; the first then woke
+        # up and added its own full set on top: every item twice (live Windows run, s47). From
+        # Clear() to the last Add below nothing may wait on anything.
+        $spec = @(Get-PtMenuSpec -VaultState $state -Lang $lang)
+        $autostartOn = [bool](Test-PtAutostart)
+        $autostartAdminOn = [bool](Test-PtAutostartTask)
+        $menu.Items.Clear()
         # vaultwatch sessions — disabled headers at the top of the menu (mount point + TTL countdown).
         foreach ($s in $sessions) {
             $name = Split-Path -Leaf $s.Mount
@@ -965,7 +974,7 @@ public class PtHotkeyWindow : NativeWindow {
             $menu.Items.Add($h) | Out-Null
         }
         if ($sessions.Count -gt 0) { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null }
-        foreach ($entry in (Get-PtMenuSpec -VaultState $state -Lang $lang)) {
+        foreach ($entry in $spec) {
             if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
             $cmd = $entry.Command
             $it = New-Object System.Windows.Forms.ToolStripMenuItem((ConvertTo-PtMenuLabel $entry.Label))
@@ -973,7 +982,7 @@ public class PtHotkeyWindow : NativeWindow {
             if ($cmd -eq '__quit__') {
                 $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
             } elseif ($cmd -eq '__autostart__') {
-                $it.Checked = [bool](Test-PtAutostart)
+                $it.Checked = $autostartOn
                 $it.Add_Click({
                     if (Test-PtAutostart) { Disable-PtAutostart }
                     else {
@@ -984,7 +993,7 @@ public class PtHotkeyWindow : NativeWindow {
                     }
                 }.GetNewClosure())
             } elseif ($cmd -eq '__autostart_admin__') {
-                $it.Checked = [bool](Test-PtAutostartTask)
+                $it.Checked = $autostartAdminOn
                 $it.Add_Click({
                     $wasOn = [bool](Test-PtAutostartTask)
                     if (Set-PtAutostartAdmin -On (-not $wasOn)) {
@@ -1041,6 +1050,11 @@ public class PtHotkeyWindow : NativeWindow {
     # the volume table can answer with an error. Whatever it is, it must not cost the user the
     # menu - the strip is already empty by then, and an empty strip never gets drawn.
     $rebuild = {
+        # And a rebuild never starts inside another one. The one already running finishes the
+        # job; a click that arrives meanwhile shows the strip as it stands - the previous full
+        # menu, since nothing is cleared until the probes are done.
+        if ($trayState.Rebuilding) { return }
+        $trayState.Rebuilding = $true
         try { & $rebuildCore }
         catch {
             $failure = $_.Exception.Message
@@ -1059,6 +1073,7 @@ public class PtHotkeyWindow : NativeWindow {
                 $menu.Items.Add($it) | Out-Null
             }
         }
+        finally { $trayState.Rebuilding = $false }
     }
     $timer.Add_Tick($rebuild)     # live status/TTL polling at the interval from settings
     & $rebuild

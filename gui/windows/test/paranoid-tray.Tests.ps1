@@ -580,6 +580,19 @@ Describe 'Localization' {
         $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
         @([regex]::Matches($src, 'ToolStripMenuItem\(\$entry\.Label\)')) | Should -BeNullOrEmpty
     }
+    It 'the rebuild asks everything before it empties the menu' {
+        # A probe that waits on WMI pumps messages on this thread, so a second rebuild could run
+        # inside the first and every item showed up twice (s47). The WinForms loop cannot run in
+        # Pester, so the order is checked in the source: probes, then Clear, then only Adds.
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        $core = $src.Substring($src.IndexOf('$rebuildCore = {'))
+        $core = $core.Substring(0, $core.IndexOf('# notifications: the engine decides'))
+        $core.IndexOf('$spec = @(Get-PtMenuSpec') | Should -BeGreaterThan -1
+        $core.IndexOf('$spec = @(Get-PtMenuSpec') | Should -BeLessThan $core.IndexOf('$menu.Items.Clear()')
+        $core | Should -Not -Match 'Checked = \[bool\]\(Test-Pt'
+        $core | Should -Not -Match 'foreach \(\$entry in \(Get-PtMenuSpec'
+        $src  | Should -Match 'if \(\$trayState\.Rebuilding\) \{ return \}'
+    }
     It 'no event handler reads $_ for its event args' {
         # $_ is empty inside a scriptblock attached to a .NET event - the sender and args arrive
         # through param()/$args. `$_.Button` therefore compared $null and the mouse handlers
