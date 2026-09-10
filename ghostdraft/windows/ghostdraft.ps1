@@ -110,8 +110,8 @@ function T {
         'ru:new_loc_fallback'{ return "Vault не открыт — fallback во ВРЕМЕННЫЙ ФАЙЛ НА ДИСКЕ ($A), ACL только для тебя. На Windows нет встроенного RAM-диска, так что это НЕ настоящая эфемерная память: shred — best-effort overwrite (на SSD без гарантии). Для реальной гарантии сначала открой vault securetrash." }
         'en:new_residue'    { return 'Draft shredded and editor backups cleaned. CANNOT scrub: console scrollback, the OS pagefile (swap), and a vim ~/.viminfo if you used vim — handle those yourself.' }
         'ru:new_residue'    { return 'Черновик удалён, editor-бэкапы вычищены. НЕ могу вычистить: scrollback консоли, pagefile (swap) ОС и ~/.viminfo от vim (если использовал vim) — это на тебе.' }
-        'en:console_prompt' { return 'Type the draft below. It is held in this process only - NOTHING is written to disk. Finish with Ctrl-Z on an empty line, then Enter.' }
-        'ru:console_prompt' { return 'Пиши черновик ниже. Он живёт только в этом процессе — на диск НЕ пишется НИЧЕГО. Закончить: Ctrl-Z на пустой строке, затем Enter.' }
+        'en:console_prompt' { return 'Type the draft below. It is held in this process only - NOTHING is written to disk. To finish: a single dot . on its own line, then Enter (Ctrl-Z then Enter also works).' }
+        'ru:console_prompt' { return 'Пиши черновик ниже. Он живёт только в этом процессе — на диск НЕ пишется НИЧЕГО. Закончить: точка . одна на строке, затем Enter (Ctrl-Z и Enter тоже работают).' }
         'en:console_done'   { return 'Draft gone: the console was cleared and the text died with this process. Nothing was written to disk, so there is nothing to shred. Still outside our reach: the OS pagefile, and the console scrollback if your terminal keeps its own copy.' }
         'ru:console_done'   { return 'Черновика больше нет: консоль очищена, текст умер вместе с процессом. На диск ничего не писалось — и стирать нечего. Вне досягаемости по-прежнему: pagefile ОС и scrollback консоли, если терминал хранит собственную копию.' }
         'en:editor_optin'   { return 'EDITOR is set ({0}) - the draft goes into a FILE on disk for it to open. That is the older, weaker path; unset EDITOR to type the draft straight into this console instead, where it never touches disk.' }
@@ -179,14 +179,25 @@ function Invoke-GdPipe {
 
 # === new: ephemeral draft + shred + editor-residue cleanup ===
 
-# Read the draft from the console, to end-of-input (Ctrl-Z + Enter). Wrapper for Mock.
+# End of the draft: a lone dot, or real end-of-input (Ctrl-Z + Enter).
+# Ctrl-Z alone was the contract until a live user could not get out of it: the console echoed
+# ^Z as text and the draft never ended, and he typed a lone dot on its own line trying to escape
+# (live Windows run, s47). A dot is what he reached for, so a dot is what ends it - the same
+# lesson as the vim exit on macOS: a wedged user is fixed by a mechanism, not by better wording.
+# ponytail: a draft whose own last line is a single dot cannot be typed here; the prompt says so.
+function Test-GdDraftEnd {
+    param($Line)
+    if ($null -eq $Line) { return $true }        # real EOF - Ctrl-Z + Enter, or a redirected stdin
+    return ([string]$Line).Trim() -eq '.'
+}
+# Read the draft from the console, to end-of-input. Wrapper for Mock.
 # This is the whole point of the console path: the text exists as a string in this process and
 # nowhere else - no temp file, no editor, and so no editor residue to chase afterwards.
 function Read-GdConsoleDraft {
     $sb = New-Object System.Text.StringBuilder
     while ($true) {
         $line = [Console]::In.ReadLine()
-        if ($null -eq $line) { break }
+        if (Test-GdDraftEnd -Line $line) { break }
         [void]$sb.AppendLine($line)
     }
     return $sb.ToString()

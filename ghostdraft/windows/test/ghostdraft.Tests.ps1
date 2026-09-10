@@ -64,6 +64,19 @@ Describe 'ghostdraft new — orchestration (override dir)' {
 # tabs into TabState on disk — a forensic artifact that outlives ghostdraft's shred, i.e. the
 # exact promise the tool exists to keep. The default is now a console draft that never creates
 # a file at all. ---
+Describe 'ghostdraft new — ending the console draft' {
+    It 'ends on real end-of-input and on a lone dot, not on ordinary text' {
+        # The wedged live user (s47): Ctrl-Z echoed as text and the draft never ended. A dot on
+        # its own line is what he reached for, and it is what ends it now.
+        Test-GdDraftEnd -Line $null   | Should -BeTrue
+        Test-GdDraftEnd -Line '.'     | Should -BeTrue
+        Test-GdDraftEnd -Line '  .  ' | Should -BeTrue
+        Test-GdDraftEnd -Line ''      | Should -BeFalse   # a blank line is part of the draft
+        Test-GdDraftEnd -Line '. and then some' | Should -BeFalse
+        Test-GdDraftEnd -Line 'hi test note'    | Should -BeFalse
+    }
+}
+
 Describe 'ghostdraft new — console draft is the default (P0-1)' {
 
     BeforeEach {
