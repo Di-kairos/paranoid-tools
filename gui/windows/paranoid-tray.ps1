@@ -214,6 +214,27 @@ function Get-PtMenuSpec {
     )
 }
 
+# The menu that gets drawn when the real one could not be built. A rebuild throws AFTER it has
+# emptied the strip, and an empty ContextMenuStrip is one Windows refuses to display: the icon
+# then answers a click with nothing at all, which from the outside is a dead tray (Mr.Di, s47).
+# So a failure keeps a menu of its own - it names the failure and still offers the way out.
+function Get-PtFallbackMenuSpec {
+    param([string]$Message = '',
+          [string]$Lang = (Resolve-PtLang -Override ((Get-PtSettings).Language)))
+    # One line, bounded: an exception message can carry a stack of lines and any length, and a
+    # menu item is neither a log nor a place to paste a path 400 characters long.
+    $line = (($Message -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
+    if (-not $line) { $line = 'menu could not be built' }
+    $line = $line.Trim()
+    if ($line.Length -gt 120) { $line = $line.Substring(0, 117) + '...' }
+    return @(
+        [pscustomobject]@{ Label = ('Paranoid Bar: ' + $line);           Command = '';          Enabled = $false }
+        [pscustomobject]@{ Label = '-';                                  Command = '';          Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'launcher_item' -Lang $Lang); Command = 'paranoid';  Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'quit_item' -Lang $Lang);     Command = '__quit__';  Enabled = $true }
+    )
+}
+
 # --- autostart at login (HKCU Run; no admin rights/signature needed) ---
 # Registry key spec as a separate function → Pester checks it WITHOUT writing to the registry.
 function Get-PtAutostartSpec {
@@ -841,7 +862,7 @@ public class PtHotkeyWindow : NativeWindow {
     $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false }
     $script:notifyState = $trayState.Notify
 
-    $rebuild = {
+    $rebuildCore = {
         $menu.Items.Clear()
         # One language resolve for the whole rebuild (one settings read), then -Lang $lang everywhere.
         $lang = Resolve-PtLang -Override ((Get-PtSettings).Language)
@@ -943,6 +964,29 @@ public class PtHotkeyWindow : NativeWindow {
             if ($text) { $notify.ShowBalloonTip(10000, 'Paranoid Tools', $text, [System.Windows.Forms.ToolTipIcon]::Warning) }
         }
     }
+    # Nothing the rebuild reads is guaranteed: settings can be unreadable, a tool can be missing,
+    # the volume table can answer with an error. Whatever it is, it must not cost the user the
+    # menu - the strip is already empty by then, and an empty strip never gets drawn.
+    $rebuild = {
+        try { & $rebuildCore }
+        catch {
+            $failure = $_.Exception.Message
+            $lang = try { Resolve-PtLang -Override ((Get-PtSettings).Language) } catch { 'en' }
+            $menu.Items.Clear()
+            foreach ($entry in (Get-PtFallbackMenuSpec -Message $failure -Lang $lang)) {
+                if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
+                $cmd = $entry.Command
+                $it = New-Object System.Windows.Forms.ToolStripMenuItem($entry.Label)
+                $it.Enabled = [bool]$entry.Enabled
+                if ($cmd -eq '__quit__') {
+                    $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
+                } elseif ($cmd) {
+                    $it.Add_Click({ Invoke-PtTool -Command $cmd }.GetNewClosure())
+                }
+                $menu.Items.Add($it) | Out-Null
+            }
+        }
+    }
     $timer.Add_Tick($rebuild)     # live status/TTL polling at the interval from settings
     & $rebuild
     # Refreshed on the click, NOT in the menu's own Opening event. $rebuild starts by emptying
@@ -952,6 +996,21 @@ public class PtHotkeyWindow : NativeWindow {
     # so by drawing time the items are back.
     $notify.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) { & $rebuild } })
     $notify.ContextMenuStrip = $menu
+    # NotifyIcon opens its strip on the right button only. On the left one the icon did nothing
+    # at all - and an icon that answers nothing is indistinguishable from a tray that died (Mr.Di,
+    # s47). macOS opens the same menu on either click; this is that parity.
+    # ShowContextMenu is the private method Windows itself calls for the right button: it places
+    # the menu at the icon and closes it when focus leaves. If a future runtime renames it, the
+    # menu still opens - at the cursor, which is where the icon is anyway.
+    $showMenu = [System.Windows.Forms.NotifyIcon].GetMethod('ShowContextMenu',
+        [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic)
+    $notify.Add_MouseUp({
+        if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            & $rebuild
+            if ($showMenu) { $showMenu.Invoke($notify, $null) }
+            else { $menu.Show([System.Windows.Forms.Control]::MousePosition) }
+        }
+    })
     $timer.Start()
 
     [System.Windows.Forms.Application]::Run()

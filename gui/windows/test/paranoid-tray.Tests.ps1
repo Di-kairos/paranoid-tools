@@ -571,6 +571,21 @@ Describe 'Localization' {
         Resolve-PtLang -Override 'system' -SystemLang 'ru' | Should -Be 'ru'
         Resolve-PtLang -Override 'system' -SystemLang 'fr' | Should -Be 'en'
     }
+    It 'fallback menu is never empty and always offers a way out' {
+        # The click that returns nothing is the bug this guards: whatever the rebuild failed on,
+        # the strip must still carry items, or Windows draws no menu at all.
+        $spec = Get-PtFallbackMenuSpec -Message 'volume table unreadable' -Lang 'en'
+        @($spec).Count | Should -BeGreaterThan 1
+        ($spec | Where-Object { $_.Command -eq '__quit__' }).Label | Should -Be (Get-PtL -Key 'quit_item' -Lang 'en')
+        ($spec | Where-Object { $_.Enabled -eq $false }).Label | Should -Be 'Paranoid Bar: volume table unreadable'
+    }
+    It 'fallback menu keeps the failure to one bounded line' {
+        $long = ('x' * 400) + "`nsecond line"
+        $head = (Get-PtFallbackMenuSpec -Message $long -Lang 'en')[0].Label
+        $head | Should -Not -Match "`n"
+        $head.Length | Should -BeLessOrEqual 134   # 'Paranoid Bar: ' + 120
+        (Get-PtFallbackMenuSpec -Message '' -Lang 'en')[0].Label | Should -Be 'Paranoid Bar: menu could not be built'
+    }
     It 'has identical key sets for en and ru' {
         ($PtStrings.en.Keys | Sort-Object) -join ',' | Should -Be (($PtStrings.ru.Keys | Sort-Object) -join ',')
     }
