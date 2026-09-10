@@ -91,6 +91,23 @@ Describe 'windows/install.ps1 (umbrella)' {
         (Get-Content -LiteralPath $shim -Raw) | Should -Match 'lib\\paranoid\.ps1'
     }
 
+    It 'installs the tray into lib\ next to the launcher, so paranoid can start it' {
+        $umbrella = New-FakeClone -Root $script:Clone
+        $gui = Join-Path $script:Clone 'gui\windows'
+        New-Item -ItemType Directory -Path $gui -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $gui 'paranoid-tray.ps1') -Value '# fake tray'
+        & $script:PwshExe -NoProfile -File $umbrella 1> $null 2> $null
+        $LASTEXITCODE | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $script:Dest 'lib\paranoid-tray.ps1') | Should -BeTrue
+    }
+
+    It 'still succeeds on a clone without the tray - it only warns' {
+        $umbrella = New-FakeClone -Root $script:Clone
+        & $script:PwshExe -NoProfile -File $umbrella 1> $null 2> $null
+        $LASTEXITCODE | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $script:Dest 'lib\paranoid-tray.ps1') | Should -BeFalse
+    }
+
     It 'records where it was installed from, so the launcher can update' {
         # The installed copy knows nothing about the clone it came from; without this file the
         # launcher's Update item has nothing to re-run. Mirror of install.sh's state file.

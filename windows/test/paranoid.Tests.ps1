@@ -980,3 +980,53 @@ Describe 'PARANOID_TIMING — измеритель проб дашборда (s4
         (Measure-PnProbe 'x' { 'value' }) | Should -Be 'value'
     }
 }
+
+# s47: nothing used to start the tray, so a user who ran `paranoid` saw no icon and could not
+# tell whether the tools were on the machine at all. The launcher now brings one up.
+Describe 'the launcher starts the tray' {
+    BeforeEach {
+        Remove-Item Env:\PARANOID_NO_TRAY -ErrorAction SilentlyContinue
+        Mock Start-Process { }
+        Mock Get-PnTrayScript { 'C:\pt\lib\paranoid-tray.ps1' }
+    }
+    AfterEach { Remove-Item Env:\PARANOID_NO_TRAY -ErrorAction SilentlyContinue }
+
+    It 'starts a hidden pwsh on the tray script when none is running' {
+        Mock Test-PnTrayRunning { $false }
+        Start-PnTray
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
+            $FilePath -eq 'pwsh' -and $WindowStyle -eq 'Hidden' -and
+            ($ArgumentList -join ' ') -match '-File C:\\pt\\lib\\paranoid-tray\.ps1$'
+        }
+    }
+    It 'starts nothing when a tray is already up - one icon, not two' {
+        Mock Test-PnTrayRunning { $true }
+        Start-PnTray
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+    It 'starts nothing under PARANOID_NO_TRAY=1' {
+        $env:PARANOID_NO_TRAY = '1'
+        Mock Test-PnTrayRunning { $false }
+        Start-PnTray
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+    It 'starts nothing when the tray script is not on disk, and does not throw' {
+        Mock Test-PnTrayRunning { $false }
+        Mock Get-PnTrayScript { $null }
+        { Start-PnTray } | Should -Not -Throw
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+    It 'swallows a failed start: the launcher must still come up' {
+        Mock Test-PnTrayRunning { $false }
+        Mock Start-Process { throw 'pwsh not found' }
+        { Start-PnTray } | Should -Not -Throw
+    }
+    It 'asks for the same mutex the tray holds' {
+        # Two spellings of one name in two files; drift would make the launcher start a second
+        # tray every time, forever.
+        $tray = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\gui\windows\paranoid-tray.ps1') -Raw
+        $m = [regex]::Match($tray, "(?m)^\`$PtTrayMutexName = '([^']+)'")
+        $m.Success | Should -BeTrue
+        $m.Groups[1].Value | Should -Be $script:PN_TRAY_MUTEX
+    }
+}

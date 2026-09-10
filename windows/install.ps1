@@ -67,7 +67,7 @@ if ($Uninstall) {
     # before lib\ left the scripts next to the shims, so both places are cleaned.
     $names = @()
     foreach ($tool in $Tools) { $names += @("$($tool.Name).ps1", "$($tool.Name).cmd", "lib\$($tool.Name).ps1") }
-    $names += @('paranoid.ps1', 'paranoid.cmd', 'lib\paranoid.ps1')
+    $names += @('paranoid.ps1', 'paranoid.cmd', 'lib\paranoid.ps1', 'lib\paranoid-tray.ps1')
     $removed = 0
     foreach ($name in $names) {
         $path = Join-Path $InstallDir $name
@@ -177,6 +177,20 @@ if errorlevel 1 exit /b %errorlevel%
     Write-Warning "paranoid.ps1 is missing next to this script — the launcher was not installed."
 }
 
+# The tray, next to the launcher: `paranoid` starts it from lib\ whenever none is running. Same
+# delivery as the launcher - versioned in this repo, copied from the clone, no release of its
+# own - so the signed-release chain of the five tools is untouched by it. Until s47 nothing
+# shipped it, and a user who installed by the book never learned a tray existed.
+$traySrc = Join-Path $Root (Join-Path 'gui' (Join-Path 'windows' 'paranoid-tray.ps1'))
+if (Test-Path -LiteralPath $traySrc) {
+    $libDir = Join-Path $InstallDir 'lib'
+    New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+    Copy-Item -LiteralPath $traySrc -Destination (Join-Path $libDir 'paranoid-tray.ps1') -Force
+    Write-Host "Installed: $(Join-Path $libDir 'paranoid-tray.ps1') (the launcher starts it)"
+} else {
+    Write-Warning "gui\windows\paranoid-tray.ps1 is missing in this clone — the tray was not installed."
+}
+
 # Remember WHERE this was installed from: the launcher's Update item re-runs the installer from
 # that directory. The copy in %LOCALAPPDATA% knows nothing about the clone it came from, so
 # without this the menu item would have nothing to update. Mirror of install.sh's state file.
@@ -210,7 +224,7 @@ Write-Host ''
 Write-Host "Tools installed: $installed/$($Tools.Count) (+ the paranoid launcher)."
 Write-Host 'NEXT STEPS:'
 Write-Host '  1) Open a NEW terminal (so PATH refreshes).'
-Write-Host '  2) Run:  paranoid          (the interactive launcher)'
+Write-Host '  2) Run:  paranoid          (the interactive launcher; it also starts the tray icon)'
 Write-Host '     or:   securetrash check'
 Write-Host ''
 Write-Host 'NOTE: BETA port. Verify behavior on test data before trusting it with real secrets.'

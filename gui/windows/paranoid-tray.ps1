@@ -82,6 +82,10 @@ function Test-PtBitLocker {
     } catch { return $false }
 }
 
+# The single-instance mutex. windows/paranoid.ps1 asks for the same name to learn whether a tray
+# is already up; the Pester suites keep the two spellings equal.
+$PtTrayMutexName = 'Local\ParanoidTools.Tray'
+
 # --- localization: dictionary in code, mirror of macOS `strings` (keys 1:1, parity — Pester).
 # Honest wording ("at risk") is translated without softening. ---
 $script:PtStrings = @{
@@ -1114,5 +1118,13 @@ if (-not $env:ST_NO_MAIN) {
         [Console]::Error.WriteLine("[x] paranoid-tray requires PowerShell 7+ (pwsh); running under $($PSVersionTable.PSVersion). Start it with: pwsh -File paranoid-tray.ps1")
         exit 1
     }
+    # One tray per session. The launcher starts one whenever it finds none, the login autostart
+    # starts one, a user can start one by hand - and two copies meant two icons in the flyout,
+    # one of them stale (live Windows run, s47). The second copy steps aside quietly. The mutex
+    # is held for the life of the process; Windows releases it when the process ends, crash or not.
+    $created = $false
+    try { $script:trayMutex = New-Object System.Threading.Mutex($true, $PtTrayMutexName, [ref]$created) }
+    catch [System.UnauthorizedAccessException] { $created = $false }   # held by an elevated tray
+    if (-not $created) { exit 0 }
     Start-PtTray
 }

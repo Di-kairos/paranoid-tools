@@ -307,6 +307,47 @@ function Get-PnVaultState {
     if ($container -and (Test-Path -LiteralPath $container)) { return 'closed' }
     return 'none'
 }
+# --- the tray: started by the launcher, so the tools are visibly there ---
+# Until s47 nothing started the tray: the installer did not ship it and the launcher did not
+# know it existed, so a user who ran `paranoid` saw no icon and could not tell whether Paranoid
+# Tools was on the machine at all (Mr.Di, live Windows run). Now `paranoid` brings one up when
+# there is none. The tray holds this named mutex for its whole life (gui/windows/paranoid-tray.ps1)
+# - asking for it is how we know, in microseconds and without WMI, whether one is already up.
+$script:PN_TRAY_MUTEX = 'Local\ParanoidTools.Tray'
+function Test-PnTrayRunning {
+    try {
+        $m = $null
+        if ([System.Threading.Mutex]::TryOpenExisting($script:PN_TRAY_MUTEX, [ref]$m)) { $m.Dispose(); return $true }
+        return $false
+    } catch [System.UnauthorizedAccessException] {
+        return $true    # it exists: an elevated tray (login autostart WITH rights) owns it
+    } catch {
+        return $false
+    }
+}
+# Where the tray script is: next to us when installed (lib\), or in the clone's gui\windows when
+# the launcher is run straight from the repository.
+function Get-PnTrayScript {
+    $candidates = @(
+        (Join-Path $PSScriptRoot 'paranoid-tray.ps1'),
+        (Join-Path (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'gui') 'windows') 'paranoid-tray.ps1')
+    )
+    foreach ($c in $candidates) { if (Test-Path -LiteralPath $c) { return $c } }
+    return $null
+}
+# Best effort and silent: the launcher is the thing the user asked for, and a tray that cannot
+# start must not stand in its way. PARANOID_NO_TRAY=1 turns it off (tests, headless sessions).
+function Start-PnTray {
+    if ($env:PARANOID_NO_TRAY -eq '1') { return }
+    if (Test-PnTrayRunning) { return }
+    $tray = Get-PnTrayScript
+    if (-not $tray) { return }
+    try {
+        Start-Process -FilePath 'pwsh' -WindowStyle Hidden `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $tray) | Out-Null
+    } catch { }
+}
+
 # Administrator rights in this session (wrapper for Mock). Everything the vault menu offers runs
 # on diskpart and BitLocker, which Windows gives to administrators only — so an unelevated
 # launcher shows a full menu whose every item refuses. The dashboard says it once, up front.
@@ -1085,6 +1126,10 @@ function Invoke-PnMain {
         '' { }
         default { [Console]::Error.WriteLine("Unknown command: $cmd"); [Console]::Error.WriteLine((Get-PnUsage)); exit 1 }
     }
+    # Only the interactive launcher starts the tray - not `version`/`help`, and not the
+    # _elevated re-entry above, which would otherwise bring up a tray with administrator rights
+    # nobody chose to give it.
+    Start-PnTray
     while ($true) {
         Clear-Host
         Write-PnScreen (Get-PnDashboard)
