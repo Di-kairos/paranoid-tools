@@ -1056,7 +1056,15 @@ public class PtHotkeyWindow : NativeWindow {
     # display gets cancelled - the menu then opens on some right-clicks and not on others, which
     # is exactly how it behaved in the live run (s46). MouseDown lands before the strip is shown,
     # so by drawing time the items are back.
-    $notify.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) { & $rebuild } })
+    # param($sender, $e), not $_: a scriptblock on a .NET event never gets $_ filled in - PowerShell
+    # hands the sender and the event args in through param()/$args and leaves $_ empty. $_.Button
+    # was therefore $null on every click, the comparison was always false, and the refresh below
+    # never ran once (live Windows run, s47). The right button still opened a menu because the
+    # strip is attached to the icon - it just showed whatever the last successful rebuild left.
+    $notify.Add_MouseDown({
+        param($sender, $e)
+        if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) { & $rebuild }
+    })
     $notify.ContextMenuStrip = $menu
     # NotifyIcon opens its strip on the right button only. On the left one the icon did nothing
     # at all - and an icon that answers nothing is indistinguishable from a tray that died (Mr.Di,
@@ -1067,10 +1075,17 @@ public class PtHotkeyWindow : NativeWindow {
     $showMenu = [System.Windows.Forms.NotifyIcon].GetMethod('ShowContextMenu',
         [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic)
     $notify.Add_MouseUp({
-        if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+        param($sender, $e)
+        if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
+        # A handler that throws does it into WinForms, which says nothing: the click looks ignored
+        # and we are back to an icon that answers nothing. The balloon is the one channel that
+        # works with no window of our own.
+        try {
             & $rebuild
             if ($showMenu) { $showMenu.Invoke($notify, $null) }
             else { $menu.Show([System.Windows.Forms.Control]::MousePosition) }
+        } catch {
+            $notify.ShowBalloonTip(8000, 'Paranoid Tools', ('menu: ' + $_.Exception.Message), [System.Windows.Forms.ToolTipIcon]::Error)
         }
     })
     $timer.Start()

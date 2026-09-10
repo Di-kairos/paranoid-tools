@@ -571,6 +571,13 @@ Describe 'Localization' {
         Resolve-PtLang -Override 'system' -SystemLang 'ru' | Should -Be 'ru'
         Resolve-PtLang -Override 'system' -SystemLang 'fr' | Should -Be 'en'
     }
+    It 'no event handler reads $_ for its event args' {
+        # $_ is empty inside a scriptblock attached to a .NET event - the sender and args arrive
+        # through param()/$args. `$_.Button` therefore compared $null and the mouse handlers
+        # never fired (s47). Caught statically: the runtime says nothing when it happens.
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        @([regex]::Matches($src, '\$_\.(Button|Location|Clicks|X|Y|KeyCode|Delta)')) | Should -BeNullOrEmpty
+    }
     It 'tray glyph differs by vault state and uses the icon-font codepoints' {
         # Same glyph for both states would put us back where we started: an icon that says nothing
         # and looks like every other shield in the tray.
