@@ -700,10 +700,10 @@ Describe 'Settings v2 (language/hotkey/onboarded)' {
         Remove-Item -LiteralPath $env:PT_SETTINGS_FILE -ErrorAction SilentlyContinue
     }
     AfterEach  { Remove-Item Env:\PT_SETTINGS_FILE -ErrorAction SilentlyContinue }
-    It 'defaults: system language, hotkey on (ctrl-alt-shift-p), not onboarded' {
+    It 'defaults: system language, hotkey on (ctrl-alt-p), not onboarded' {
         $s = Get-PtSettings
         $s.Language | Should -Be 'system'
-        $s.PanicHotkey | Should -Be 'ctrl-alt-shift-p'
+        $s.PanicHotkey | Should -Be 'ctrl-alt-p'
         $s.Onboarded | Should -BeFalse
     }
     It 'round-trips new fields' {
@@ -716,7 +716,36 @@ Describe 'Settings v2 (language/hotkey/onboarded)' {
     It 'sanitizes garbage language/hotkey to defaults' {
         Set-PtSettings -Language 'xx' -PanicHotkey 'garbage'
         (Get-PtSettings).Language | Should -Be 'system'
+        (Get-PtSettings).PanicHotkey | Should -Be 'ctrl-alt-p'
+    }
+    # s48: «четыре клавиши одновременно, очень быстро, два раза — слишком большая комбинация».
+    It 'старый файл с прежним дефолтом переезжает на Ctrl+Alt+P один раз' {
+        '{"VaultVolume":"","PollSeconds":15,"Language":"ru","PanicHotkey":"ctrl-alt-shift-p","Onboarded":true}' |
+            Set-Content -LiteralPath $env:PT_SETTINGS_FILE
+        Update-PtHotkeyDefault | Should -BeTrue
+        $s = Get-PtSettings
+        $s.PanicHotkey | Should -Be 'ctrl-alt-p'
+        $s.Language    | Should -Be 'ru'        # остальное не тронуто
+        $s.Onboarded   | Should -BeTrue
+        Update-PtHotkeyDefault | Should -BeFalse   # второй раз — нечего
+    }
+    It 'сознательный выбор Ctrl+Alt+Shift+P после переезда сохраняется' {
+        Set-PtSettings -PanicHotkey 'ctrl-alt-shift-p' -Onboarded $true
+        Update-PtHotkeyDefault | Should -BeFalse
         (Get-PtSettings).PanicHotkey | Should -Be 'ctrl-alt-shift-p'
+    }
+    It 'другой выбор (L / выкл) и отсутствие файла не трогаются' {
+        '{"PanicHotkey":"ctrl-alt-shift-l"}' | Set-Content -LiteralPath $env:PT_SETTINGS_FILE
+        Update-PtHotkeyDefault | Should -BeFalse
+        (Get-PtSettings).PanicHotkey | Should -Be 'ctrl-alt-shift-l'
+        Remove-Item -LiteralPath $env:PT_SETTINGS_FILE
+        Update-PtHotkeyDefault | Should -BeFalse
+    }
+    It 'подпись в настройках и гиде совпадает с пресетом' {
+        Get-PtHotkeyLabel -Preset 'ctrl-alt-p' | Should -Be 'Ctrl+Alt+P'
+        Get-PtHotkeyLabel -Preset 'ctrl-alt-shift-l' | Should -Be 'Ctrl+Alt+Shift+L'
+        Get-PtHotkeyLabel -Preset 'off' | Should -BeNullOrEmpty
+        (Get-PtL -Key 'notif_hotkey_moved' -Lang 'ru') | Should -Match 'Ctrl\+Alt\+Shift\+P'
     }
 }
 
@@ -820,7 +849,7 @@ Describe 'Cross-platform l10n parity' {
                      'login_admin_item', 'login_admin_on', 'login_admin_off', 'login_admin_declined',
                      'vw_start', 'vw_stop', 'vw_needs_open', 'ttl_30m', 'ttl_1h', 'ttl_2h', 'ttl_4h', 'ttl_none',
                      'notepad_menu', 'ghost_note', 'ghost_pipe', 'secrets_menu', 'split_item', 'combine_item',
-                     'press_enter_close', 'hint_combine', 'hint_pipe', 'hint_split',
+                     'press_enter_close', 'hint_combine', 'hint_pipe', 'hint_split', 'notif_hotkey_moved',
                      'ob_icon_line', 'ob_show_btn', 'ob_howto', 'set_vol_auto')
         foreach ($k in $winOnly) { $swiftKeys | Should -Not -Contain $k }
         $psKeys = $PtStrings.en.Keys | Where-Object { $_ -notin $winOnly } | Sort-Object -Unique
@@ -860,6 +889,8 @@ Describe 'Panic hotkey' {
         (Get-PtHotkeySpec -Preset 'ctrl-alt-shift-p').Vk | Should -Be 0x50
         (Get-PtHotkeySpec -Preset 'ctrl-alt-shift-l').Vk | Should -Be 0x4C
         (Get-PtHotkeySpec -Preset 'ctrl-alt-shift-p').Modifiers | Should -Be 7
+        (Get-PtHotkeySpec -Preset 'ctrl-alt-p').Vk | Should -Be 0x50
+        (Get-PtHotkeySpec -Preset 'ctrl-alt-p').Modifiers | Should -Be 3   # MOD_CONTROL|MOD_ALT, без Shift
         Get-PtHotkeySpec -Preset 'off' | Should -BeNullOrEmpty
         Get-PtHotkeySpec -Preset 'garbage' | Should -BeNullOrEmpty
     }

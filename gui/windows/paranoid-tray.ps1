@@ -129,6 +129,7 @@ $script:PtStrings = @{
         secrets_menu='Secrets — split into shares / combine (seedsplit)'
         split_item='Split a secret into shares'; combine_item='Combine shares back into the secret'
         press_enter_close='Done. Press Enter to close this window'
+        notif_hotkey_moved='Panic hotkey is now {0}, pressed twice (was Ctrl+Alt+Shift+P). Change it in Settings.'
         hint_combine='Paste the shares, one per line. Then press Ctrl-Z and Enter.'
         hint_pipe='Paste the text, then press Ctrl-Z and Enter. Nothing is written to disk.'
         hint_split='Type the secret (it is not shown). You get 3 shares, and any 2 of them bring it back: write each one down and keep them in different places.'
@@ -173,6 +174,7 @@ $script:PtStrings = @{
         secrets_menu='Секреты — разбить на доли / собрать (seedsplit)'
         split_item='Разбить секрет на доли'; combine_item='Собрать секрет из долей'
         press_enter_close='Готово. Нажми Enter, чтобы закрыть окно'
+        notif_hotkey_moved='Хоткей паники теперь {0}, двойное нажатие (был Ctrl+Alt+Shift+P). Сменить — в Настройках.'
         hint_combine='Вставь доли, по одной на строку. Затем нажми Ctrl-Z и Enter.'
         hint_pipe='Вставь текст, затем нажми Ctrl-Z и Enter. На диск ничего не пишется.'
         hint_split='Введи секрет (он не отображается). Получится 3 доли, любые 2 из них его восстановят: запиши каждую и храни в разных местах.'
@@ -622,10 +624,16 @@ function Test-PtPanicShouldFire {
     $d = $Now - [double]$ArmedAt
     return ($d -ge 0 -and $d -le $Window)
 }
-# MOD_CONTROL=2 MOD_ALT=1 MOD_SHIFT=4 → 7; vk: P=0x50, L=0x4C.
+# MOD_CONTROL=2 MOD_ALT=1 MOD_SHIFT=4; vk: P=0x50, L=0x4C.
+# Default Ctrl+Alt+P (s48, Mr.Di): "four keys at once, very fast, twice - that is too big a
+# combination". The Shift variants stay selectable in Settings.
+# Caveat, named here because nothing else will: Windows sends AltGr as Ctrl+Alt, so on a layout
+# where AltGr+P types a character (US-International: ö) two of them within 2 s arm and fire the
+# panic. Russian and plain US/UK layouts have nothing on AltGr+P; there, pick a Shift variant.
 function Get-PtHotkeySpec {
     param([string]$Preset)
     switch ($Preset) {
+        'ctrl-alt-p'       { return [pscustomobject]@{ Modifiers = 3; Vk = 0x50 } }
         'ctrl-alt-shift-p' { return [pscustomobject]@{ Modifiers = 7; Vk = 0x50 } }
         'ctrl-alt-shift-l' { return [pscustomobject]@{ Modifiers = 7; Vk = 0x4C } }
         default { return $null }
@@ -695,7 +703,15 @@ function Test-PtClisInstalled {
 # ComboBox values by index (mirror of macOS langValues/hotkeyValues) — a single source of truth
 # for the form (Show-PtSettingsForm) and for sanitization in Get/Set-PtSettings.
 $script:PtLangValues = @('system', 'en', 'ru')
-$script:PtHotkeyValues = @('ctrl-alt-shift-p', 'ctrl-alt-shift-l', 'off')
+$script:PtHotkeyValues = @('ctrl-alt-p', 'ctrl-alt-shift-p', 'ctrl-alt-shift-l', 'off')
+$script:PtHotkeyLabels = @('Ctrl+Alt+P', 'Ctrl+Alt+Shift+P', 'Ctrl+Alt+Shift+L')
+$script:PtHotkeyDefault = 'ctrl-alt-p'
+function Get-PtHotkeyLabel {
+    param([string]$Preset)
+    $i = $script:PtHotkeyValues.IndexOf($Preset)
+    if ($i -ge 0 -and $i -lt $script:PtHotkeyLabels.Count) { return $script:PtHotkeyLabels[$i] }
+    return $null
+}
 
 function Get-PtSettingsFile {
     if ($env:PT_SETTINGS_FILE) { return $env:PT_SETTINGS_FILE }
@@ -705,7 +721,7 @@ function Get-PtSettingsFile {
 }
 function Get-PtSettings {
     $s = [pscustomobject]@{ VaultVolume = ''; PollSeconds = 15; Language = 'system'
-                            PanicHotkey = 'ctrl-alt-shift-p'; Onboarded = $false }
+                            PanicHotkey = $script:PtHotkeyDefault; Onboarded = $false; HotkeyV2 = $false }
     $f = Get-PtSettingsFile
     if ($f -and (Test-Path -LiteralPath $f)) {
         try {
@@ -716,6 +732,9 @@ function Get-PtSettings {
             if ($null -ne $j.PanicHotkey) { $s.PanicHotkey = [string]$j.PanicHotkey }
             # -eq $true, not [bool]: a hand-written "Onboarded":"false" (string) via [bool] would yield $true
             if ($null -ne $j.Onboarded)   { $s.Onboarded = ($j.Onboarded -eq $true) }
+            # Written by every save since the default became Ctrl+Alt+P (s48); absent = a file from
+            # before, whose Ctrl+Alt+Shift+P was the only default there was, not anybody's choice.
+            $s.HotkeyV2 = ($j.HotkeyV2 -eq $true)
         } catch { }   # corrupted file → defaults
     }
     # Clamp to [5, 3600]: a PollSeconds > 3600 hand-written into the JSON otherwise threw on
@@ -727,24 +746,36 @@ function Get-PtSettings {
     $s.Language = ([string]$s.Language).ToLowerInvariant()
     $s.PanicHotkey = ([string]$s.PanicHotkey).ToLowerInvariant()
     if ($s.Language -notin $script:PtLangValues) { $s.Language = 'system' }
-    if ($s.PanicHotkey -notin $script:PtHotkeyValues) { $s.PanicHotkey = 'ctrl-alt-shift-p' }
+    if ($s.PanicHotkey -notin $script:PtHotkeyValues) { $s.PanicHotkey = $script:PtHotkeyDefault }
     return $s
 }
 function Set-PtSettings {
     param([string]$VaultVolume = '', [int]$PollSeconds = 15, [string]$Language = 'system',
-          [string]$PanicHotkey = 'ctrl-alt-shift-p', [bool]$Onboarded = $false)
+          [string]$PanicHotkey = $script:PtHotkeyDefault, [bool]$Onboarded = $false)
     if ($PollSeconds -lt 5) { $PollSeconds = 5 } elseif ($PollSeconds -gt 3600) { $PollSeconds = 3600 }
     # Same sanitization + lowercase as in Get-PtSettings: canonical lowercase always goes into the JSON.
     $Language = $Language.ToLowerInvariant()
     $PanicHotkey = $PanicHotkey.ToLowerInvariant()
     if ($Language -notin $script:PtLangValues) { $Language = 'system' }
-    if ($PanicHotkey -notin $script:PtHotkeyValues) { $PanicHotkey = 'ctrl-alt-shift-p' }
+    if ($PanicHotkey -notin $script:PtHotkeyValues) { $PanicHotkey = $script:PtHotkeyDefault }
     $f = Get-PtSettingsFile
     if (-not $f) { return }
     $dir = Split-Path -Parent $f
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     [pscustomobject]@{ VaultVolume = $VaultVolume; PollSeconds = $PollSeconds; Language = $Language
-                       PanicHotkey = $PanicHotkey; Onboarded = $Onboarded } | ConvertTo-Json | Set-Content -LiteralPath $f
+                       PanicHotkey = $PanicHotkey; Onboarded = $Onboarded; HotkeyV2 = $true } | ConvertTo-Json | Set-Content -LiteralPath $f
+}
+# One-time move of a pre-s48 settings file from the old default to the new one. Only a file that
+# still says Ctrl+Alt+Shift+P and was never saved since: someone who picks that combination in
+# Settings afterwards gets HotkeyV2 with it and keeps it. $true = moved (the tray then says so).
+function Update-PtHotkeyDefault {
+    $f = Get-PtSettingsFile
+    if (-not $f -or -not (Test-Path -LiteralPath $f)) { return $false }
+    $s = Get-PtSettings
+    if ($s.HotkeyV2 -or $s.PanicHotkey -ne 'ctrl-alt-shift-p') { return $false }
+    Set-PtSettings -VaultVolume $s.VaultVolume -PollSeconds $s.PollSeconds -Language $s.Language `
+        -PanicHotkey $script:PtHotkeyDefault -Onboarded $s.Onboarded
+    return $true
 }
 
 # Wall-clock milliseconds for panic's --trigger-ms. Wall clock, because the number is read in
@@ -878,7 +909,7 @@ function Show-PtSettingsForm {
     $lblHk.Text = (Get-PtL set_hotkey -Lang $lang); $lblHk.SetBounds(12, 120, 110, 20)
     $cbHk = New-Object System.Windows.Forms.ComboBox
     $cbHk.DropDownStyle = 'DropDownList'; $cbHk.SetBounds(130, 117, 150, 22)
-    [void]$cbHk.Items.AddRange(@('Ctrl+Alt+Shift+P', 'Ctrl+Alt+Shift+L', (Get-PtL hk_off -Lang $lang)))
+    [void]$cbHk.Items.AddRange(@($script:PtHotkeyLabels + (Get-PtL hk_off -Lang $lang)))
     $cbHk.SelectedIndex = [math]::Max(0, $script:PtHotkeyValues.IndexOf($cur.PanicHotkey))
 
     # Setup guide (Show-PtWelcomeForm, Task 11) — opens the Welcome checklist right from Settings.
@@ -953,7 +984,8 @@ function Show-PtWelcomeForm {
     # hotkey: label by the ACTUAL preset (P/L), readiness = preset enabled AND registration really
     # succeeded ($script:hotkeyRegistered, T9) — mirror of the macOS T4 honesty fix (don't swallow RegisterHotKey).
     $preset = $cur.PanicHotkey
-    $hkLabel = if ($preset -eq 'ctrl-alt-shift-l') { 'Ctrl+Alt+Shift+L' } else { 'Ctrl+Alt+Shift+P' }
+    $hkLabel = Get-PtHotkeyLabel -Preset $preset
+    if (-not $hkLabel) { $hkLabel = Get-PtHotkeyLabel -Preset $script:PtHotkeyDefault }
     $hkOn = ($null -ne (Get-PtHotkeySpec -Preset $preset)) -and $script:hotkeyRegistered
     $mark = if ($hkOn) { [char]0x2705 } else { [char]0x2B1C }
     $hkY = $y
@@ -964,18 +996,18 @@ function Show-PtWelcomeForm {
             # restoring the previous preset is Settings territory.
             $s = Get-PtSettings
             Set-PtSettings -VaultVolume $s.VaultVolume -PollSeconds $s.PollSeconds -Language $s.Language `
-                -PanicHotkey 'ctrl-alt-shift-p' -Onboarded $s.Onboarded
+                -PanicHotkey $script:PtHotkeyDefault -Onboarded $s.Onboarded
             # $script:hotkeyWin only exists inside a running tray (Start-PtTray) — Welcome is
             # always opened from that context (first-run/menu/Settings), so it is in place.
             $ok = $false
             if ($script:hotkeyWin) {
-                $spec = Get-PtHotkeySpec -Preset 'ctrl-alt-shift-p'
+                $spec = Get-PtHotkeySpec -Preset $script:PtHotkeyDefault
                 $ok = $script:hotkeyWin.Register($spec.Modifiers, $spec.Vk)
                 $script:hotkeyRegistered = $ok
             }
             # Resync an open Settings combo (mirror of macOS obEnableHotkey → hotkeyPopup):
             # Welcome opened from Settings → its Save would otherwise silently roll back the new preset.
-            # Index 0 = 'ctrl-alt-shift-p' in $script:PtHotkeyValues.
+            # Index 0 = the default preset in $script:PtHotkeyValues.
             $cb = Get-Variable cbHk -ValueOnly -ErrorAction SilentlyContinue
             if ($cb) { $cb.SelectedIndex = 0 }
             # Registration failure isn't swallowed (mirror of macOS notify): a balloon via the
@@ -1090,13 +1122,16 @@ public class PtHotkeyWindow : NativeWindow {
             $notify.ShowBalloonTip(3000, 'Paranoid Tools', (Get-PtL notif_panic_arm), [System.Windows.Forms.ToolTipIcon]::Warning)
         }
     })
-    # PanicHotkey is a settings field (Task 10), default ctrl-alt-shift-p → the hotkey is active
-    # out of the box (parity with macOS).
+    # PanicHotkey is a settings field (Task 10), default Ctrl+Alt+P → the hotkey is active out of
+    # the box. A settings file from before the default changed is moved over once, and says so.
+    $hkMoved = try { Update-PtHotkeyDefault } catch { $false }
     $hkSpec = Get-PtHotkeySpec -Preset ((Get-PtSettings).PanicHotkey)
     if ($hkSpec) {
         $script:hotkeyRegistered = $script:hotkeyWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
         if (-not $script:hotkeyRegistered) {
             $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
+        } elseif ($hkMoved) {
+            $notify.ShowBalloonTip(10000, 'Paranoid Tools', ((Get-PtL notif_hotkey_moved) -replace '\{0\}', (Get-PtHotkeyLabel -Preset $script:PtHotkeyDefault)), [System.Windows.Forms.ToolTipIcon]::Info)
         }
     }
 

@@ -26,10 +26,13 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
 **Phase B polish (product-grade UX, both platforms, full feature parity):**
 
 - **Global panic hotkey** — ⌃⌥⇧P on macOS (Carbon `RegisterEventHotKey`, no Accessibility
-  permission needed), Ctrl+Alt+Shift+P on Windows (`RegisterHotKey` + a hidden message window).
+  permission needed), Ctrl+Alt+P on Windows (`RegisterHotKey` + a hidden message window; it was
+  Ctrl+Alt+Shift+P until s48 and is still in Settings — an older settings file is moved over once,
+  with a notice). Windows sends AltGr as Ctrl+Alt: on a layout where AltGr+P types a character
+  (US-International: ö), pick a Shift variant.
   Double-press within 2s → `panic now --hard` fires (a terminal/console opens with real output —
   the honesty contract holds; the double-press itself is the confirmation, no extra dialog).
-  Single press arms + notifies. Presets (P / L / Off) in Settings; a failed registration is
+  Single press arms + notifies. Presets in Settings (Windows: Ctrl+Alt+P / Ctrl+Alt+Shift+P / Ctrl+Alt+Shift+L / Off); a failed registration is
   reported honestly, never silently swallowed.
   "PANIC NOW" means the same thing everywhere: the GUI menu item, the hotkey, and the launcher's
   menu entry all run `panic now --hard` (hide & lock + kill cloud daemons + clear recents).
