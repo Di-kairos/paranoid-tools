@@ -842,7 +842,9 @@ Describe 'vault open: BitLocker unlock + verify (#9, #10)' {
         $env:ST_VAULT_PASS = 'testpass123'
         $script:ST_LOCALE = 'en'
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
-        Mock Get-StFreeDriveLetter { 'W' }
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Mount-StVaultNoLetter { '\\?\Volume{test}\' }
+        Mock Add-StVaultDriveLetter { 'W' }
         Mock Invoke-StDiskpart { }
         Mock Show-StVaultInExplorer { }
     }
@@ -874,35 +876,81 @@ Describe 'vault open: BitLocker unlock + verify (#9, #10)' {
         Should -Invoke Unlock-StBitLockerVault -Times 0 -Exactly
     }
 
-    # The letter is assigned by diskpart after it was picked, so it can be stolen in between.
-    It 'letter stolen while attaching -> detaches, takes another letter and opens' {
+    # s48, live VM: diskpart's attach let Windows give the LOCKED volume its remembered letter at
+    # once - Explorer's "Access is denied", BitLocker's "Unlock drive" toast, and a letter race that
+    # printed "[x] diskpart failed" on a path that then succeeded. No letter until unlocked now.
+    It 'unlocks by volume path BEFORE any drive letter exists, then takes one' {
         Mock Read-StVaultBackend { 'bitlocker' }
-        Mock Unlock-StBitLockerVault { $true }
-        Mock Dismount-StVault { }
-        $global:stDiskpartCalls = 0
-        Mock Invoke-StDiskpart {
-            $global:stDiskpartCalls++
-            if ($global:stDiskpartCalls -eq 1) { Stop-StCommand }   # the letter was taken
-        }
+        $script:StOrder = @()
+        Mock Unlock-StBitLockerVault { $script:StOrder += "unlock:$MountPoint"; $true }
+        Mock Add-StVaultDriveLetter { $script:StOrder += 'letter'; 'W' }
 
         $out = (Invoke-StVault -VaultArgs @('open') 6>&1) -join "`n"
-        Remove-Variable -Name stDiskpartCalls -Scope Global -ErrorAction SilentlyContinue
-        Should -Invoke Invoke-StDiskpart -Times 2 -Exactly
-        Should -Invoke Dismount-StVault -Times 1 -Exactly   # the half-attached vhdx is not left behind
-        Should -Invoke Unlock-StBitLockerVault -Times 1 -Exactly
-        $out | Should -Match 'Mounted'
+        $script:StOrder | Should -Be @('unlock:\\?\Volume{test}\', 'letter')
+        $out | Should -Match 'Mounted: W:'
+        Should -Invoke Invoke-StDiskpart -Times 0 -Exactly   # no diskpart attach/assign on open
     }
 
-    It 'attach keeps failing -> honest error, detached, never unlocks' {
+    It 'attach fails -> honest error with the reason, detached, never unlocks' {
         Mock Read-StVaultBackend { 'bitlocker' }
         Mock Unlock-StBitLockerVault { $true }
         Mock Dismount-StVault { }
-        Mock Invoke-StDiskpart { Stop-StCommand }
+        Mock Mount-StVaultNoLetter { throw 'The process cannot access the file' }
+
+        $out = ''
+        try { $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('open') } } catch [StExit] { $out = $_.TargetObject }
+        Should -Invoke Dismount-StVault -Times 1 -Exactly
+        Should -Invoke Unlock-StBitLockerVault -Times 0 -Exactly
+        { Invoke-StVault -VaultArgs @('open') 6>$null } | Should -Throw
+    }
+
+    It 'unlocked but no letter available -> locked, then detached, never left open without a letter' {
+        Mock Read-StVaultBackend { 'bitlocker' }
+        Mock Unlock-StBitLockerVault { $true }
+        $script:StOrder = @()
+        Mock Lock-StBitLockerVault { $script:StOrder += "lock:$MountPoint" }
+        Mock Dismount-StVault { $script:StOrder += 'detach' }
+        Mock Add-StVaultDriveLetter { throw 'no drive letter was assigned' }
+        Mock Write-StVaultMount { }
 
         { Invoke-StVault -VaultArgs @('open') 6>$null } | Should -Throw
-        Should -Invoke Invoke-StDiskpart -Times 2 -Exactly
-        Should -Invoke Dismount-StVault -Times 2 -Exactly
-        Should -Invoke Unlock-StBitLockerVault -Times 0 -Exactly
+        $script:StOrder | Should -Be @('lock:\\?\Volume{test}\', 'detach')
+        Should -Invoke Write-StVaultMount -Times 0 -Exactly
+    }
+
+    It 'detach failing after that is named, with the volume, not folded into "no free letter"' {
+        Mock Read-StVaultBackend { 'bitlocker' }
+        Mock Unlock-StBitLockerVault { $true }
+        Mock Lock-StBitLockerVault { }
+        Mock Dismount-StVault { throw 'diskpart failed' }
+        Mock Add-StVaultDriveLetter { throw 'no drive letter was assigned' }
+
+        $out = ''
+        try { $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('open') } } catch [StExit] { $out = $_.TargetObject }
+        { Invoke-StVault -VaultArgs @('open') 6>$null } | Should -Throw
+        (Get-StCombinedOutput { try { Invoke-StVault -VaultArgs @('open') } catch { } }) | Should -Match 'still attached \(\\\\\?\\Volume\{test\}\\\)'
+    }
+}
+
+Describe 'Select-StVaultPartition — the one data partition, or a refusal (s48 review)' {
+    It 'MBR container as diskpart makes it: the single IFS partition' {
+        $p = Select-StVaultPartition -Partitions @([pscustomobject]@{ PartitionNumber = 1; Type = 'IFS' })
+        $p.PartitionNumber | Should -Be 1
+    }
+    It 'GPT: skips EFI/MSR/recovery, takes Basic data' {
+        $p = Select-StVaultPartition -Partitions @(
+            [pscustomobject]@{ PartitionNumber = 1; Type = 'System' },
+            [pscustomobject]@{ PartitionNumber = 2; Type = 'Reserved' },
+            [pscustomobject]@{ PartitionNumber = 3; Type = 'Basic' },
+            [pscustomobject]@{ PartitionNumber = 4; Type = 'Recovery' })
+        $p.PartitionNumber | Should -Be 3
+    }
+    It 'two data partitions: not a container we made - refuse, never pick the first' {
+        { Select-StVaultPartition -Partitions @([pscustomobject]@{ Type = 'IFS' }, [pscustomobject]@{ Type = 'IFS' }) } |
+            Should -Throw '*2*'
+    }
+    It 'no data partition: refuse' {
+        { Select-StVaultPartition -Partitions @([pscustomobject]@{ Type = 'Reserved' }) } | Should -Throw
     }
 }
 
@@ -912,7 +960,9 @@ Describe 'vault lifecycle hooks (F1)' {
         $env:ST_VAULT_PASS = 'testpass123'
         $script:ST_LOCALE = 'en'
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
-        Mock Get-StFreeDriveLetter { 'W' }
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Mount-StVaultNoLetter { '\\?\Volume{test}\' }
+        Mock Add-StVaultDriveLetter { 'W' }
         Mock Invoke-StDiskpart { }
         Mock Write-StVaultMount { }
         Mock Read-StVaultMount { 'W:\' }
@@ -1107,6 +1157,7 @@ Describe 'vault: attached is not open, and a failed create leaves nothing behind
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock Get-StVaultState { 'unmounted' }
         Mock Read-StVaultBackend { 'bitlocker' }
+        Mock Mount-StVaultNoLetter { '\\?\Volume{test}\' }
         Mock Invoke-StDiskpart { }
         Mock Dismount-StVault { }
         # Unlock-BitLocker throws on a wrong key (0x80310027) instead of returning false.
@@ -1143,7 +1194,9 @@ Describe 'vault open: Explorer reveal (Windows parity of macOS `open`)' {
         $env:ST_VAULT_PASS = 'testpass123'
         $script:ST_LOCALE = 'en'
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
-        Mock Get-StFreeDriveLetter { 'W' }
+        Mock Get-StVaultState { 'unmounted' }
+        Mock Mount-StVaultNoLetter { '\\?\Volume{test}\' }
+        Mock Add-StVaultDriveLetter { 'W' }
         Mock Invoke-StDiskpart { }
         Mock Write-StVaultMount { }
         Mock Invoke-StVaultHook { }
@@ -1706,7 +1759,8 @@ Describe 'vault open idempotency (P2-5)' {
         Mock Read-StVaultBackend { 'bitlocker' }
         Mock Invoke-StDiskpart { }
         Mock Unlock-StBitLockerVault { $true }
-        Mock Get-StFreeDriveLetter { 'W' }
+        Mock Mount-StVaultNoLetter { '\\?\Volume{test}\' }
+        Mock Add-StVaultDriveLetter { 'W' }
         Mock Write-StVaultMount { }
         Mock Invoke-StVaultHook { }
         Mock Show-StVaultInExplorer { }
@@ -1716,7 +1770,7 @@ Describe 'vault open idempotency (P2-5)' {
     It 'open on an already-mounted vault does not attach again' {
         Mock Get-StVaultState { 'mounted' }
         Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
-        Should -Invoke Invoke-StDiskpart -Times 0 -Exactly
+        Should -Invoke Mount-StVaultNoLetter -Times 0 -Exactly
     }
 
     # AUDIT_2026-08-03 P0-3 (Codex): legacy-vault, смонтированный до появления sidecar'а,
@@ -1738,7 +1792,7 @@ Describe 'vault open idempotency (P2-5)' {
     It 'open on an unmounted vault proceeds to attach' {
         Mock Get-StVaultState { 'unmounted' }
         Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
-        Should -Invoke Invoke-StDiskpart -Times 1 -Exactly
+        Should -Invoke Mount-StVaultNoLetter -Times 1 -Exactly
     }
 }
 

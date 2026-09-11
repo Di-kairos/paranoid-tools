@@ -297,8 +297,12 @@ Flags:
     'en:diskpart_failed'    = 'diskpart failed (exit {0}).'
     'ru:diskpart_failed'    = 'diskpart завершился с ошибкой (код {0}).'
 
-    'en:vault_letter_retry' = 'Drive letter {0}: was taken while attaching — retrying with another one.'
-    'ru:vault_letter_retry' = 'Буква диска {0}: оказалась занята во время подключения — пробуем другую.'
+    'en:vault_attach_fail'  = 'Could not attach the vault container: {0}'
+    'ru:vault_attach_fail'  = 'Не удалось подключить контейнер сейфа: {0}'
+    'en:vault_residue'      = 'The vault volume is still attached ({0}) and could not be detached. It was locked first; run "securetrash vault close" or restart Windows to detach it.'
+    'ru:vault_residue'      = 'Том сейфа всё ещё подключён ({0}) и отключить его не удалось. Сначала он был заперт; выполни «securetrash vault close» или перезагрузи Windows, чтобы его отключить.'
+    'en:vault_layout'       = 'the container holds {0} data partitions, exactly one was expected'
+    'ru:vault_layout'       = 'в контейнере разделов с данными: {0}, ожидался ровно один'
 
     'en:bad_size'           = 'Invalid size (must be a positive integer, MB): {0}'
     'ru:bad_size'           = 'Некорректный размер (нужно целое положительное число, МБ): {0}'
@@ -591,7 +595,56 @@ function Invoke-StDiskpart {
 # cipher /w gives NO guarantees on SSD/COW; just a call wrapper + Mock.
 function Invoke-StCipherWipe { param([string]$DriveRoot) & cipher /w:$DriveRoot | Out-Null }
 
+# Attach the vault WITHOUT a drive letter and return its volume path (\\?\Volume{...}\).
+# `diskpart attach vdisk` let Windows hand the still-locked volume the letter it remembered, at
+# once: Explorer then opened a volume it could not read ("Location is not available - Access is
+# denied"), BitLocker put its own "Unlock drive E:" toast next to our password prompt, and our
+# `assign letter=` raced that automatic letter - "[x] diskpart failed" in red on an open that
+# then went through on the retry (live VM, s48). Now the volume has no letter until it is
+# unlocked, and Unlock-BitLocker takes the volume path. Wrapper for Mock.
+# The one data partition of the container. Ours is MBR with a single IFS (0x07) partition, as
+# diskpart makes it; GPT's is 'Basic'. EFI, MSR, recovery - never a candidate, and more than one
+# data partition is not a container we made: refuse rather than unlock whichever came first.
+function Select-StVaultPartition {
+    param([object[]]$Partitions)
+    $data = @($Partitions | Where-Object { $_ -and $_.Type -in @('IFS', 'Basic') })
+    if ($data.Count -ne 1) { throw (T 'vault_layout' $data.Count) }
+    return $data[0]
+}
+function Get-StVaultPartition {
+    param([string]$Path)
+    Select-StVaultPartition -Partitions @(Get-DiskImage -ImagePath $Path -ErrorAction Stop |
+        Get-Disk -ErrorAction Stop | Get-Partition -ErrorAction Stop)
+}
+function Mount-StVaultNoLetter {
+    param([string]$Path)
+    Mount-DiskImage -ImagePath $Path -StorageType VHDX -NoDriveLetter -ErrorAction Stop | Out-Null
+    $vol = Get-StVaultPartition -Path $Path | Get-Volume -ErrorAction Stop
+    if (-not $vol -or -not $vol.Path) { throw 'the vault volume did not appear after attach' }
+    return $vol.Path
+}
+# Give the unlocked volume a drive letter. Windows picks a free one and assigns it in the same
+# step, so nothing can take it between the choice and the assignment - the race the old
+# "pick a letter, then diskpart assign" had by construction. Returns the letter. Wrapper for Mock.
+function Add-StVaultDriveLetter {
+    param([string]$Path)
+    $part = Get-StVaultPartition -Path $Path
+    if ([string]$part.DriveLetter -notmatch '^[A-Za-z]$') {
+        $part | Add-PartitionAccessPath -AssignDriveLetter -ErrorAction Stop
+        $part = Get-StVaultPartition -Path $Path
+    }
+    if ([string]$part.DriveLetter -notmatch '^[A-Za-z]$') { throw 'no drive letter was assigned' }
+    return ([string]$part.DriveLetter).ToUpperInvariant()
+}
+
+# Lock a BitLocker volume by letter or volume path, closing open handles. Wrapper for Mock.
+function Lock-StBitLockerVault {
+    param([string]$MountPoint)
+    Lock-BitLocker -MountPoint $MountPoint -ForceDismount -ErrorAction Stop | Out-Null
+}
+
 # Unlock a BitLocker volume and check the status (#9). Wrapper for Mock.
+# -MountPoint: a drive letter or a volume path; open passes the volume path (no letter yet).
 function Unlock-StBitLockerVault {
     param([string]$MountPoint, [System.Security.SecureString]$Password)
     Unlock-BitLocker -MountPoint $MountPoint -Password $Password -ErrorAction Stop | Out-Null
@@ -1402,27 +1455,15 @@ function Invoke-StVault {
                 Write-StWarn (T 'vault_vc_manual'); Stop-StCommand
             } elseif ($backend -eq 'bitlocker') {
                 Assert-StValidVaultPath -Path $vaultPath
-                # Attach VHDX. The letter is picked here but assigned by diskpart a moment
-                # later, so another process (a USB stick, a mapped share) can take it in
-                # between — and diskpart then fails with the vhdx ALREADY attached, leaving
-                # exactly the attached-locked residue the unlock failure below cleans up.
-                # Detach and take one more turn: by then the stolen letter reads as used and
-                # a different one is picked. Two turns, then the error stands.
-                $letter = $null
-                foreach ($attempt in 1, 2) {
-                    $cand = Get-StFreeDriveLetter
-                    Assert-StValidDriveLetter -DriveLetter $cand
-                    try {
-                        Invoke-StDiskpart -Script "select vdisk file=`"$vaultPath`"`nattach vdisk`nselect partition 1`nassign letter=$cand"
-                        $letter = $cand
-                        break
-                    } catch {
-                        try { Dismount-StVault -Path $vaultPath } catch { }
-                        if ($attempt -eq 2) { throw }
-                        Write-StWarn (T 'vault_letter_retry' $cand)
-                    }
+                # Attach with no drive letter (see Mount-StVaultNoLetter for why), unlock by volume
+                # path, and only then take a letter. A failed attach may still have attached the
+                # vhdx, so it is detached either way.
+                try { $volPath = Mount-StVaultNoLetter -Path $vaultPath }
+                catch {
+                    $why = $_.Exception.Message
+                    try { Dismount-StVault -Path $vaultPath } catch { }
+                    Write-StErr (T 'vault_attach_fail' $why); Stop-StCommand
                 }
-                $vol = "$($letter):"
                 # ...then unlock BitLocker and check the status (#9). A wrong password makes
                 # Unlock-BitLocker THROW (0x80310027) rather than return false, so the throw is
                 # caught here — otherwise the raw HRESULT surfaced instead of our message. Either
@@ -1430,11 +1471,25 @@ function Invoke-StVault {
                 # attached locked volume behind (found on real hardware, 2026-08-13).
                 $sec = Get-StVaultPasswordSecure -Prompt (T 'vault_unlock_prompt')
                 $unlocked = $false
-                try { $unlocked = Unlock-StBitLockerVault -MountPoint $vol -Password $sec } catch { $unlocked = $false }
+                try { $unlocked = Unlock-StBitLockerVault -MountPoint $volPath -Password $sec } catch { $unlocked = $false }
                 if (-not $unlocked) {
                     try { Dismount-StVault -Path $vaultPath } catch { }
                     Write-StErr (T 'vault_unlock_fail'); Stop-StCommand
                 }
+                # Unlocked but unusable without a letter: detach rather than leave a decrypted
+                # volume attached where nothing can reach it and nothing will close it. Locked
+                # FIRST, so that if the detach fails as well, what stays behind is ciphertext -
+                # and that case is said out loud, not folded into "no free letter" (review, s48).
+                try { $letter = Add-StVaultDriveLetter -Path $vaultPath }
+                catch {
+                    try { Lock-StBitLockerVault -MountPoint $volPath } catch { }
+                    $detached = $true
+                    try { Dismount-StVault -Path $vaultPath } catch { $detached = $false }
+                    Write-StErr (T 'no_free_letter')
+                    if (-not $detached) { Write-StErr (T 'vault_residue' $volPath) }
+                    Stop-StCommand
+                }
+                $vol = "$($letter):"
                 Write-StInfo (T 'vault_mounted' $vol)
                 Write-StWarn (T 'vault_preventive')
                 # Post-mount actions are best-effort: the volume is ALREADY mounted, so a
