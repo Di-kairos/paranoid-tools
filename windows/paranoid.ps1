@@ -361,7 +361,24 @@ function Get-PnAdminState {
         return 'no'
     }
 }
+function Get-PnBitLockerProtection {
+    # Explorer's property system knows the protection state of a volume, answers with no rights
+    # and in a millisecond (Get-BitLockerVolume: five seconds to refuse, unelevated - measured on
+    # the live VM, s48). 1 = on, 2 = off, 6 = on and locked; anything else is in between.
+    # Wrapper for Mock.
+    param([string]$MountPoint)
+    try { return (New-Object -ComObject Shell.Application).NameSpace($MountPoint).Self.ExtendedProperty('System.Volume.BitLockerProtection') }
+    catch { return $null }
+}
 function Get-PnBitLockerState {
+    # A real answer without rights first - the dashboard used to print "unknown" to everyone who
+    # did not start it as administrator, which is nearly everyone.
+    $p = Get-PnBitLockerProtection -MountPoint $env:SystemDrive
+    if ($p -in @(1, 6)) { return 'on' }
+    if ($p -eq 2) { return 'off' }
+    # Encrypting, decrypting, suspended: in between, and the cmdlet may still say "On" for it.
+    # Only a missing answer falls through to the cmdlet (review, s48).
+    if ($null -ne $p -and "$p" -ne '') { return 'unknown' }
     # Unelevated, Get-BitLockerVolume cannot answer - it refuses or returns nothing - and it
     # takes its time about it: the BitLocker WMI provider is one of the slow ones, and the
     # dashboard paid for it on every redraw only to print "unknown" anyway. Same verdict,

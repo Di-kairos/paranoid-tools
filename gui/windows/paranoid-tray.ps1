@@ -71,15 +71,27 @@ function Get-PtVaultState {
     if ($container -and (Test-Path -LiteralPath $container)) { return 'closed' }
     return 'none'
 }
-# BitLocker status (platform honesty, mirror of macOS fileVaultOn). Get-BitLockerVolume requires
-# the BitLocker module (not on every Windows SKU) and can throw without admin rights — we catch
-# and treat it as "unknown" (fv_off covers both cases: 'off / unknown', which is honestly true).
+# BitLocker status (platform honesty, mirror of macOS fileVaultOn). No answer -> "unknown", and
+# fv_off covers both cases: 'off / unknown', which is honestly true.
+#
+# Not Get-BitLockerVolume: unelevated it waits about FIVE SECONDS on the WMI provider before it
+# refuses, and the menu asked on every rebuild - every click and every poll tick - on the tray's
+# only UI thread. A click then drew its menu seconds later or, with the next tick queued behind
+# it, not at all: the "menu opens on some clicks and not others" of s46-s47 (measured on the live
+# VM, s48: 5.1 s per call, 1 ms for the shell property). Explorer answers the same question from
+# its property system, with no rights and no wait.
+# System.Volume.BitLockerProtection: 1 = on, 2 = off, 3 = encrypting, 4 = decrypting,
+# 5 = suspended, 6 = on and locked; empty = no BitLocker on this volume or this SKU. Only 1 and 6
+# are "protected" - encrypting/suspended is not a disk that holds against a thief yet.
+function Get-PtBitLockerProtection {
+    # Wrapper for Mock: Pester must not depend on the CI agent's disk.
+    param([string]$MountPoint)
+    try { return (New-Object -ComObject Shell.Application).NameSpace($MountPoint).Self.ExtendedProperty('System.Volume.BitLockerProtection') }
+    catch { return $null }
+}
 function Test-PtBitLocker {
     param([string]$MountPoint = $env:SystemDrive)
-    try {
-        $v = Get-BitLockerVolume -MountPoint $MountPoint -ErrorAction Stop
-        return ($v.ProtectionStatus -eq 'On')
-    } catch { return $false }
+    return ((Get-PtBitLockerProtection -MountPoint $MountPoint) -in @(1, 6))
 }
 
 # The single-instance mutex. windows/paranoid.ps1 asks for the same name to learn whether a tray
@@ -102,13 +114,24 @@ $script:PtStrings = @{
         login_admin_off='Elevated autostart removed. The tray starts as a normal user again, and vault actions and PANIC ask for rights when you use them.'
         login_admin_declined='Rights declined - the autostart setting was not changed.'
         setup_item='Setup guide…'; quit_item='Quit Paranoid Bar'
-        ttl_expired='TTL expired'; auto_exit_in='auto-exit in'; watching_no_ttl='watching (no TTL)'
+        ttl_expired='timer ran out'; auto_exit_in='closes by itself in'; watching_no_ttl='guarding, no timer'
         tip_open='Vault is OPEN — at risk while open'; tip_closed='Vault closed'
         notif_ttl_warn='Vault auto-closes in {0}'; notif_ttl_expired='vaultwatch TTL expired — vault is still OPEN'
         notif_long_open='Vault open for 30+ minutes (no vaultwatch)'; notif_panic_arm='Press again to PANIC'
         uac_suffix='(asks for admin rights)'; notif_uac_declined='Admin rights declined — NOTHING was done'
         notif_uac_declined_panic='Admin rights declined — clipboard cleared and screen locked; encrypted volumes were NOT closed'
         notif_hotkey_fail='Panic hotkey unavailable (taken by another app)'
+        vw_start='Guard the vault — close it automatically after…'; vw_stop='Stop guarding the vault (vaultwatch)'
+        vw_needs_open='Guard the vault (vaultwatch) — open the vault first'
+        ttl_30m='30 minutes'; ttl_1h='1 hour'; ttl_2h='2 hours'; ttl_4h='4 hours'; ttl_none='No timer — until I close it'
+        notepad_menu='Notepad — text that never touches the disk (ghostdraft)'
+        ghost_note='Write a note — it vanishes when you close it'; ghost_pipe='Paste text to look at it — nothing is saved'
+        secrets_menu='Secrets — split into shares / combine (seedsplit)'
+        split_item='Split a secret into shares'; combine_item='Combine shares back into the secret'
+        press_enter_close='Done. Press Enter to close this window'
+        hint_combine='Paste the shares, one per line. Then press Ctrl-Z and Enter.'
+        hint_pipe='Paste the text, then press Ctrl-Z and Enter. Nothing is written to disk.'
+        hint_split='Type the secret (it is not shown). You get 3 shares, and any 2 of them bring it back: write each one down and keep them in different places.'
         set_title='Paranoid Bar — Settings'
         set_vol='Vault volume:'; set_poll='Poll interval (s):'; set_lang='Language:'; set_hotkey='Panic hotkey:'
         set_save='Save'; set_cancel='Cancel'; set_setup_btn='Show setup guide'; hk_off='Off'; lang_system='System'
@@ -118,12 +141,15 @@ $script:PtStrings = @{
         ob_vault_ok='Vault created'; ob_vault_missing='No vault yet'; ob_create_btn='Create vault…'
         ob_hotkey_line='Panic hotkey'; ob_login_line='Start at login'; ob_enable_btn='Enable'
         ob_risk='An open vault is always "at risk" — the GUI never hides that.'; ob_done='Done'
+        ob_icon_line='Icon on the taskbar (Windows hides new icons under ^)'; ob_show_btn='Show it'
+        ob_howto='Click the padlock icon, left or right button, for the menu.'
+        set_vol_auto='automatic - leave empty'
     }
     ru = @{
         vault_label='Сейф:'; vault_open_risk='ОТКРЫТ — под риском'; vault_closed='закрыт'; vault_not_setup='не создан'
         vault_unknown='состояние неизвестно — таблица томов недоступна'; vault_ask='Спросить securetrash о состоянии сейфа'
         fv_label='BitLocker:'; fv_on='включён'; fv_off='выкл / неизвестно'
-        status_item='Статус — полная read-only проверка'; panic_item='ПАНИКА — спрятать и заблокировать'
+        status_item='Статус — полная проверка (только чтение)'; panic_item='ПАНИКА — спрятать и заблокировать'
         vault_menu='Сейф'; vault_close='Закрыть сейф'; vault_open='Открыть сейф'; vault_create='Создать сейф'
         vault_empty='Очистить — стереть содержимое, сейф оставить'; vault_destroy='Уничтожить сейф (необратимо)'
         launcher_item='Открыть полный лаунчер (paranoid)'; settings_item='Настройки…'; login_item='Запускать при входе'
@@ -132,13 +158,24 @@ $script:PtStrings = @{
         login_admin_off='Элевированный автозапуск убран. Трей снова стартует обычным пользователем, а сейф и ПАНИКА запрашивают права в момент использования.'
         login_admin_declined='В правах отказано — настройка автозапуска не изменена.'
         setup_item='Гид по настройке…'; quit_item='Выйти из Paranoid Bar'
-        ttl_expired='TTL истёк'; auto_exit_in='авто-выход через'; watching_no_ttl='наблюдение (без TTL)'
+        ttl_expired='таймер истёк'; auto_exit_in='закроется сам через'; watching_no_ttl='охрана без таймера'
         tip_open='Сейф ОТКРЫТ — под риском, пока открыт'; tip_closed='Сейф закрыт'
         notif_ttl_warn='Сейф авто-закроется через {0}'; notif_ttl_expired='TTL vaultwatch истёк — сейф всё ещё ОТКРЫТ'
         notif_long_open='Сейф открыт дольше 30 минут (без vaultwatch)'; notif_panic_arm='Нажмите ещё раз для ПАНИКИ'
         uac_suffix='(запросит права администратора)'; notif_uac_declined='В правах отказано — НИЧЕГО не сделано'
         notif_uac_declined_panic='В правах отказано — буфер очищен и экран заперт; шифр-тома НЕ закрыты'
         notif_hotkey_fail='Хоткей паники недоступен (занят другим приложением)'
+        vw_start='Сторожить сейф — закрыть сам через…'; vw_stop='Снять охрану сейфа (vaultwatch)'
+        vw_needs_open='Сторожить сейф (vaultwatch) — сначала открой сейф'
+        ttl_30m='30 минут'; ttl_1h='1 час'; ttl_2h='2 часа'; ttl_4h='4 часа'; ttl_none='Без таймера — пока не закрою сам'
+        notepad_menu='Блокнот — текст, который не попадает на диск (ghostdraft)'
+        ghost_note='Написать заметку — исчезнет, когда закроешь'; ghost_pipe='Вставить текст и посмотреть — ничего не сохраняется'
+        secrets_menu='Секреты — разбить на доли / собрать (seedsplit)'
+        split_item='Разбить секрет на доли'; combine_item='Собрать секрет из долей'
+        press_enter_close='Готово. Нажми Enter, чтобы закрыть окно'
+        hint_combine='Вставь доли, по одной на строку. Затем нажми Ctrl-Z и Enter.'
+        hint_pipe='Вставь текст, затем нажми Ctrl-Z и Enter. На диск ничего не пишется.'
+        hint_split='Введи секрет (он не отображается). Получится 3 доли, любые 2 из них его восстановят: запиши каждую и храни в разных местах.'
         set_title='Paranoid Bar — Настройки'
         set_vol='Том сейфа:'; set_poll='Интервал опроса (с):'; set_lang='Язык:'; set_hotkey='Хоткей паники:'
         set_save='Сохранить'; set_cancel='Отмена'; set_setup_btn='Показать гид'; hk_off='Выкл'; lang_system='Системный'
@@ -148,6 +185,9 @@ $script:PtStrings = @{
         ob_vault_ok='Сейф создан'; ob_vault_missing='Сейф ещё не создан'; ob_create_btn='Создать сейф…'
         ob_hotkey_line='Хоткей паники'; ob_login_line='Запускать при входе'; ob_enable_btn='Включить'
         ob_risk='Открытый сейф всегда «под риском» — GUI этого не прячет.'; ob_done='Готово'
+        ob_icon_line='Иконка на панели задач (новые Windows прячет под ^)'; ob_show_btn='Показать'
+        ob_howto='Меню — по клику на иконку-замок, левой или правой кнопкой.'
+        set_vol_auto='автоматически — оставь пустым'
     }
 }
 # Note: fv_label on Windows = BitLocker (platform honesty), on macOS = FileVault.
@@ -175,7 +215,10 @@ function Get-PtMenuSpec {
     param([string]$VaultState = (Get-PtVaultState),
           [string]$Lang = (Resolve-PtLang -Override ((Get-PtSettings).Language)),
           [bool]$FvOn = (Test-PtBitLocker),
-          [bool]$Elevated = (Test-PtAdmin))
+          [bool]$Elevated = (Test-PtAdmin),
+          # vaultwatch is already guarding THIS vault (a session file for its mount exists).
+          [bool]$Watching = $false,
+          [string]$Mount = (Get-PtVaultMount))
     # On 'unknown' the item promises no action: opening/closing/creating blindly is guessing,
     # so we call the read-only `vault status` and label it exactly that.
     $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } 'unknown' { 'securetrash vault status' } default { 'securetrash vault create' } }
@@ -188,6 +231,23 @@ function Get-PtMenuSpec {
     # without it the tray stayed silent about "vault open"/BitLocker-off risk, unlike macOS.
     $vaultStatusText = switch ($VaultState) { 'open' { Get-PtL 'vault_open_risk' -Lang $Lang } 'closed' { Get-PtL 'vault_closed' -Lang $Lang } 'unknown' { Get-PtL 'vault_unknown' -Lang $Lang } default { Get-PtL 'vault_not_setup' -Lang $Lang } }
     $fvText = if ($FvOn) { Get-PtL 'fv_on' -Lang $Lang } else { Get-PtL 'fv_off' -Lang $Lang }
+    # The three tools the tray used to leave to the launcher. Someone who opens the menu to find
+    # "the notepad" or "split my seed" should find it here, not learn that a console exists.
+    # vaultwatch guards an OPEN vault only, so on any other state the item stays visible but
+    # says what it needs - a missing item teaches nothing, a greyed one teaches the order.
+    $m = "'" + ([string]$Mount -replace "'", "''") + "'"
+    $vwItem = if ($VaultState -ne 'open') {
+        [pscustomobject]@{ Label = (Get-PtL 'vw_needs_open' -Lang $Lang); Command = ''; Enabled = $false }
+    } elseif ($Watching) {
+        [pscustomobject]@{ Label = (Get-PtL 'vw_stop' -Lang $Lang); Command = "vaultwatch stop $m"; Enabled = $true }
+    } else {
+        [pscustomobject]@{ Label = (Get-PtL 'vw_start' -Lang $Lang); Command = $null; Enabled = $true; Children = @(
+            foreach ($t in '30m', '1h', '2h', '4h') {
+                [pscustomobject]@{ Label = (Get-PtL "ttl_$t" -Lang $Lang); Command = "vaultwatch start --ttl $t $m"; Enabled = $true }
+            }
+            [pscustomobject]@{ Label = (Get-PtL 'ttl_none' -Lang $Lang); Command = "vaultwatch start $m"; Enabled = $true }
+        ) }
+    }
     return @(
         [pscustomobject]@{ Label = ((Get-PtL 'vault_label' -Lang $Lang) + ' ' + $vaultStatusText); Command = ''; Enabled = $false }
         [pscustomobject]@{ Label = ((Get-PtL 'fv_label' -Lang $Lang) + ' ' + $fvText);              Command = ''; Enabled = $false }
@@ -203,6 +263,16 @@ function Get-PtMenuSpec {
         [pscustomobject]@{ Label = $vaultLabel;                      Command = $vaultToggle;        Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'vault_empty' -Lang $Lang);   Command = 'securetrash vault reset';   Enabled = $hasVault }
         [pscustomobject]@{ Label = (Get-PtL 'vault_destroy' -Lang $Lang); Command = 'securetrash vault destroy'; Enabled = $hasVault }
+        $vwItem
+        [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'notepad_menu' -Lang $Lang); Command = $null; Enabled = $true; Children = @(
+            [pscustomobject]@{ Label = (Get-PtL 'ghost_note' -Lang $Lang); Command = 'ghostdraft new --clipboard'; Enabled = $true }
+            [pscustomobject]@{ Label = (Get-PtL 'ghost_pipe' -Lang $Lang); Command = 'ghostdraft pipe';            Enabled = $true }
+        ) }
+        [pscustomobject]@{ Label = (Get-PtL 'secrets_menu' -Lang $Lang); Command = $null; Enabled = $true; Children = @(
+            [pscustomobject]@{ Label = (Get-PtL 'split_item' -Lang $Lang);   Command = 'seedsplit split';   Enabled = $true }
+            [pscustomobject]@{ Label = (Get-PtL 'combine_item' -Lang $Lang); Command = 'seedsplit combine'; Enabled = $true }
+        ) }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'launcher_item' -Lang $Lang); Command = 'paranoid';       Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
@@ -239,19 +309,34 @@ function Get-PtFallbackMenuSpec {
     )
 }
 
+# The pwsh that autostart should start. A full path, not bare `pwsh`: at login PATH may not
+# contain pwsh (especially with WindowStyle Hidden and no shell initialization) → autostart
+# silently broke. The path is quoted by the callers (Program Files\PowerShell\7 has a space).
+# The Microsoft Store build resolves to its package folder, whose name carries the version
+# (...\WindowsApps\Microsoft.PowerShell_7.6.6.0_arm64__...\pwsh.exe): the next Store update
+# removes that folder, and both autostarts would have died without a word (live VM, s48). Its
+# app-execution alias under %LOCALAPPDATA% survives updates and starts elevated from a task too.
+function Get-PtPwshPath {
+    param([string]$Resolved = (Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source)
+    if ($Resolved -like '*\WindowsApps\Microsoft.PowerShell_*' -and $env:LOCALAPPDATA) {
+        $alias = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\pwsh.exe'
+        if (Test-Path -LiteralPath $alias) { return $alias }
+    }
+    if ($Resolved) { return $Resolved }
+    return 'pwsh'
+}
+
 # --- autostart at login (HKCU Run; no admin rights/signature needed) ---
 # Registry key spec as a separate function → Pester checks it WITHOUT writing to the registry.
 function Get-PtAutostartSpec {
     $script = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
-    # Full path to pwsh, not bare `pwsh`: at login PATH may not contain pwsh (especially with
-    # WindowStyle Hidden and no shell initialization) → autostart silently broke. The path is
-    # quoted (Program Files\PowerShell\7 contains a space). Fallback to 'pwsh' if resolve failed.
-    $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
-    if (-not $pwshPath) { $pwshPath = 'pwsh' }
+    # -NoProfile -ExecutionPolicy Bypass, as the elevated task has always had: a profile slows the
+    # start and can print into a hidden window, and a clone unpacked from a downloaded ZIP carries
+    # the mark of the web that RemoteSigned refuses.
     return [pscustomobject]@{
         Path  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
         Name  = 'ParanoidTray'
-        Value = "`"$pwshPath`" -WindowStyle Hidden -File `"$script`""
+        Value = "`"$(Get-PtPwshPath)`" -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$script`""
     }
 }
 function Test-PtAutostart {
@@ -285,11 +370,9 @@ function Disable-PtAutostart {
 # uses, with no command line to quote.
 function Get-PtAutostartTaskSpec {
     $script = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
-    $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
-    if (-not $pwshPath) { $pwshPath = 'pwsh' }
     return [pscustomobject]@{
         TaskName = 'ParanoidTools-Tray'
-        Execute  = $pwshPath
+        Execute  = (Get-PtPwshPath)
         Argument = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$script`""
         UserId   = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     }
@@ -347,15 +430,18 @@ function Invoke-PtAutostartAdminElevated {
 # The two mechanisms must never both be armed: the tray would start twice at logon, once with
 # rights and once without, and the plain copy would keep asking for UAC while the elevated one
 # is already running. Switching in either direction clears the other.
+# Success is the task's state afterwards, not "the elevated child ran": that child exits 0 even
+# when Register-ScheduledTask failed inside it (review, s48).
 function Set-PtAutostartAdmin {
     param([bool]$On)
     if ($On) {
         if (-not (Invoke-PtAutostartAdminElevated -Action 'install')) { return $false }
+        if (-not (Test-PtAutostartTask)) { return $false }
         Disable-PtAutostart
         return $true
     }
     if (-not (Invoke-PtAutostartAdminElevated -Action 'remove')) { return $false }
-    return $true
+    return (-not (Test-PtAutostartTask))
 }
 
 # --- vaultwatch status (read-only over the same session files the vaultwatch CLI writes) ---
@@ -386,6 +472,25 @@ function Limit-PtTrayText {
     param([string]$Text, [int]$Max = 63)
     if ($Text.Length -le $Max) { return $Text }
     return $Text.Substring(0, $Max - 1) + [char]0x2026
+}
+# The hover text of the icon. It used to be the bare state - "Vault closed" - with no name on it,
+# and with no vault at all it still said "closed" (live Windows run, s48): a stranger's icon in the
+# tray that reports on a vault that does not exist. Now: whose icon, then the same state words as
+# the menu header, then the TTL on its own line. The tray is pwsh 7 only (.NET 8+: 127 chars, the
+# 63 above is the .NET Framework ceiling), and a line break is allowed in it.
+function Get-PtTrayTooltip {
+    param([string]$State, [object]$Ttl = $null, [string]$Lang = 'en')
+    $status = switch ($State) {
+        'open'    { Get-PtL 'vault_open_risk' -Lang $Lang }
+        'closed'  { Get-PtL 'vault_closed' -Lang $Lang }
+        'unknown' { Get-PtL 'vault_unknown' -Lang $Lang }
+        default   { Get-PtL 'vault_not_setup' -Lang $Lang }
+    }
+    $text = "Paranoid Tools`n" + (Get-PtL 'vault_label' -Lang $Lang) + ' ' + $status
+    if ($State -eq 'open' -and $null -ne $Ttl) {
+        $text += "`n" + $(if ($Ttl -eq 0) { Get-PtL 'ttl_expired' -Lang $Lang } else { (Get-PtL 'auto_exit_in' -Lang $Lang) + ' ' + (Format-PtDuration $Ttl) })
+    }
+    return (Limit-PtTrayText $text -Max 127)
 }
 
 # The tray icon used to be [System.Drawing.SystemIcons]::Shield - the very artwork Windows draws
@@ -527,6 +632,45 @@ function Get-PtHotkeySpec {
     }
 }
 
+# --- is the icon on the taskbar or in the hidden-icons flyout ---
+# Explorer keeps one key per tray icon under NotifyIconSettings, IsPromoted=1 = on the taskbar;
+# the Settings app's "Other system tray icons" switches write the same value. Our key is the one
+# whose first tooltip was 'Paranoid Tools' ($notify.Text is set to that before the icon shows).
+# The key is per executable PATH, and the Store build of pwsh carries its version in the path:
+# every PowerShell update makes a fresh, hidden key. So the choice, once made, is carried over
+# to the new key at startup - the icon must not quietly go back into hiding.
+function Get-PtNotifyIconKeys {
+    # Wrapper for Mock: tests never touch the real registry.
+    Get-ChildItem -LiteralPath 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue |
+        Where-Object {
+            $p = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+            # Both: the first tooltip AND a pwsh host - a stranger's icon that happens to be called
+            # "Paranoid Tools" is not ours to move (review, s48).
+            $p.InitialTooltip -eq 'Paranoid Tools' -and [string]$p.ExecutablePath -like '*\pwsh.exe'
+        }
+}
+function Set-PtIconPromotedKey {
+    # Wrapper for Mock (-Type is a registry-provider parameter a Pester mock does not have).
+    param([string]$Path)
+    Set-ItemProperty -LiteralPath $Path -Name IsPromoted -Value 1 -Type DWord -ErrorAction SilentlyContinue
+}
+function Test-PtIconPromoted {
+    foreach ($k in @(Get-PtNotifyIconKeys)) {
+        if ((Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue).IsPromoted -eq 1) { return $true }
+    }
+    return $false
+}
+# -Force: the user asked (Welcome "Show it"). Without it: promote every key of ours only if one of
+# them already is. $true = the icon is (now) on the taskbar.
+function Sync-PtIconPromotion {
+    param([switch]$Force)
+    $keys = @(Get-PtNotifyIconKeys)
+    if ($keys.Count -eq 0) { return $false }
+    if (-not $Force -and -not (Test-PtIconPromoted)) { return $false }
+    foreach ($k in $keys) { Set-PtIconPromotedKey -Path $k.PSPath }
+    return $true
+}
+
 # --- onboarding: pure helpers for the Welcome window checklist (mirror of macOS checklistLine/clisInstalled) ---
 # The checklist line is pure for Pester (mirror of Swift checklistLine): ✅+okKey / ❌+missKey.
 function Get-PtChecklistLine {
@@ -625,7 +769,32 @@ function Test-PtAdmin {
 # over an open vault — an emergency button that only reports it cannot fire (audit F02).
 function Test-PtNeedsAdmin {
     param([string]$Command)
-    return ($Command -match '^securetrash\s+vault\b' -or $Command -match '^panic\s+now\b')
+    # vaultwatch start/stop too: the guard closes the vault, and closing is diskpart + BitLocker
+    # (the launcher routes them through Invoke-PnToolAdmin for the same reason).
+    return ($Command -match '^securetrash\s+vault\b' -or $Command -match '^panic\s+now\b' -or
+            $Command -match '^vaultwatch\s+(start|stop)\b')
+}
+
+# What the new console window runs around the command. It used to be `-NoExit -Command <cmd>`:
+# the tool finished and the user was left at a bare `PS C:\wherever>` prompt, in a window titled
+# with the path of pwsh.exe inside WindowsApps (live Windows run, s48) - nothing said what the
+# window was, whether it was done, or how to get rid of it. Now the title names the action, and
+# the end is a line that says how to close it. The launcher is exempt: it has its own Quit.
+function Get-PtToolScript {
+    param([string]$Command)
+    $q = { param($s) "'" + ($s -replace "'", "''") + "'" }
+    $title = 'Paranoid Tools - ' + ($Command -replace '\s+--trigger-ms\s+\d+', '')
+    $script = "`$Host.UI.RawUI.WindowTitle = $(& $q $title); "
+    # These two read to end-of-input and print nothing first: the window opened blank, a cursor
+    # and no word about what to paste or how to finish (live Windows run, s48). Ctrl-Z + Enter
+    # was checked in that window and does end the input there.
+    $hint = switch -Regex ($Command) { '^seedsplit\s+split\b' { 'hint_split' } '^seedsplit\s+combine\b' { 'hint_combine' } '^ghostdraft\s+pipe\b' { 'hint_pipe' } default { $null } }
+    if ($hint) { $script += "Write-Host $(& $q (Get-PtL -Key $hint)); " }
+    $script += $Command
+    if ($Command -ne 'paranoid') {
+        $script += "; [Console]::WriteLine(); [void](Read-Host $(& $q (Get-PtL 'press_enter_close')))"
+    }
+    return $script
 }
 
 # Launch a CLI in a NEW console window (pwsh) — output and secret input go into the CLI itself,
@@ -643,12 +812,12 @@ function Invoke-PtTool {
         $Command = "$Command --trigger-ms $(Get-PtTriggerMs)"
     }
     # The command is fixed (from Get-PtMenuSpec), not from user input → no injection possible.
-    $argv = @('-NoExit', '-Command', $Command)
+    $argv = @('-NoProfile', '-Command', (Get-PtToolScript -Command $Command))
     if ((Test-PtNeedsAdmin $Command) -and -not (Test-PtAdmin)) {
         try {
             # -Verb RunAs raises one UAC prompt; declining it surfaces here as a terminating
             # error. That is the user saying no, not an anomaly.
-            Start-Process -FilePath 'pwsh' -Verb RunAs -ArgumentList $argv -ErrorAction Stop | Out-Null
+            Start-Process -FilePath 'pwsh' -WorkingDirectory $env:USERPROFILE -Verb RunAs -ArgumentList $argv -ErrorAction Stop | Out-Null
             return $true
         } catch {
             # For the vault, a declined prompt means nothing happened, and that is the honest
@@ -662,12 +831,12 @@ function Invoke-PtTool {
                 # Best effort, and it must not turn into an exception of its own: if even the
                 # plain start fails there is nothing further to try, and the caller still has to
                 # get its honest $false rather than a crash out of the hotkey handler.
-                try { Start-Process -FilePath 'pwsh' -ArgumentList $argv | Out-Null } catch { }
+                try { Start-Process -FilePath 'pwsh' -WorkingDirectory $env:USERPROFILE -ArgumentList $argv | Out-Null } catch { }
             }
             return $false
         }
     }
-    Start-Process -FilePath 'pwsh' -ArgumentList $argv | Out-Null
+    Start-Process -FilePath 'pwsh' -WorkingDirectory $env:USERPROFILE -ArgumentList $argv | Out-Null
     return $true
 }
 
@@ -689,6 +858,9 @@ function Show-PtSettingsForm {
     $lblVol.Text = (Get-PtL set_vol -Lang $lang); $lblVol.SetBounds(12, 18, 110, 20)
     $tbVol = New-Object System.Windows.Forms.TextBox
     $tbVol.SetBounds(130, 15, 235, 22); $tbVol.Text = $cur.VaultVolume
+    # Empty is the normal value (the vault's own sidecar says where it is mounted); an empty box
+    # with no word on it read as a field someone forgot to fill in (live Windows run, s48).
+    $tbVol.PlaceholderText = (Get-PtL set_vol_auto -Lang $lang)
 
     $lblPoll = New-Object System.Windows.Forms.Label
     $lblPoll.Text = (Get-PtL set_poll -Lang $lang); $lblPoll.SetBounds(12, 52, 110, 20)
@@ -745,7 +917,7 @@ function Show-PtWelcomeForm {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = (Get-PtL ob_title -Lang $lang)
     $form.FormBorderStyle = 'FixedDialog'; $form.MaximizeBox = $false; $form.MinimizeBox = $false
-    $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(480, 280)
+    $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(480, 336)
 
     $y = 14
     function Add-PtObLabel {
@@ -767,7 +939,9 @@ function Show-PtWelcomeForm {
         $Form.Controls.Add($b)
     }
 
-    Add-PtObLabel $form '🔒 Paranoid Bar' ([ref]$y) 11
+    # No emoji here: WinForms draws text through GDI, which has no emoji fallback - the padlock
+    # came out as an empty box in front of the name (live Windows run, s48).
+    Add-PtObLabel $form 'Paranoid Bar' ([ref]$y) 11
     Add-PtObLabel $form (Get-PtL ob_sub -Lang $lang) ([ref]$y) 8 ([System.Drawing.Color]::Gray) -Width 448
     Add-PtObLabel $form (Get-PtChecklistLine -Ok (Test-PtClisInstalled) -OkKey 'ob_cli_ok' -MissKey 'ob_cli_missing' -Lang $lang) ([ref]$y)
     $hasVault = ((Get-PtVaultState) -ne 'none')
@@ -813,18 +987,30 @@ function Show-PtWelcomeForm {
             $form.Close(); Show-PtWelcomeForm
         }
     }
-    $loginOn = [bool](Test-PtAutostart)
+    # Either autostart counts: with the elevated task armed, "Enable" here would add the plain one
+    # next to it, and at logon whichever copy came first would keep the single-instance mutex.
+    $loginOn = [bool](Test-PtAutostart) -or [bool](Test-PtAutostartTask)
     $mark = if ($loginOn) { [char]0x2705 } else { [char]0x2B1C }
     $loginY = $y
     Add-PtObLabel $form ("$mark " + (Get-PtL ob_login_line -Lang $lang)) ([ref]$y)
     if (-not $loginOn) {
         Add-PtObButton $form (Get-PtL ob_enable_btn -Lang $lang) $loginY { Enable-PtAutostart; $form.Close(); Show-PtWelcomeForm }
     }
+    # Windows 11 puts a new tray icon in the hidden-icons flyout, so after install the user sees
+    # no icon at all and cannot tell whether anything is running (live Windows run, s48).
+    $iconOn = Test-PtIconPromoted
+    $mark = if ($iconOn) { [char]0x2705 } else { [char]0x2B1C }
+    $iconY = $y
+    Add-PtObLabel $form ("$mark " + (Get-PtL ob_icon_line -Lang $lang)) ([ref]$y)
+    if (-not $iconOn) {
+        Add-PtObButton $form (Get-PtL ob_show_btn -Lang $lang) $iconY { [void](Sync-PtIconPromotion -Force); $form.Close(); Show-PtWelcomeForm }
+    }
+    Add-PtObLabel $form (Get-PtL ob_howto -Lang $lang) ([ref]$y) -Width 448
     Add-PtObLabel $form ([char]0x26A0 + ' ' + (Get-PtL ob_risk -Lang $lang)) ([ref]$y) 8 ([System.Drawing.Color]::DarkOrange) -Width 448
 
     $done = New-Object System.Windows.Forms.Button
     $done.Text = (Get-PtL ob_done -Lang $lang); $done.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $done.SetBounds(384, 238, 80, 28)
+    $done.SetBounds(384, 294, 80, 28)
     $form.Controls.Add($done); $form.AcceptButton = $done
     [void]$form.ShowDialog()
 }
@@ -860,7 +1046,13 @@ public class PtHotkeyWindow : NativeWindow {
     public double ArmedAtSeconds;
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mods, uint vk);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-    public PtHotkeyWindow() { CreateHandle(new CreateParams()); }
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    // The tray is started hidden (-WindowStyle Hidden from the launcher, the Run key and the
+    // task), and Windows applies that SW_HIDE to the FIRST window the process shows, whatever it
+    // asks for. On a first run that was the Welcome dialog: a modal nobody could see, and the tray
+    // stuck inside it with its status timer never started (live Windows run, s48). This hidden
+    // window takes that first call instead.
+    public PtHotkeyWindow() { CreateHandle(new CreateParams()); ShowWindow(Handle, 0); }
     public bool Register(uint mods, uint vk) { UnregisterHotKey(Handle, 1); return RegisterHotKey(Handle, 1, mods, vk); }
     public void Unregister() { UnregisterHotKey(Handle, 1); }
     protected override void WndProc(ref Message m) {
@@ -892,7 +1084,7 @@ public class PtHotkeyWindow : NativeWindow {
                 # Not "nothing was done": the unelevated run still cleared the clipboard and
                 # locked the screen. Only the volumes are left open, and that is what is named.
                 $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_uac_declined_panic), [System.Windows.Forms.ToolTipIcon]::Error)
-            }
+            } else { & $pollFast }
         } else {
             $hkWin.ArmedAtSeconds = $now
             $notify.ShowBalloonTip(3000, 'Paranoid Tools', (Get-PtL notif_panic_arm), [System.Windows.Forms.ToolTipIcon]::Warning)
@@ -928,10 +1120,122 @@ public class PtHotkeyWindow : NativeWindow {
     # from the icon's MouseDown, and a handler sees this function's locals but not $script:
     # variables. Reading $script:notifyState there gave $null, which Get-PtNotifyEvents takes as
     # a Mandatory parameter - so the rebuild threw instead of drawing (live Windows run, s46).
-    $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false; Rebuilding = $false }
+    $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false; Rebuilding = $false
+                                   TaskOn = $false; TaskCheckedAt = $null
+                                   PollMs = [math]::Max(5, $settings.PollSeconds) * 1000; FastUntil = $null; Pending = $false }
     $script:notifyState = $trayState.Notify
 
+    # The UAC shield next to every item that will ask for rights - the mark Windows itself puts
+    # on such buttons, so the prompt that follows the click is expected rather than alarming.
+    $shieldImage = try { [System.Drawing.SystemIcons]::Shield.ToBitmap() } catch { $null }
+
+    # ONE click handler for every item; the item carries its command in .Tag. The handlers used to
+    # be per-item closures (GetNewClosure), and a closure captures only the variables of the scope
+    # it is made in - the rebuild's - not this function's $notify, $timer, $hkWin or $rebuild. So
+    # Quit could not hide the icon, the elevated-autostart balloons and the hotkey re-arm after
+    # Settings/Save never happened, and nothing said so: WinForms swallows what a handler throws.
+    # A plain scriptblock runs in the scope that is live when the event fires - this function's,
+    # which is inside Application::Run - and sees all of them.
+    $onItemClick = {
+        param($sender, $e)
+        $cmd = [string]$sender.Tag
+        try {
+            if ($cmd -eq '__quit__') {
+                $notify.Visible = $false
+                [System.Windows.Forms.Application]::Exit()
+            } elseif ($cmd -eq '__autostart__') {
+                $trayState.TaskCheckedAt = $null
+                if (Test-PtAutostart) { Disable-PtAutostart }
+                else {
+                    # Plain autostart and the elevated one cannot both be armed, or the tray
+                    # starts twice at logon - once with rights, once without. If the elevated
+                    # task could not be removed (rights declined), the plain one is NOT added.
+                    if ((Test-PtAutostartTask) -and -not (Set-PtAutostartAdmin -On $false)) {
+                        $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL login_admin_declined), [System.Windows.Forms.ToolTipIcon]::Error)
+                    } else {
+                        Enable-PtAutostart
+                    }
+                }
+            } elseif ($cmd -eq '__autostart_admin__') {
+                $trayState.TaskCheckedAt = $null
+                $wasOn = [bool](Test-PtAutostartTask)
+                if (Set-PtAutostartAdmin -On (-not $wasOn)) {
+                    $msg = if ($wasOn) { Get-PtL login_admin_off } else { Get-PtL login_admin_on }
+                    $icon = if ($wasOn) { [System.Windows.Forms.ToolTipIcon]::Info } else { [System.Windows.Forms.ToolTipIcon]::Warning }
+                    $notify.ShowBalloonTip(8000, 'Paranoid Tools', $msg, $icon)
+                } else {
+                    $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL login_admin_declined), [System.Windows.Forms.ToolTipIcon]::Error)
+                }
+            } elseif ($cmd -eq '__settings__') {
+                $s = Show-PtSettingsForm
+                if ($s) {
+                    if ($s.VaultVolume) { $env:ST_VAULT_VOLUME = $s.VaultVolume }
+                    else { Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue }
+                    $trayState.PollMs = [math]::Max(5, $s.PollSeconds) * 1000
+                    if (-not $trayState.FastUntil) { $timer.Interval = $trayState.PollMs }
+                    # Re-arm the hotkey per the new preset — Register's result isn't swallowed
+                    # (honesty, T9): fail → the same balloon as at tray startup.
+                    $hkSpec = Get-PtHotkeySpec -Preset $s.PanicHotkey
+                    if ($hkSpec) {
+                        $trayState.HotkeyRegistered = $hkWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
+                        $script:hotkeyRegistered = $trayState.HotkeyRegistered
+                        if (-not $trayState.HotkeyRegistered) {
+                            $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
+                        }
+                    } else { $hkWin.Unregister(); $trayState.HotkeyRegistered = $false; $script:hotkeyRegistered = $false }
+                }
+                # Language change included: the rebuild re-reads the settings by itself.
+                & $rebuild
+            } elseif ($cmd -eq '__setup__') {
+                Show-PtWelcomeForm
+            } elseif (Invoke-PtTool -Command $cmd) {
+                & $pollFast
+            } else {
+                # The rights prompt was declined. Silence here reads as "done", which for the vault
+                # is the one lie that matters - so it is named (the key existed and nothing used it).
+                $key = if ($cmd -match '^panic\s+now\b') { 'notif_uac_declined_panic' } else { 'notif_uac_declined' }
+                $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL -Key $key), [System.Windows.Forms.ToolTipIcon]::Error)
+            }
+        } catch {
+            $notify.ShowBalloonTip(8000, 'Paranoid Tools', ('menu: ' + $_.Exception.Message), [System.Windows.Forms.ToolTipIcon]::Error)
+        }
+    }
+
+    # Menu spec -> ToolStrip items, submenus included. Labels go through the escaper; commands go
+    # into .Tag for $onItemClick; $Checked maps a command to its checkmark.
+    $addItems = {
+        param($Items, $Entries, [bool]$Elevated, [hashtable]$Checked)
+        foreach ($entry in $Entries) {
+            if ($entry.Label -eq '-') { $Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
+            $it = New-Object System.Windows.Forms.ToolStripMenuItem((ConvertTo-PtMenuLabel $entry.Label))
+            if ($null -ne $entry.Enabled) { $it.Enabled = [bool]$entry.Enabled }   # grey-out per spec (P2-7)
+            $cmd = [string]$entry.Command
+            if ($entry.PSObject.Properties['Children'] -and $entry.Children) {
+                & $addItems $it.DropDownItems $entry.Children $Elevated $Checked
+            } elseif ($cmd) {
+                $it.Tag = $cmd
+                if ($Checked.ContainsKey($cmd)) { $it.Checked = [bool]$Checked[$cmd] }
+                if (-not $Elevated -and $shieldImage -and (Test-PtNeedsAdmin $cmd)) { $it.Image = $shieldImage }
+                $it.Add_Click($onItemClick)
+            }
+            $Items.Add($it) | Out-Null
+        }
+    }
+
+    # After an action from the menu the state is about to change - a vault opens, closes, gets a
+    # guard - and the icon and its hover text waited for the next regular poll to say so: up to
+    # 15 s of a closed padlock over a vault just opened (live VM, s48). For three minutes after an
+    # action the poll runs every 2 s, then drops back to the interval from Settings.
+    $pollFast = {
+        $trayState.FastUntil = (Get-Date).AddMinutes(3)
+        $timer.Interval = 2000
+    }
+
     $rebuildCore = {
+        if ($trayState.FastUntil -and (Get-Date) -gt $trayState.FastUntil) {
+            $trayState.FastUntil = $null
+            $timer.Interval = $trayState.PollMs
+        }
         # One language resolve for the whole rebuild (one settings read), then -Lang $lang everywhere.
         $lang = Resolve-PtLang -Override ((Get-PtSettings).Language)
         $state = Get-PtVaultState
@@ -950,20 +1254,23 @@ public class PtHotkeyWindow : NativeWindow {
         # the vault is open and at risk, closed one otherwise.
         $wantIcon = if ($state -eq 'open') { $iconOpen } else { $iconClosed }
         if ($wantIcon -and -not [object]::ReferenceEquals($notify.Icon, $wantIcon)) { $notify.Icon = $wantIcon }
-        $notify.Text = Limit-PtTrayText $(
-            if ($state -eq 'open' -and $null -ne $ttl -and $ttl -eq 0) { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'ttl_expired' -Lang $lang)" }
-            elseif ($state -eq 'open' -and $null -ne $ttl)              { "$(Get-PtL 'tip_open' -Lang $lang) - $(Get-PtL 'auto_exit_in' -Lang $lang) $(Format-PtDuration $ttl)" }
-            elseif ($state -eq 'open')                                  { (Get-PtL 'tip_open' -Lang $lang) }
-            else                                                        { (Get-PtL 'tip_closed' -Lang $lang) })
+        $notify.Text = Get-PtTrayTooltip -State $state -Ttl $ttl -Lang $lang
         # Every question that can wait is asked BEFORE the strip is emptied. Some of them wait on
         # WMI (the volume table, BitLocker, the scheduled task), and a COM call on this STA thread
         # pumps window messages while it waits - so the timer, or a click, ran a second rebuild in
         # the middle of the first. The second emptied the strip and filled it; the first then woke
         # up and added its own full set on top: every item twice (live Windows run, s47). From
         # Clear() to the last Add below nothing may wait on anything.
-        $spec = @(Get-PtMenuSpec -VaultState $state -Lang $lang)
-        $autostartOn = [bool](Test-PtAutostart)
-        $autostartAdminOn = [bool](Test-PtAutostartTask)
+        $elevated = [bool](Test-PtAdmin)
+        $spec = @(Get-PtMenuSpec -VaultState $state -Lang $lang -Elevated $elevated -Mount $vol `
+                    -Watching ($vaultSessions.Count -gt 0))
+        # The scheduled-task probe costs ~300 ms of this UI thread (live VM, s48), and the task only
+        # changes when someone toggles it - here, where the cache is dropped, or in Task Scheduler.
+        # ponytail: 60 s cache; a task deleted by hand shows its old checkmark for up to a minute.
+        if ($null -eq $trayState.TaskCheckedAt -or ((Get-Date) - $trayState.TaskCheckedAt).TotalSeconds -gt 60) {
+            $trayState.TaskOn = [bool](Test-PtAutostartTask); $trayState.TaskCheckedAt = Get-Date
+        }
+        $checked = @{ '__autostart__' = [bool](Test-PtAutostart); '__autostart_admin__' = $trayState.TaskOn }
         $menu.Items.Clear()
         # vaultwatch sessions — disabled headers at the top of the menu (mount point + TTL countdown).
         foreach ($s in $sessions) {
@@ -974,65 +1281,7 @@ public class PtHotkeyWindow : NativeWindow {
             $menu.Items.Add($h) | Out-Null
         }
         if ($sessions.Count -gt 0) { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null }
-        foreach ($entry in $spec) {
-            if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
-            $cmd = $entry.Command
-            $it = New-Object System.Windows.Forms.ToolStripMenuItem((ConvertTo-PtMenuLabel $entry.Label))
-            if ($null -ne $entry.Enabled) { $it.Enabled = [bool]$entry.Enabled }   # grey-out per spec (P2-7)
-            if ($cmd -eq '__quit__') {
-                $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
-            } elseif ($cmd -eq '__autostart__') {
-                $it.Checked = $autostartOn
-                $it.Add_Click({
-                    if (Test-PtAutostart) { Disable-PtAutostart }
-                    else {
-                        # Plain autostart and the elevated one cannot both be armed, or the tray
-                        # starts twice at logon - once with rights, once without.
-                        if (Test-PtAutostartTask) { [void](Set-PtAutostartAdmin -On $false) }
-                        Enable-PtAutostart
-                    }
-                }.GetNewClosure())
-            } elseif ($cmd -eq '__autostart_admin__') {
-                $it.Checked = $autostartAdminOn
-                $it.Add_Click({
-                    $wasOn = [bool](Test-PtAutostartTask)
-                    if (Set-PtAutostartAdmin -On (-not $wasOn)) {
-                        $msg = if ($wasOn) { Get-PtL login_admin_off } else { Get-PtL login_admin_on }
-                        $icon = if ($wasOn) { [System.Windows.Forms.ToolTipIcon]::Info } else { [System.Windows.Forms.ToolTipIcon]::Warning }
-                        $notify.ShowBalloonTip(8000, 'Paranoid Tools', $msg, $icon)
-                    } else {
-                        $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL login_admin_declined), [System.Windows.Forms.ToolTipIcon]::Error)
-                    }
-                }.GetNewClosure())
-            } elseif ($cmd -eq '__settings__') {
-                $it.Add_Click({
-                    $s = Show-PtSettingsForm
-                    if ($s) {
-                        if ($s.VaultVolume) { $env:ST_VAULT_VOLUME = $s.VaultVolume }
-                        else { Remove-Item Env:\ST_VAULT_VOLUME -ErrorAction SilentlyContinue }
-                        $timer.Interval = [math]::Max(5, $s.PollSeconds) * 1000
-                        # Re-arm the hotkey per the new preset — Register's result isn't swallowed
-                        # (honesty, T9): fail → the same balloon as at tray startup.
-                        $hkSpec = Get-PtHotkeySpec -Preset $s.PanicHotkey
-                        if ($hkSpec) {
-                            $trayState.HotkeyRegistered = $hkWin.Register($hkSpec.Modifiers, $hkSpec.Vk)
-                            $script:hotkeyRegistered = $trayState.HotkeyRegistered
-                            if (-not $trayState.HotkeyRegistered) {
-                                $notify.ShowBalloonTip(5000, 'Paranoid Tools', (Get-PtL notif_hotkey_fail), [System.Windows.Forms.ToolTipIcon]::Warning)
-                            }
-                        } else { $hkWin.Unregister(); $trayState.HotkeyRegistered = $false; $script:hotkeyRegistered = $false }
-                        # Language change: & $rebuild below re-reads Get-PtSettings.Language into
-                        # $lang at the start of the block by itself — no separate step needed.
-                    }
-                    & $rebuild
-                }.GetNewClosure())
-            } elseif ($cmd -eq '__setup__') {
-                $it.Add_Click({ Show-PtWelcomeForm }.GetNewClosure())
-            } else {
-                $it.Add_Click({ Invoke-PtTool -Command $cmd }.GetNewClosure())
-            }
-            $menu.Items.Add($it) | Out-Null
-        }
+        & $addItems $menu.Items $spec $elevated $checked
         # notifications: the engine decides, BalloonTip delivers (10s; text carries no secrets)
         $now = [int64][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
         $nr = Get-PtNotifyEvents -Open ($state -eq 'open') -Ttl $ttl -HasSessions ($vaultSessions.Count -gt 0) -Now $now -State $trayState.Notify
@@ -1054,24 +1303,18 @@ public class PtHotkeyWindow : NativeWindow {
         # job; a click that arrives meanwhile shows the strip as it stands - the previous full
         # menu, since nothing is cleared until the probes are done.
         if ($trayState.Rebuilding) { return }
+        # Not under an open menu either: a poll tick runs inside the menu's own message loop, and
+        # emptying the strip the user is pointing at pulls items out from under the cursor. The
+        # refresh waits for the menu to close (review, s48 - the 2 s fast poll made it likely).
+        if ($menu.Visible) { $trayState.Pending = $true; return }
+        $trayState.Pending = $false
         $trayState.Rebuilding = $true
         try { & $rebuildCore }
         catch {
             $failure = $_.Exception.Message
             $lang = try { Resolve-PtLang -Override ((Get-PtSettings).Language) } catch { 'en' }
             $menu.Items.Clear()
-            foreach ($entry in (Get-PtFallbackMenuSpec -Message $failure -Lang $lang)) {
-                if ($entry.Label -eq '-') { $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null; continue }
-                $cmd = $entry.Command
-                $it = New-Object System.Windows.Forms.ToolStripMenuItem((ConvertTo-PtMenuLabel $entry.Label))
-                $it.Enabled = [bool]$entry.Enabled
-                if ($cmd -eq '__quit__') {
-                    $it.Add_Click({ $notify.Visible = $false; [System.Windows.Forms.Application]::Exit() }.GetNewClosure())
-                } elseif ($cmd) {
-                    $it.Add_Click({ Invoke-PtTool -Command $cmd }.GetNewClosure())
-                }
-                $menu.Items.Add($it) | Out-Null
-            }
+            & $addItems $menu.Items @(Get-PtFallbackMenuSpec -Message $failure -Lang $lang) $true @{}
         }
         finally { $trayState.Rebuilding = $false }
     }
@@ -1092,6 +1335,7 @@ public class PtHotkeyWindow : NativeWindow {
         param($sender, $e)
         if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) { & $rebuild }
     })
+    $menu.Add_Closed({ param($sender, $e) if ($trayState.Pending) { & $rebuild } })
     $notify.ContextMenuStrip = $menu
     # NotifyIcon opens its strip on the right button only. On the left one the icon did nothing
     # at all - and an icon that answers nothing is indistinguishable from a tray that died (Mr.Di,
@@ -1101,9 +1345,16 @@ public class PtHotkeyWindow : NativeWindow {
     # menu still opens - at the cursor, which is where the icon is anyway.
     $showMenu = [System.Windows.Forms.NotifyIcon].GetMethod('ShowContextMenu',
         [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic)
-    $notify.Add_MouseUp({
+    # Shown from a one-shot timer, i.e. after MouseUp has returned, not from inside it. On the live
+    # VM (s48) one left click in two drew no menu; the cause turned out to be the BitLocker probe
+    # (see Test-PtBitLocker) holding this thread for five seconds, not the click path - but the
+    # deferred show is the variant that was measured clean afterwards (8/8 from the hidden-icons
+    # flyout, 10/10 on the taskbar), so it stays.
+    $leftMenuTimer = New-Object System.Windows.Forms.Timer
+    $leftMenuTimer.Interval = 1
+    $leftMenuTimer.Add_Tick({
         param($sender, $e)
-        if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
+        $sender.Stop()
         # A handler that throws does it into WinForms, which says nothing: the click looks ignored
         # and we are back to an icon that answers nothing. The balloon is the one channel that
         # works with no window of our own.
@@ -1115,7 +1366,17 @@ public class PtHotkeyWindow : NativeWindow {
             $notify.ShowBalloonTip(8000, 'Paranoid Tools', ('menu: ' + $_.Exception.Message), [System.Windows.Forms.ToolTipIcon]::Error)
         }
     })
+    $notify.Add_MouseUp({
+        param($sender, $e)
+        if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
+        $leftMenuTimer.Stop(); $leftMenuTimer.Start()
+    })
     $timer.Start()
+    # Explorer writes the key for a new icon a moment after it appears, so the carry-over waits.
+    $promoteTimer = New-Object System.Windows.Forms.Timer
+    $promoteTimer.Interval = 5000
+    $promoteTimer.Add_Tick({ param($sender, $e) $sender.Stop(); try { [void](Sync-PtIconPromotion) } catch { } })
+    $promoteTimer.Start()
 
     [System.Windows.Forms.Application]::Run()
     $timer.Stop()

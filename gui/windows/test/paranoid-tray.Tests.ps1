@@ -96,6 +96,137 @@ Describe 'Get-PtMenuSpec — структура меню' {
     }
 }
 
+Describe 'Get-PtMenuSpec — инструменты в трее (s48)' {
+    # До s48 в меню трея были только сейф и паника: блокнот, доли и охрана сейфа жили в консольном
+    # лаунчере, и человек, открывший меню «найти блокнот», находил только «Открыть полный лаунчер».
+    It 'блокнот: подменю ghostdraft с заметкой и просмотром текста' {
+        $n = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Label -eq (Get-PtL -Key 'notepad_menu' -Lang 'en') }
+        @($n).Count | Should -Be 1
+        $n.Children.Command | Should -Be @('ghostdraft new --clipboard', 'ghostdraft pipe')
+    }
+    It 'секреты: подменю seedsplit с разбить/собрать' {
+        $n = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en') | Where-Object { $_.Label -eq (Get-PtL -Key 'secrets_menu' -Lang 'en') }
+        $n.Children.Command | Should -Be @('seedsplit split', 'seedsplit combine')
+    }
+    It 'охрана сейфа видна и на закрытом сейфе, но disabled и говорит, что нужно' {
+        foreach ($st in 'closed', 'none', 'unknown') {
+            $vw = (Get-PtMenuSpec -VaultState $st -Lang 'en')[9]
+            $vw.Label   | Should -Be (Get-PtL -Key 'vw_needs_open' -Lang 'en')
+            $vw.Enabled | Should -BeFalse
+        }
+    }
+    It 'открытый сейф без охраны: подменю TTL, том в команде, кавычка экранирована' {
+        $vw = (Get-PtMenuSpec -VaultState 'open' -Lang 'en' -Mount "E:\it's" -Watching $false)[9]
+        $vw.Label | Should -Be (Get-PtL -Key 'vw_start' -Lang 'en')
+        $vw.Children.Command | Should -Be @(
+            "vaultwatch start --ttl 30m 'E:\it''s'", "vaultwatch start --ttl 1h 'E:\it''s'",
+            "vaultwatch start --ttl 2h 'E:\it''s'", "vaultwatch start --ttl 4h 'E:\it''s'",
+            "vaultwatch start 'E:\it''s'")
+    }
+    It 'открытый сейф под охраной: один пункт снять охрану' {
+        $vw = (Get-PtMenuSpec -VaultState 'open' -Lang 'en' -Mount 'E:\' -Watching $true)[9]
+        $vw.Command | Should -Be "vaultwatch stop 'E:\'"
+    }
+    It 'vaultwatch start/stop идут через UAC, как в лаунчере; status — нет' {
+        Test-PtNeedsAdmin "vaultwatch start --ttl 1h 'E:\'" | Should -BeTrue
+        Test-PtNeedsAdmin "vaultwatch stop 'E:\'" | Should -BeTrue
+        Test-PtNeedsAdmin 'vaultwatch status' | Should -BeFalse
+        Test-PtNeedsAdmin 'ghostdraft new --clipboard' | Should -BeFalse
+    }
+    It 'подписи есть в обоих языках' {
+        foreach ($k in 'notepad_menu', 'secrets_menu', 'vw_start', 'ttl_none') {
+            (Get-PtL -Key $k -Lang 'ru') | Should -Not -Be $k
+            (Get-PtL -Key $k -Lang 'ru') | Should -Not -Be (Get-PtL -Key $k -Lang 'en')
+        }
+    }
+}
+
+Describe 'окно инструмента из трея (s48)' {
+    # Раньше: -NoExit, голое `PS C:\...>` в конце и заголовок — путь к pwsh.exe из WindowsApps.
+    It 'заголовок называет действие, без метки времени паники' {
+        $s = Get-PtToolScript -Command 'panic now --hard --trigger-ms 1757570000000'
+        $s | Should -Match ([regex]::Escape("WindowTitle = 'Paranoid Tools - panic now --hard'"))
+    }
+    It 'в конце окно говорит, как его закрыть, а не бросает в приглашение PowerShell' {
+        $s = Get-PtToolScript -Command 'securetrash check'
+        $s | Should -Match 'Read-Host'
+        $s | Should -Match ([regex]::Escape((Get-PtL -Key 'press_enter_close')))
+    }
+    It 'кавычка в команде не ломает заголовок' {
+        $s = Get-PtToolScript -Command "vaultwatch stop 'E:\it''s'"
+        $s | Should -Match ([regex]::Escape("WindowTitle = 'Paranoid Tools - vaultwatch stop ''E:\it''''s'''"))
+        $s | Should -Match ([regex]::Escape("; vaultwatch stop 'E:\it''s';"))
+    }
+    It 'окна, что ждут вставки, говорят, что вставлять и как закончить' {
+        # Было: пустое окно с одним курсором (s48).
+        (Get-PtToolScript -Command 'seedsplit combine') | Should -Match ([regex]::Escape((Get-PtL -Key 'hint_combine')))
+        (Get-PtToolScript -Command 'ghostdraft pipe')   | Should -Match ([regex]::Escape((Get-PtL -Key 'hint_pipe')))
+        (Get-PtToolScript -Command 'seedsplit combine') | Should -Match 'Write-Host .*; seedsplit combine;'
+        (Get-PtToolScript -Command 'seedsplit split')   | Should -Match ([regex]::Escape((Get-PtL -Key 'hint_split')))
+        (Get-PtToolScript -Command 'securetrash check') | Should -Not -Match 'Write-Host'
+    }
+    It 'лаунчеру паузы не надо — у него свой выход' {
+        Get-PtToolScript -Command 'paranoid' | Should -Not -Match 'Read-Host'
+    }
+    It 'окно стартует без профиля пользователя и без -NoExit' {
+        Mock Start-Process { }; Mock Test-PtAdmin { $true }
+        Invoke-PtTool -Command 'securetrash check'
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains '-NoProfile' -and $ArgumentList -notcontains '-NoExit' }
+    }
+}
+
+Describe 'иконка на панели задач, а не под ^ (s48)' {
+    BeforeEach {
+        $script:PtKeys = @(
+            [pscustomobject]@{ PSPath = 'k-old'; Promoted = 1 },
+            [pscustomobject]@{ PSPath = 'k-new'; Promoted = 0 })
+        Mock Get-PtNotifyIconKeys { $script:PtKeys }
+        Mock Get-ItemProperty { [pscustomobject]@{ IsPromoted = ($script:PtKeys | Where-Object PSPath -eq $LiteralPath).Promoted } }
+        Mock Set-PtIconPromotedKey { ($script:PtKeys | Where-Object PSPath -eq $Path).Promoted = 1 }
+    }
+    It 'выбор, сделанный раз, переносится на новый ключ после обновления pwsh' {
+        Sync-PtIconPromotion | Should -BeTrue
+        ($script:PtKeys | Where-Object PSPath -eq 'k-new').Promoted | Should -Be 1
+    }
+    It 'без выбора пользователя сам ничего не выносит' {
+        $script:PtKeys[0].Promoted = 0
+        Sync-PtIconPromotion | Should -BeFalse
+        Should -Invoke Set-PtIconPromotedKey -Times 0 -Exactly
+    }
+    It 'кнопка «Показать» выносит и без прежнего выбора' {
+        $script:PtKeys[0].Promoted = 0
+        Sync-PtIconPromotion -Force | Should -BeTrue
+        @($script:PtKeys | Where-Object Promoted -eq 1).Count | Should -Be 2
+    }
+    It 'чужую иконку с тем же текстом не трогаем — нужен ещё хост pwsh.exe' {
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        $src | Should -Match ([regex]::Escape("InitialTooltip -eq 'Paranoid Tools' -and [string]`$p.ExecutablePath -like '*\pwsh.exe'"))
+    }
+    It 'ключа ещё нет — честное $false, без исключения' {
+        Mock Get-PtNotifyIconKeys { @() }
+        Sync-PtIconPromotion -Force | Should -BeFalse
+    }
+}
+
+Describe 'обработчики меню трея (s48)' {
+    BeforeAll { $script:TraySrc = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw }
+    It 'пункты меню не собираются через GetNewClosure' {
+        # Замыкание видит только переменные области, где его сделали, — не $notify/$timer/$hkWin/
+        # $rebuild трея: Quit не прятал иконку, балуны автозапуска и перерегистрация хоткея после
+        # «Сохранить» молча не случались. Один обработчик + Tag видит всё.
+        @([regex]::Matches($script:TraySrc, '\.GetNewClosure\(')) | Should -BeNullOrEmpty
+        $script:TraySrc | Should -Match '\.Tag = \$cmd'
+        $script:TraySrc | Should -Match 'Add_Click\(\$onItemClick\)'
+    }
+    It 'открытое меню не перестраивается под курсором — ждёт закрытия' {
+        $script:TraySrc | Should -Match 'if \(\$menu\.Visible\) \{ \$trayState\.Pending = \$true; return \}'
+        $script:TraySrc | Should -Match 'Add_Closed\(\{ param\(\$sender, \$e\) if \(\$trayState\.Pending\) \{ & \$rebuild \} \}\)'
+    }
+    It 'отказ в правах из меню называется, а не проходит молча' {
+        $script:TraySrc | Should -Match "'notif_uac_declined'"
+    }
+}
+
 Describe 'Get-PtAutostartSpec — спецификация автозапуска' {
     It 'указывает на HKCU Run и запускает сам tray-скрипт через pwsh' {
         $s = Get-PtAutostartSpec
@@ -103,6 +234,18 @@ Describe 'Get-PtAutostartSpec — спецификация автозапуск�
         $s.Name  | Should -Be 'ParanoidTray'
         $s.Value | Should -Match 'pwsh'
         $s.Value | Should -Match 'paranoid-tray\.ps1'
+        $s.Value | Should -Match '-NoProfile -ExecutionPolicy Bypass'
+    }
+    It 'Store-сборка pwsh: псевдоним вместо папки пакета с версией (s48)' {
+        # Папку Microsoft.PowerShell_7.6.6.0_... следующее обновление из Store удаляет — и автозапуск
+        # умер бы молча. Псевдоним в %LOCALAPPDATA% переживает обновления.
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*\Microsoft\WindowsApps\pwsh.exe' }
+        $old = $env:LOCALAPPDATA; $env:LOCALAPPDATA = 'C:\Users\u\AppData\Local'
+        try {
+            Get-PtPwshPath -Resolved 'C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_arm64__8wekyb3d8bbwe\pwsh.exe' |
+                Should -Be (Join-Path 'C:\Users\u\AppData\Local' 'Microsoft\WindowsApps\pwsh.exe')
+            Get-PtPwshPath -Resolved 'C:\Program Files\PowerShell\7\pwsh.exe' | Should -Be 'C:\Program Files\PowerShell\7\pwsh.exe'
+        } finally { $env:LOCALAPPDATA = $old }
     }
 }
 
@@ -229,7 +372,7 @@ Describe 'Invoke-PtTool — диспетчер CLI' {
 
     It 'запускает реальную команду в новом окне' {
         Invoke-PtTool -Command 'securetrash check'
-        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains 'securetrash check' }
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { ($ArgumentList -join ' ') -match '; securetrash check;' }
     }
     It 'разделитель ("") ничего не запускает' {
         Invoke-PtTool -Command ''
@@ -320,6 +463,7 @@ Describe 'автозапуск с правами администратора (s
 
     It 'включение снимает обычный автозапуск — иначе трей стартует дважды' {
         Mock Invoke-PtAutostartAdminElevated { $true }
+        Mock Test-PtAutostartTask { $true }
         Mock Disable-PtAutostart { }
         Set-PtAutostartAdmin -On $true | Should -BeTrue
         Should -Invoke Invoke-PtAutostartAdminElevated -Times 1 -Exactly -ParameterFilter { $Action -eq 'install' }
@@ -335,10 +479,26 @@ Describe 'автозапуск с правами администратора (s
 
     It 'выключение снимает задачу и обычный автозапуск не трогает' {
         Mock Invoke-PtAutostartAdminElevated { $true }
+        Mock Test-PtAutostartTask { $false }
         Mock Disable-PtAutostart { }
         Set-PtAutostartAdmin -On $false | Should -BeTrue
         Should -Invoke Invoke-PtAutostartAdminElevated -Times 1 -Exactly -ParameterFilter { $Action -eq 'remove' }
         Should -Invoke Disable-PtAutostart -Times 0 -Exactly
+    }
+
+    It 'успех — это состояние задачи после, а не «дочерний процесс отработал» (s48)' {
+        # Дочерний процесс выходит с 0, даже если Register-ScheduledTask внутри упал.
+        Mock Invoke-PtAutostartAdminElevated { $true }
+        Mock Disable-PtAutostart { }
+        Mock Test-PtAutostartTask { $false }
+        Set-PtAutostartAdmin -On $true | Should -BeFalse
+        Should -Invoke Disable-PtAutostart -Times 0 -Exactly
+        Mock Test-PtAutostartTask { $true }
+        Set-PtAutostartAdmin -On $false | Should -BeFalse
+    }
+    It 'обычный автозапуск не включается, если задачу с правами снять не дали (s48)' {
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        $src | Should -Match '\(Test-PtAutostartTask\) -and -not \(Set-PtAutostartAdmin -On \$false\)'
     }
 
     It 'сентинелы обрабатываются до запуска трея — элевированная копия не рисует меню' {
@@ -654,8 +814,14 @@ Describe 'Cross-platform l10n parity' {
         # Windows-only keys: UAC is a Windows mechanism, and macOS has no counterpart to mirror
         # (its vault is hdiutil, which needs no elevation). Mirroring them into ParanoidBar.swift
         # would add strings the macOS UI can never show. Everything else stays 1:1.
+        # The tool submenus (vaultwatch guard, ghostdraft, seedsplit) are Windows-tray-only for now:
+        # ParanoidBar leaves those tools to the terminal launcher.
         $winOnly = @('uac_suffix', 'notif_uac_declined', 'notif_uac_declined_panic',
-                     'login_admin_item', 'login_admin_on', 'login_admin_off', 'login_admin_declined')
+                     'login_admin_item', 'login_admin_on', 'login_admin_off', 'login_admin_declined',
+                     'vw_start', 'vw_stop', 'vw_needs_open', 'ttl_30m', 'ttl_1h', 'ttl_2h', 'ttl_4h', 'ttl_none',
+                     'notepad_menu', 'ghost_note', 'ghost_pipe', 'secrets_menu', 'split_item', 'combine_item',
+                     'press_enter_close', 'hint_combine', 'hint_pipe', 'hint_split',
+                     'ob_icon_line', 'ob_show_btn', 'ob_howto', 'set_vol_auto')
         foreach ($k in $winOnly) { $swiftKeys | Should -Not -Contain $k }
         $psKeys = $PtStrings.en.Keys | Where-Object { $_ -notin $winOnly } | Sort-Object -Unique
         ($psKeys -join ',') | Should -Be ($swiftKeys -join ',')
@@ -703,25 +869,14 @@ Describe 'Panic hotkey' {
     # System.Windows.Forms.Primitives, and .NET Framework has no such assembly. The tray does not
     # go there either — it answers with an honest "pwsh 7 required" instead of a compiler error.
     It 'compiles the PtHotkeyWindow helper (windows-only)' -Skip:($env:OS -ne 'Windows_NT' -or $PSVersionTable.PSVersion.Major -lt 6) {
-        # the same Add-Type snippet as in Start-PtTray (idempotent: type already loaded -> catch and verify)
+        # The snippet is taken from the tray itself, not copied here: a copy compiled fine while the
+        # real one drifted (it had no ArmedAtSeconds and no ShowWindow by s48).
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        $snippet = [regex]::Match($src, "(?s)-TypeDefinition @'\r?\n(.*?)\r?\n'@").Groups[1].Value
+        $snippet | Should -Match 'class PtHotkeyWindow'
+        $snippet | Should -Match 'ShowWindow\(Handle, 0\)'
         try {
-            Add-Type -ReferencedAssemblies System.Windows.Forms, System.Windows.Forms.Primitives -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
-public class PtHotkeyWindow : NativeWindow {
-    public event EventHandler HotkeyPressed;
-    [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mods, uint vk);
-    [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-    public PtHotkeyWindow() { CreateHandle(new CreateParams()); }
-    public bool Register(uint mods, uint vk) { UnregisterHotKey(Handle, 1); return RegisterHotKey(Handle, 1, mods, vk); }
-    public void Unregister() { UnregisterHotKey(Handle, 1); }
-    protected override void WndProc(ref Message m) {
-        if (m.Msg == 0x0312) { var h = HotkeyPressed; if (h != null) h(this, EventArgs.Empty); }
-        base.WndProc(ref m);
-    }
-}
-'@
+            Add-Type -ReferencedAssemblies System.Windows.Forms, System.Windows.Forms.Primitives -TypeDefinition $snippet
         } catch {
             if ($_.FullyQualifiedErrorId -notmatch 'TYPE_ALREADY_EXISTS') { throw }
         }
