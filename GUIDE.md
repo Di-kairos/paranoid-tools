@@ -22,9 +22,9 @@ On a fresh clone each tool is pulled from its signed release and verified (Ed255
 
 ## Updating
 
-Pick **6) Update** in the launcher (macOS launcher only for now — the Windows launcher still
-sends you to the installer by hand). It re-runs `install.sh` from your clone, which fetches the
-latest release of each tool and overwrites the binary in place. Releases downloaded from GitHub
+Pick **6) Update** in the launcher. It re-runs the installer from your clone (`install.sh` on
+macOS, `windows\install.cmd` on Windows), which fetches the latest release of each tool and
+overwrites the binary in place. Releases downloaded from GitHub
 are Ed25519-verified; a tool already present in the clone is installed from there as-is, so what
 you get depends on the clone you point it at.
 
@@ -182,7 +182,7 @@ block panic itself manages.
 |---|---|---|
 | `panic now`, or the `cmd+alt-p` hotkey | `panic now` | detach volumes, clear the clipboard, lock the screen |
 | Launcher menu item `2) PANIC NOW` | `panic now --hard` | the above **plus** killing cloud-sync daemons and clearing Recents |
-| GUI (Paranoid Bar), double-press ⌃⌥⇧P | `panic now --hard` | same as the launcher |
+| GUI — Paranoid Bar, double-press ⌃⌥⇧P (macOS); the tray, `Ctrl+Alt+P` twice (Windows) | `panic now --hard` | same as the launcher |
 
 The `--hard` variants are the more thorough ones — and the more disruptive: a killed
 Dropbox/iCloud daemon stays dead until you start it again. Run `panic status` once to see
@@ -417,8 +417,10 @@ The same directly, without the menu: `ghostdraft new --clipboard`.
 **Bottom line:** ghostdraft makes no "zero traces" claim where the OS itself leaves them (swap,
 terminal scrollback, and for `vim`, `~/.viminfo`) — it lists them honestly on exit. The default
 editor `vim -i NONE` disables `~/.viminfo` and maps **F2** (save & exit) / **F3** (discard) so
-new users are never trapped in `-- INSERT --`; on Windows the default editor is notepad. Set your
-own `$EDITOR` and these mappings don't apply — your editor is left untouched. The clipboard is
+new users are never trapped in `-- INSERT --`. On Windows there is no editor by default: the
+draft is typed straight into the console and never touches the disk — a single `.` on its own
+line ends it (Notepad is deliberately not used: Windows 11 keeps its unsaved tabs on disk). Set
+your own `$EDITOR` and these mappings don't apply — your editor is left untouched. The clipboard is
 dangerous by nature (clipboard
 managers, iCloud Universal Clipboard), which is why copying is explicit, confirmed, and
 auto-wiped.

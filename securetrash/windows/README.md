@@ -5,14 +5,16 @@
 ## ⚠️ BETA disclaimer — read this first
 
 This Windows port is **BETA**. Its **logic is tested via Pester** (dispatch, branching,
-i18n, honest verdicts — all Windows-specific commands are mocked), but it has **NOT been
-validated on real Windows hardware**: actual BitLocker / VHDX / VeraCrypt behavior is
+i18n, honest verdicts — all Windows-specific commands are mocked, on both PowerShell 7 and
+Windows PowerShell 5.1), and the BitLocker VHDX vault — create, open, guard, close, reset,
+destroy, a wrong password — has been **walked by hand on one Windows 11 Pro machine**. One
+machine is not a field: other editions, other disks and the VeraCrypt fallback remain
 **unverified**.
 
 - Do not trust it with irreplaceable secrets until you have tested it yourself on a
   throwaway container.
-- Contributions with a **real-hardware test pass** (BitLocker VHDX create/open/close/destroy,
-  VeraCrypt fallback) are very welcome — that is the open task that takes this out of beta.
+- Contributions with a test pass on **other hardware** (Windows 10, Enterprise/Education,
+  VeraCrypt fallback) are very welcome — that is what takes this out of beta.
 
 ## The honesty principle (same as macOS)
 
@@ -61,7 +63,7 @@ Requires **PowerShell 5.1+** (Windows PowerShell or PowerShell 7).
 
 | Command | What it does |
 |---|---|
-| `check` | Audit the environment — BitLocker status, SSD/HDD verdict, vault availability, honest summary. Prints the BETA banner. |
+| `check` | Audit the environment — BitLocker status (read without administrator rights, in a millisecond), SSD/HDD verdict, vault availability, whether this console can run the vault, honest summary. Prints the BETA banner. |
 | `setup` | Create `%USERPROFILE%\SecureTrash` and warn if BitLocker is off. Idempotent. |
 | `empty` | Empty `%USERPROFILE%\SecureTrash` (keeps the folder) + honest disk note. |
 | `shred <path>...` | Delete file(s)/folder(s), best-effort — on SSD **not** a guarantee + honest disk note. |
@@ -69,7 +71,7 @@ Requires **PowerShell 5.1+** (Windows PowerShell or PowerShell 7).
 | `vault reset [size]` | Empty the vault for real: crypto-shred its contents, then recreate it empty (keeps the container). |
 | `vault status` | Read-only: is the container open (and where it is mounted), closed, or missing. |
 | `vault destroy-old` | Crypto-shreds a container left set aside by an interrupted `reset`. |
-| `version` | `securetrash 0.5.6 (Windows, beta)`. |
+| `version` | `securetrash 0.5.8 (Windows, beta)`. |
 
 Flags: `--yes` skips confirmation prompts (for scripts). `version`/`help` also accept the
 `-v`/`--version` and `-h`/`--help` spellings, same as the macOS version.
@@ -91,8 +93,11 @@ The `vault` command branches automatically:
 - **Native (BitLocker cmdlets present, e.g. Windows Pro/Enterprise):** creates a **VHDX**
   via `diskpart` (no Hyper-V dependency), formats it NTFS, and protects it with
   `Enable-BitLocker -PasswordProtector`. The password is kept as a `SecureString` and is
-  **never** placed on the command line. `open` attaches the VHDX, then runs `Unlock-BitLocker`
-  and **verifies** the volume is actually unlocked before reporting it mounted. The backend
+  **never** placed on the command line. `open` attaches the VHDX **without a drive letter**,
+  runs `Unlock-BitLocker` on the volume itself and **verifies** it is actually unlocked, and
+  only then asks Windows for a letter — so Explorer never opens a locked volume and BitLocker
+  never pops its own "unlock drive" prompt next to ours; a wrong password leaves nothing
+  attached. The backend
   used to create a container is recorded in a sidecar `<vault>.backend` file so that `open` /
   `close` / `destroy` always dispatch through the correct backend.
 - **VeraCrypt (no BitLocker, but VeraCrypt installed):** automated VeraCrypt vault creation is

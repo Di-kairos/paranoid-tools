@@ -235,10 +235,17 @@ tag** из sha256), поэтому `combine` возвращает **либо т�
 
 PowerShell-порт уже существует — в [`windows/README.md`](windows/README.md). Он повторяет
 логику macOS — тот же Shamir над GF(256), `RNGCryptoServiceProvider` вместо `/dev/urandom` —
-и даёт **байт-совместимые** доли (раздели на одной ОС, собери на другой).
+и даёт **байт-совместимые** доли (раздели на одной ОС, собери на другой); known-answer тест на
+Windows CI собирает набор долей, сгенерированный на macOS, и держит это правдой.
 
-> **Beta:** Windows-порт протестирован по логике (Pester на CI), но ещё не проверен на
-> реальном Windows-железе. См. [`windows/README.md`](windows/README.md).
+```powershell
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.8/install.ps1 -OutFile install.ps1
+# сверь хеш с SHA256SUMS, затем: pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
+```
+
+> **Beta:** Windows-порт протестирован по логике (Pester на CI, под PowerShell 7 и штатным
+> Windows PowerShell 5.1) и пройден руками на одной машине с Windows 11 — не на многих. См.
+> [`windows/README.md`](windows/README.md).
 
 ## Лицензия
 

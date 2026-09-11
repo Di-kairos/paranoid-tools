@@ -6,9 +6,11 @@ volumes, clears the clipboard, and locks the screen.
 
 > **BETA.** `panic` is all side-effects (lock / dismount / kill), so the Pester
 > suite covers the **orchestration** — what runs, how many times, and the `--hard`
-> gate — with every system primitive mocked. What is *not* yet broadly field-tested:
-> real BitLocker/VeraCrypt configurations, admin-rights edge cases, exotic locales.
-> Run `panic status` first and try it on a throwaway volume before trusting it.
+> gate — with every system primitive mocked. `panic now` — from the console, the launcher and
+> the tray hotkey, with and without administrator rights — has been run by hand on one Windows
+> 11 machine with a BitLocker vault open. Not yet broadly field-tested: VeraCrypt, other
+> editions, exotic locales. Run `panic status` first and try it on a throwaway volume before
+> trusting it.
 
 > **Honest scope.** `panic` HIDES and LOCKS — it does **not** destroy data or wipe
 > the pagefile (use [`securetrash`](../../securetrash/) to

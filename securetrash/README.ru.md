@@ -108,8 +108,9 @@ VeraCrypt здесь ручной fallback, а не автоматический
 irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8/install.ps1 | iex
 ```
 
-> **Beta:** Windows-порт протестирован по логике (Pester, замоканные Windows-API), но
-> ещё не проверен на реальном Windows-железе. См. [`windows/README.md`](windows/README.md).
+> **Beta:** Windows-порт протестирован по логике (Pester на CI, под PowerShell 7 и штатным
+> Windows PowerShell 5.1) и пройден руками на одной машине с Windows 11 — не на многих. См.
+> [`windows/README.md`](windows/README.md).
 
 ### Язык вывода
 

@@ -115,8 +115,10 @@ bash verify-releases.sh
 
 ## Что НЕ тестируется тут (известные пределы)
 
-- **Windows-порт securetrash** — beta, логика покрыта Pester на CI, но на реальном BitLocker-
-  железе не прогонялась. Нужна Windows-машина (за тобой/тестером).
+- **Windows-порты** — beta: логика покрыта Pester на CI под pwsh 7 и Windows PowerShell 5.1,
+  а живой путь (установка, лаунчер, трей, BitLocker-сейф от `create` до `destroy`, хоткей
+  паники) пройден руками на одной машине с Windows 11 Pro (s45–s48). Другие редакции, диски и
+  VeraCrypt-fallback не прогонялись — нужна другая Windows-машина (за тобой/тестером).
 - **Публичный install** (клон + `bash install.sh`, `brew install securetrash`) — рабочий путь
   для внешних пользователей; ссылки на per-tool installers — в каждом README. Установки вида
   `curl … | bash` мы не предлагаем: конвейер запускает установщик раньше, чем его можно прочитать.

@@ -5,8 +5,9 @@ password / key) so that as few traces as possible survive afterward.
 
 > **BETA.** ghostdraft touches the outside world (editor, shred, clipboard), so the
 > Pester suite covers the **orchestration** — directory choice, ordering, shred-runs-
-> in-finally, the `--clipboard` gate — with those primitives mocked. Not yet broadly
-> field-tested: exotic editors, locales, real vault drives.
+> in-finally, the `--clipboard` gate — with those primitives mocked. The console draft and
+> `pipe` have been used by hand on one Windows 11 machine. Not yet broadly field-tested:
+> exotic editors, locales, real vault drives.
 
 > **Honest scope — read this.** Windows has **no built-in RAM disk** (unlike macOS
 > `hdiutil ram://`). So the only place a draft is *truly* ephemeral is **inside an

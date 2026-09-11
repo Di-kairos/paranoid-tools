@@ -7,6 +7,7 @@
 ### Honest privacy &amp; security tools for macOS &amp; Windows — one job each, no snake oil.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+&nbsp;[![CI](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/Di-kairos/paranoid-tools/actions/workflows/ci.yml)
 &nbsp;![platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-blue)
 &nbsp;![dependencies](https://img.shields.io/badge/dependencies-zero-success)
 &nbsp;![releases](https://img.shields.io/badge/releases-Ed25519%20signed-blueviolet)
@@ -98,8 +99,9 @@ throughout.
 Ed25519-signed releases · zero runtime dependencies (two opt-in exceptions, named in the
 install notes) · one auditable file per tool · shellcheck-clean. Every limitation is
 stated plainly — see each tool's *Scope &amp; limitations*. **No third-party audit is
-claimed** — but the whole thing is ~4,800 lines of shell across seven scripts, so reading
-it yourself is a weekend, not a project.
+claimed** — but the whole thing is ~5,000 lines of Bash across seven scripts (the five
+tools, the launcher, the installer), with ~7,000 lines of PowerShell in their Windows twins,
+so reading it yourself is a weekend, not a project.
 
 **Verify the releases yourself.** `bash verify-releases.sh` downloads the published
 release of every tool and checks each Ed25519 signature and checksum against the key
@@ -184,8 +186,11 @@ plus the checksum above, and the source, which builds the same image with
 `gui/macos/build.sh`. The app is a menu-bar agent: no Dock icon, a glyph appears at the
 right of the menu bar. macOS 13+.
 
-**Windows tray:** not signed yet (Authenticode is a separate purchase from a commercial
-CA), so it ships as source only — run it from a clone, see [gui/README.md](gui/README.md).
+**Windows tray:** `windows\install.cmd` installs it next to the launcher and `paranoid`
+starts it, so there is nothing extra to run — see **[The tray](#the-tray)** below. It is not
+Authenticode-signed (that certificate is a separate purchase from a commercial CA, not covered
+by the Apple account): like the launcher, it comes from the clone in front of you, not from a
+signed release. Details in [gui/README.md](gui/README.md).
 
 ### Uninstall
 
@@ -292,11 +297,38 @@ own window, where you type the vault password. Decline it and nothing happens, w
 launcher says out loud. The dashboard's `Admin:` line tells you which console you are in before
 you pick anything.
 
-Running the tools directly (not through the launcher) keeps the plain rule: an unelevated vault
-command refuses without touching anything and names the console it needs, and `securetrash
-check` reports up front whether this console can run the vault at all. This is a Windows
-privilege boundary, not a choice of ours — nothing here asks for rights it does not need, and
-nothing runs elevated behind your back.
+Running the tools directly (not through the launcher) is the same one prompt: an unelevated
+`securetrash vault …` or `vaultwatch start` raises it itself and runs in its own window; a
+non-interactive call (a scheduled task, a script) gets a fast refusal instead of a dialog nobody
+can see, and `securetrash check` reports up front whether this console can run the vault at
+all. This is a Windows privilege boundary, not a choice of ours — nothing here asks for rights
+it does not need, and nothing runs elevated behind your back.
+
+#### The tray
+
+`paranoid` also puts a **padlock icon in the system tray** — the Windows twin of the macOS
+menu-bar app, and the same contract: it holds no secrets, it runs the CLIs you installed and
+every password prompt happens in the console window it opens. Windows 11 hides new tray icons
+under the `^` chevron; the first-run guide has a **Show it** button that pins it to the
+taskbar. Left or right click opens the menu:
+
+- the vault's state and BitLocker up top, then **Status** and **PANIC NOW**;
+- **Vault**: create / open / close, empty, destroy, and **Guard the vault** — vaultwatch with a
+  timer (30 min · 1 h · 2 h · 4 h · none) that closes the vault by itself;
+- **Notepad** (ghostdraft) and **Secrets** (seedsplit), so nothing needs a terminal to start;
+- the full launcher, two **Start at login** switches, Settings, the setup guide.
+
+Items that will ask for administrator rights carry the UAC shield, and a declined prompt is
+reported as "nothing was done". The **panic hotkey is `Ctrl+Alt+P`, pressed twice within two
+seconds** — the double press is the confirmation, and it runs `panic now --hard`, the same
+thing the menu item and the launcher run. The hotkey needs administrator rights to close
+BitLocker volumes, so a tray started normally raises one UAC prompt at that moment; **Start at
+login WITH admin rights** (a Task Scheduler task at the highest run level) starts the tray
+already elevated so the hotkey fires with no dialog — at the stated price that the tray then
+holds administrator rights for the whole session. The icon shows an open padlock while the
+vault is open, and the hover text says how long a guarded vault has left. Everything the tray
+does is a plain PowerShell file, `gui/windows/paranoid-tray.ps1`, installed into `lib\` from
+the clone; `PARANOID_NO_TRAY=1` keeps `paranoid` from starting it.
 
 Each name on your PATH is a small `.cmd` shim in
 `%LOCALAPPDATA%\Programs\ParanoidTools`; the scripts themselves sit in the `lib\`
@@ -314,9 +346,11 @@ clone, then `windows\install.cmd`.
 
 To remove everything, including the PATH entry: `windows\install.cmd -Uninstall`.
 
-> **Beta.** The Windows ports are logic-tested in CI but not yet broadly validated on
-> real hardware — try them on non-critical data first before trusting them with real
-> secrets.
+> **Beta.** The Windows ports are logic-tested in CI on both PowerShell 7 and Windows
+> PowerShell 5.1, and the whole path — install, launcher, tray, a BitLocker vault created,
+> opened, guarded, closed and destroyed, the panic hotkey — has been walked by hand on a
+> Windows 11 machine. That is one machine, not many: try them on non-critical data first
+> before trusting them with real secrets.
 
 ### Release signing — honest scope
 
@@ -385,10 +419,11 @@ paranoid          # opens the dashboard + menu
 ```
 
 Honest note: the launcher is for convenience, not real-panic-speed. For an instant,
-system-wide panic key, use `panic hotkey install` (a global hotkey via skhd — see
-panic's README). An open vault is always flagged "at risk". A Windows PowerShell mirror
-ships at `windows/paranoid.ps1` (beta); `windows\install.cmd` puts it on your PATH as
-`paranoid`, and it drives the same five PowerShell ports.
+system-wide panic key, use `panic hotkey install` on macOS (a global hotkey via skhd — see
+panic's README) or the tray's `Ctrl+Alt+P` twice on Windows. An open vault is always flagged
+"at risk". A Windows PowerShell mirror ships at `windows/paranoid.ps1` (beta);
+`windows\install.cmd` puts it on your PATH as `paranoid`, and it drives the same five
+PowerShell ports — and starts the [tray](#the-tray).
 
 **Opt-in update check.** Off by default — nothing on the dashboard touches the network
 unless you ask. Set `PARANOID_UPDATE_CHECK=1` and the dashboard adds an *"update
@@ -415,7 +450,7 @@ with `PARANOID_UPDATE_CHECK=1 paranoid`, or export it in your shell rc to keep i
 ## How it's built
 
 The verification story here never depended on trusting the author: CI on
-three shells (bash, pwsh 7, Windows PowerShell 5.1), ~900 tests (bats + Pester)
+three shells (bash, pwsh 7, Windows PowerShell 5.1), ~1,300 tests (bats + Pester)
 including known-answer vectors and a differential cross-check of the crypto against an
 independent implementation, shellcheck-clean sources, Ed25519-signed releases you can
 verify with one script, and code short enough to read. Trust the checks, not the

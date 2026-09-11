@@ -16,12 +16,12 @@ The GUI **holds no secrets and adds no crypto**. It only:
 
 So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool.
 
-## What's here (this commit)
+## What's here
 
 | Platform | File | Status |
 |----------|------|--------|
 | macOS | `macos/ParanoidBar.swift` + `macos/build.sh` | **Signed + notarized** (Developer ID, hardened runtime, ticket stapled); source compiles with `swiftc` (Command Line Tools). AppKit `NSStatusItem` menu-bar agent: monochrome SF-Symbol status glyph (adapts to light/dark menu bar), live vault/FileVault status, **vaultwatch session + TTL countdown** (in the glyph + menu), Status/PANIC/Vault▸(open·close·empty·destroy)/launcher, **Start at login** toggle (LaunchAgent), runs CLIs via Terminal. |
-| Windows | `windows/paranoid-tray.ps1` (+ Pester) | **Runnable PowerShell** (no compile). `NotifyIcon` tray, same menu + **vaultwatch TTL countdown** (tooltip + menu headers) + two **Start at login** toggles (HKCU Run, or a Task Scheduler task at the highest run level — see below), runs CLIs in a new console. Menu/status/autostart/vaultwatch logic Pester-tested. |
+| Windows | `windows/paranoid-tray.ps1` (+ Pester) | **Runnable PowerShell** (no compile), installed into `lib\` by `windows\install.cmd` and started by `paranoid`. `NotifyIcon` tray with its own padlock glyph (open while the vault is open), menu on left or right click: status headers, Status / PANIC, Vault ▸ (create·open·close·empty·destroy) + **Guard the vault** (vaultwatch, TTL presets 30 m/1 h/2 h/4 h/none, "stop guarding" while a session runs), **Notepad** (ghostdraft) and **Secrets** (seedsplit) submenus, launcher, two **Start at login** toggles (HKCU Run, or a Task Scheduler task at the highest run level — see below), Settings, setup guide. Items that will ask for rights carry the UAC shield; CLIs run in a titled console that ends with "press Enter to close". First-run guide can pin the icon to the taskbar (Windows 11 hides new ones under `^`). Menu/status/autostart/vaultwatch/hotkey/l10n logic Pester-tested on pwsh 7 and Windows PowerShell 5.1; the whole thing walked by hand on a Windows 11 machine. |
 
 **Phase B polish (product-grade UX, both platforms, full feature parity):**
 
@@ -43,9 +43,10 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
 - **Welcome onboarding (first run)** — a live readiness checklist (CLI installed / vault created
   / hotkey enabled / start at login) with action buttons, shown once on first launch and always
   reachable from the menu ("Setup guide…") and from Settings.
-- **RU/EN localization** — an in-code string dictionary (49 keys), no `.lproj` bundles (keeps the
-  single-file design). Language: System / English / Русский in Settings. Key parity between the
-  two languages and between macOS and Windows is enforced by test.
+- **RU/EN localization** — an in-code string dictionary (54 keys shared by both platforms, plus
+  30 Windows-only ones for UAC, the tool submenus and the console windows), no `.lproj` bundles
+  (keeps the single-file design). Language: System / English / Русский in Settings. Key parity
+  between the two languages, and between macOS and Windows for the shared set, is enforced by test.
 - **Settings v2** — vault volume, poll interval, language, panic-hotkey preset, and a "Setup
   guide" button, all in the existing settings window.
 - **Windows: privileged actions go through UAC, like the terminal launcher.** The vault is
@@ -85,8 +86,9 @@ the bash launcher's grouping.
 Signed, notarized, stapled — [`ParanoidBar-0.1.0.dmg`](https://github.com/Di-kairos/paranoid-tools/releases/download/gui-v0.1.0/ParanoidBar-0.1.0.dmg)
 (`gui-v0.1.0`, sha256 `da80707bb0e63a9deb3a05a0387ef64b75db6b6d2c28c25a5170d293b445b00a`). Open it,
 drag the app onto `/Applications`. It drives the five CLIs, so install those first — see the
-[root README](../README.md#install). Building it yourself is below; the Windows tray has no
-release yet and runs from this clone.
+[root README](../README.md#install). Building it yourself is below. The Windows tray has no
+release of its own: `windows\install.cmd` copies it from the clone into `lib\` next to the
+launcher, and `paranoid` starts it — see [the tray](../README.md#the-tray) in the root README.
 
 ## Build / run
 
@@ -124,8 +126,10 @@ pipeline mechanics.
 
 **Windows**
 ```powershell
-pwsh -File windows/paranoid-tray.ps1   # a Shield icon appears in the tray; right-click for the menu
+pwsh -File windows/paranoid-tray.ps1   # a padlock appears in the tray (under ^ on Windows 11); left or right click for the menu
 ```
+Installed by `windows\install.cmd`, it is started by `paranoid` whenever none is running
+(`PARANOID_NO_TRAY=1` to opt out); one tray per session — a second copy exits. pwsh 7 only.
 
 ## Signing and distribution
 
@@ -165,14 +169,15 @@ rebuilt from source.
 
 **Windows is not signed yet.** The tray ships as a `.ps1`, which needs an Authenticode
 code-signing certificate from a commercial CA — a separate purchase from the Apple account, not
-covered by it. Until that lands, run the Windows GUI from this repo; the CLIs it drives are
-signed and verified at install time regardless.
+covered by it. Until that lands, the installer copies the tray (and the launcher) from the clone
+you read, the way it always has for the launcher; the five CLIs it drives are Ed25519-signed and
+verified at install time regardless.
 
 ## Not done yet (honest scope — the rest of Phase B)
 
-- **Windows code signing** — an Authenticode certificate for the tray `.ps1` (see above), and a
-  signed launch shim so the Windows GUI installs like anything else instead of running from a
-  clone. The macOS half of this item — signing, notarization and a `.dmg` — is done.
+- **Windows code signing** — an Authenticode certificate for the tray `.ps1` (see above), so
+  the tray can ship from a signed release like the CLIs instead of being copied from the clone.
+  The macOS half of this item — signing, notarization and a `.dmg` — is done.
 
 UX polish is done: hotkey, notifications, onboarding, RU/EN, and the settings pane (vault-volume
 override, poll interval, language, hotkey preset — see the table above) all shipped in Phase B.

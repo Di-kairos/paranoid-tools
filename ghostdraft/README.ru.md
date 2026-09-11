@@ -120,8 +120,9 @@ on-disk temp-каталог с ACL только для владельца и fal
 нет — README порта говорит об этом прямо); плюс очистка clipboard и чистка Notepad/editor
 backups и jump lists / recent.
 
-> **Beta:** Windows-порт протестирован по логике (Pester на CI), но ещё не проверен на
-> реальном Windows-железе. См. [`windows/README.md`](windows/README.md).
+> **Beta:** Windows-порт протестирован по логике (Pester на CI, под PowerShell 7 и штатным
+> Windows PowerShell 5.1) и пройден руками на одной машине с Windows 11 — не на многих. См.
+> [`windows/README.md`](windows/README.md).
 
 ## Лицензия
 

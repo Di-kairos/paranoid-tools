@@ -153,8 +153,9 @@ panic hotkey uninstall               # снять
 PowerShell-порт уже существует — в [`windows/README.md`](windows/README.md). Он повторяет
 логику macOS — блокировку рабочей станции, размонтирование томов BitLocker/VeraCrypt и очистку буфера обмена.
 
-> **Beta:** Windows-порт протестирован по логике (Pester на CI), но ещё не проверен на
-> реальном Windows-железе. См. [`windows/README.md`](windows/README.md).
+> **Beta:** Windows-порт протестирован по логике (Pester на CI, под PowerShell 7 и штатным
+> Windows PowerShell 5.1) и пройден руками на одной машине с Windows 11 — не на многих. См.
+> [`windows/README.md`](windows/README.md).
 
 ## Лицензия
 

@@ -114,8 +114,9 @@ release tag before installing.
 irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8/install.ps1 | iex
 ```
 
-> **Beta:** the Windows port is logic-tested (Pester, mocked Windows APIs) but not yet
-> validated on real Windows hardware. See [`windows/README.md`](windows/README.md).
+> **Beta:** the Windows port is logic-tested (Pester on CI, under both PowerShell 7 and Windows
+> PowerShell 5.1) and has been walked by hand on one Windows 11 machine — not broadly on real
+> hardware. See [`windows/README.md`](windows/README.md).
 
 ### Language
 

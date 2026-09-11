@@ -124,8 +124,9 @@ mounted, otherwise to an owner-only on-disk temp dir with fallback shred (no RAM
 Windows — the port's README states this plainly), plus clipboard clearing and cleanup of
 Notepad/editor backups and jump lists / recent.
 
-> **Beta:** the Windows port is logic-tested (Pester on CI) but not yet validated on real
-> Windows hardware. See [`windows/README.md`](windows/README.md).
+> **Beta:** the Windows port is logic-tested (Pester on CI, under both PowerShell 7 and Windows
+> PowerShell 5.1) and has been walked by hand on one Windows 11 machine — not broadly on real
+> hardware. See [`windows/README.md`](windows/README.md).
 
 ## License
 

@@ -6,8 +6,10 @@ exposed plaintext and restores everything when the vault closes.
 
 > **BETA.** vaultwatch touches Windows Search, Task Scheduler, BitLocker and VSS, so
 > the Pester suite covers the **orchestration** — session state on start/stop/status,
-> TTL scheduling, restore, `_ttl_fire`, hook files — with those primitives mocked.
-> Not yet broadly field-tested on real Search/VSS/Scheduler configurations.
+> TTL scheduling, restore, `_ttl_fire`, hook files — with those primitives mocked. A guard
+> session with a TTL has been started and stopped by hand on one Windows 11 machine (from the
+> tray and the launcher). Not yet broadly field-tested on real Search/VSS/Scheduler
+> configurations.
 
 > **Honest scope — read this.** vaultwatch makes *reversible* changes for the session
 > and reports the limits it cannot close. On Windows the headline pieces are the

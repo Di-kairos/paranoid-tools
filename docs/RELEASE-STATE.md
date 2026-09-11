@@ -106,12 +106,28 @@ git push origin --delete <tag>...            # только пока под те
 for t in <tag>...; do git push origin "$t"; sleep 12; done
 ```
 
+**Код впереди тегов (2026-09-11, s48) — ждёт слова Mr.Di.** После третьего ката прошли три
+живые сессии на Windows 11 VM (s45–s48), и исправления лежат в `[Unreleased]`:
+**securetrash** (11 коммитов: `check` читает BitLocker за 1 мс без прав вместо 5 с ожидания
+WMI; `vault open` подключает контейнер без буквы и разблокирует до её выдачи — конец «Access is
+denied» и чужому тосту «Unlock drive»; прямой `vault …` сам поднимает UAC; Home называется по
+имени), **panic** (9: замер всего пути с `--trigger-ms`, без прав не ждёт 5 с на
+`Get-BitLockerVolume`, честная строка блокировки), **vaultwatch** (2: `start` сам поднимает
+UAC), **ghostdraft** (3: точка завершает консольный черновик), **seedsplit** (3: `SSPP2` с
+600 000 итераций PBKDF2). Практическое следствие: `brew`/`install.sh` отдают securetrash, в
+котором открытие сейфа на Windows печатает красный `diskpart failed`, а `check` из трея ждёт
+пять секунд. Трей и лаунчер (s46–s48: меню целиком, первый запуск, хоткей `Ctrl+Alt+P`) едут
+из клона и тегами не покрываются. Нарезать по одному тегу: сначала `securetrash`, затем
+`panic`, остальные по желанию.
+
 Порядок нарезки следующего релиза:
 
 ```bash
 # 1. bump VERSION + четыре дефолта (см. «Порядок нарезки релиза тула» выше)
 # 2. убедиться, что ci-<tool>.yml зелёный ровно на том SHA, куда встанет тег
-# 3. тег и push
+# 3. тег и push (release.yml соберёт тело релиза из секции CHANGELOG этой версии через
+#    bin/release-notes.sh — без секции релиз не выйдет; проверить заранее:
+#    bash bin/release-notes.sh <tool> <tool>-vX.Y.Z | head)
 git tag "<tool>-vX.Y.Z" <sha> && git push origin "<tool>-vX.Y.Z"
 bash verify-releases.sh    # ждём 5/5
 # 4. пост-релизный chore(formula): tarball монорепо-тега + свежий sha256

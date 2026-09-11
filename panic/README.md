@@ -165,8 +165,9 @@ A PowerShell port now exists in [`windows/README.md`](windows/README.md). It mir
 macOS logic — lock the workstation, dismount BitLocker/VeraCrypt volumes, and clear the
 clipboard.
 
-> **Beta:** the Windows port is logic-tested (Pester on CI) but not yet validated on real
-> Windows hardware. See [`windows/README.md`](windows/README.md).
+> **Beta:** the Windows port is logic-tested (Pester on CI, under both PowerShell 7 and Windows
+> PowerShell 5.1) and has been walked by hand on one Windows 11 machine — not broadly on real
+> hardware. See [`windows/README.md`](windows/README.md).
 
 ## License
 

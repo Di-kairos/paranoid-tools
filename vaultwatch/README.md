@@ -146,8 +146,9 @@ mount, restores on close) and an unmount-guard re-restores it if the volume is e
 not controlled**; the pagefile is not addressed. See `windows/README.md` for the honest per-channel
 breakdown.
 
-> **Beta:** the Windows port is logic-tested (Pester on CI) but not yet validated on real
-> Windows hardware. See [`windows/README.md`](windows/README.md).
+> **Beta:** the Windows port is logic-tested (Pester on CI, under both PowerShell 7 and Windows
+> PowerShell 5.1) and has been walked by hand on one Windows 11 machine — not broadly on real
+> hardware. See [`windows/README.md`](windows/README.md).
 
 ## License
 

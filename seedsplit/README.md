@@ -262,8 +262,9 @@ A PowerShell port now exists in [`windows/README.md`](windows/README.md). It mir
 macOS logic — the same Shamir over GF(256), with `RNGCryptoServiceProvider` instead of
 `/dev/urandom` — and produces **byte-compatible** shares (split on one OS, combine on the other).
 
-> **Beta:** the Windows port is logic-tested (Pester on CI) but not yet validated on real
-> Windows hardware. See [`windows/README.md`](windows/README.md).
+> **Beta:** the Windows port is logic-tested (Pester on CI, under both PowerShell 7 and Windows
+> PowerShell 5.1) and has been walked by hand on one Windows 11 machine — not broadly on real
+> hardware. See [`windows/README.md`](windows/README.md).
 
 ## License
 
