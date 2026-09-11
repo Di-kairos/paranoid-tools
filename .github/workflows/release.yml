@@ -217,17 +217,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # Notes: `--generate-notes` alone measures from the previous release of ANY tool in
-          # the monorepo, so panic's notes would list securetrash's commits. Start from the
-          # previous tag of the SAME tool instead. A tool's first monorepo release has no such
-          # tag (the older ones stayed in the archived repo) — then point at its CHANGELOG.
+          # Notes: the CHANGELOG section of this version plus the verify block, from
+          # bin/release-notes.sh - not `--generate-notes`, which lists commit subjects (and, in
+          # the monorepo, would measure from the previous release of ANY tool). The compare link
+          # starts from the previous tag of the SAME tool; a tool's first release has none.
           prev="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName \
                     --jq "[.[].tagName | select(startswith(\"$TOOL-v\"))] | first // empty")"
-          if [ -n "$prev" ]; then
-            notes=(--generate-notes --notes-start-tag "$prev")
-          else
-            notes=(--notes "First release of \`$TOOL\` from the monorepo — see [$TOOL/CHANGELOG.md](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/$TOOL/CHANGELOG.md).")
-          fi
+          notes_args=("$TOOL" "$TAG"); [ -n "$prev" ] && notes_args+=(--prev "$prev")
+          bash bin/release-notes.sh "${notes_args[@]}" > release-notes.md
+          notes=(--notes-file release-notes.md)
           # Draft, because what was signed here and what GitHub serves are two different things
           # until proven otherwise: a truncated upload keeps the name and loses the hash. The
           # next step downloads the release back and checks it the way a user's installer will.
