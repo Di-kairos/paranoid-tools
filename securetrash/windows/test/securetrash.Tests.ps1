@@ -243,7 +243,12 @@ Describe 'Windows Home: the vault is unavailable by edition, and says so (s45)' 
         Mock Get-StDiskKind { 'ssd' }
         Mock Get-StVeraCryptPath { $null }
         Mock Test-StElevated { $true }
+        # A path that does not exist: with the real one, a developer who has a vault got
+        # "Container already exists" instead of the edition refusal under test (s48).
+        $script:PtSavedVaultPath = $env:ST_VAULT_PATH
+        $env:ST_VAULT_PATH = Join-Path ([System.IO.Path]::GetTempPath()) "st-home-$([guid]::NewGuid().ToString('N')).vhdx"
     }
+    AfterEach { $env:ST_VAULT_PATH = $script:PtSavedVaultPath }
 
     It 'names the edition in check instead of advising a switch that is not there' {
         Mock Get-StBitLockerCapable { $false }
@@ -415,6 +420,23 @@ Describe 'Get-StBitLockerState — tri-state, зеркало macOS _fv_state (F5
         # Pester mocks only existing commands; on a runner without the BitLocker module — a stub.
         if (-not (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue)) {
             function script:Get-BitLockerVolume { [CmdletBinding()] param($MountPoint) }
+        }
+    }
+    # The cmdlet path is what answers when Explorer's property does not.
+    BeforeEach { Mock Get-StBitLockerProtection { $null } }
+    It 'свойство Проводника 1/6 -> on, 2 -> off, без вызова медленного cmdlet (s48)' {
+        Mock Get-BitLockerVolume { throw 'must not be asked' }
+        Mock Get-StBitLockerProtection { 1 }; Get-StBitLockerState | Should -Be 'on'
+        Mock Get-StBitLockerProtection { 6 }; Get-StBitLockerState | Should -Be 'on'
+        Mock Get-StBitLockerProtection { 2 }; Get-StBitLockerState | Should -Be 'off'
+        Should -Invoke Get-BitLockerVolume -Times 0 -Exactly
+    }
+    It 'шифруется/приостановлен (3/4/5) — unknown, даже если cmdlet скажет On' {
+        Mock Get-BitLockerVolume { [pscustomobject]@{ ProtectionStatus = 'On' } }
+        foreach ($v in 3, 4, 5) {
+            Mock Get-StBitLockerProtection { $v }.GetNewClosure()
+            Get-StBitLockerState | Should -Be 'unknown'
+            Get-StBitLockerOn | Should -BeFalse
         }
     }
     It 'ProtectionStatus On -> on' {

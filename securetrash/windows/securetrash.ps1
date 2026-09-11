@@ -403,22 +403,34 @@ function Get-StDiskKind {
     }
 }
 
-# Is BitLocker on for the system drive? ProtectionStatus -eq 'On'.
-# try/catch: on Windows Home the cmdlet is absent → $false.
+# Explorer's answer to "is this volume BitLocker-protected": no rights needed and a millisecond.
+# Get-BitLockerVolume, unelevated, waits about five seconds on the WMI provider and then refuses,
+# so `check` - the tray's Status item, an unelevated window - paid that wait to print "unknown,
+# re-run as administrator" (live VM, s48). System.Volume.BitLockerProtection: 1 = on, 2 = off,
+# 3/4 = encrypting/decrypting, 5 = suspended, 6 = on and locked; empty = no BitLocker here.
+# Wrapper for Mock.
+function Get-StBitLockerProtection {
+    param([string]$MountPoint)
+    try { return (New-Object -ComObject Shell.Application).NameSpace($MountPoint).Self.ExtendedProperty('System.Volume.BitLockerProtection') }
+    catch { return $null }
+}
+
+# Is BitLocker on for the system drive? Same verdict as the tri-state below, as a boolean:
+# anything but a confirmed 'on' is $false (Home, no rights, suspended).
 function Get-StBitLockerOn {
-    try {
-        $v = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop
-        return ($v.ProtectionStatus -eq 'On')
-    } catch {
-        return $false
-    }
+    return ((Get-StBitLockerState) -eq 'on')
 }
 
 # Tri-state BitLocker: on / off / unknown. Distinguishes "off" from "could not determine"
 # (cmdlet absent on Windows Home / status neither On nor Off), so that `check` does not print
 # a false "OFF" when the status is actually unknown. Mirror of macOS `_fv_state` (F5, v0.4.12).
-# The boolean Get-StBitLockerOn is untouched — it remains a correct guard on the setup/rm paths.
 function Get-StBitLockerState {
+    $p = Get-StBitLockerProtection -MountPoint $env:SystemDrive
+    if ($p -in @(1, 6)) { return 'on' }
+    if ($p -eq 2) { return 'off' }
+    # Encrypting, decrypting, suspended: in between, and the cmdlet may still say "On" for it -
+    # so 'unknown' here. Only a missing answer (Home, no property) falls through to the cmdlet.
+    if ($null -ne $p -and "$p" -ne '') { return 'unknown' }
     try {
         $v = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop
         if ($v.ProtectionStatus -eq 'On')  { return 'on' }
