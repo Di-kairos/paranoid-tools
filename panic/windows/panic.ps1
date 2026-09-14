@@ -39,9 +39,14 @@ function Get-PnLocale {
 }
 $script:PN_LOCALE = if ($env:ST_LOCALE) { $env:ST_LOCALE } else { Get-PnLocale }
 
-# --- output helpers: data/reports — Write-Output (stdout); warnings/errors — stderr ---
+# --- output helpers: the report and its warnings — Write-Output (stdout); fatal errors — stderr ---
+# Warnings used to go to stderr. The launcher runs panic as a child through a pipeline, and the
+# child's stderr reaches the console straight away while its stdout arrives through the pipe
+# later: the report came out interleaved, one warning glued to the next report line and a
+# lone "." on its own (live Windows run, s46, debt D6). Panic is read in a hurry, in the order
+# it happened - so a warning is a line of the report and travels with it.
 function Write-PnInfo { param([string]$Msg) Write-Output "[+] $Msg" }
-function Write-PnWarn { param([string]$Msg) [Console]::Error.WriteLine("[!] $Msg") }
+function Write-PnWarn { param([string]$Msg) Write-Output "[!] $Msg" }
 function Write-PnErr  { param([string]$Msg) [Console]::Error.WriteLine("[x] $Msg") }
 
 # --- exit via exception (Pester-safe: does not kill the host session) ---

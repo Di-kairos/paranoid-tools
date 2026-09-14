@@ -109,8 +109,7 @@ Describe 'panic now — orchestration' {
 
     It 'does NOT claim a locked screen when the lock fails — and warns instead' {
         # Mirror of the bash regression: LockWorkStation failed → don't lie "locked", warn loudly.
-        # warn goes to stderr via [Console]::Error (not captured by $out), so we mock
-        # Write-PnWarn and verify the honest warning itself, with the lock_fail text.
+        # The warning is mocked so the honest text itself is checked, with the lock_fail key.
         Mock Invoke-PnLockScreen { $false }
         Mock Write-PnWarn { }
         $out = Invoke-PnNow -ArgList @()
@@ -125,15 +124,11 @@ Describe 'panic now — orchestration' {
 Describe 'panic without administrator rights says so (P0-2)' {
 
     BeforeAll {
-        # Write-PnWarn writes straight to [Console]::Error, which PowerShell redirection
-        # does not catch — swap the console stderr for a StringWriter.
-        function global:Get-PnStderr {
+        # Warnings are lines of the report and travel with it on stdout (D6): the whole
+        # report is one string here.
+        function global:Get-PnReport {
             param([scriptblock]$Body)
-            $sw = New-Object System.IO.StringWriter
-            $orig = [Console]::Error
-            [Console]::SetError($sw)
-            try { & $Body | Out-Null } finally { [Console]::SetError($orig) }
-            return $sw.ToString()
+            return ((& $Body) -join "`n")
         }
     }
 
@@ -153,27 +148,27 @@ Describe 'panic without administrator rights says so (P0-2)' {
 
     It 'warns that an open vault stays open, instead of reporting a silent zero' {
         Mock Test-PnElevated { $false }
-        $err = Get-PnStderr { Invoke-PnNow -ArgList @() }
+        $err = Get-PnReport { Invoke-PnNow -ArgList @() }
         $err | Should -Match 'administrator'
         $err | Should -Match 'stays OPEN'
     }
 
     It 'still clears the clipboard and locks the screen — it does what it can' {
         Mock Test-PnElevated { $false }
-        Get-PnStderr { Invoke-PnNow -ArgList @() } | Out-Null
+        Get-PnReport { Invoke-PnNow -ArgList @() } | Out-Null
         Should -Invoke Invoke-PnClearClipboard -Times 1 -Exactly
         Should -Invoke Invoke-PnLockScreen -Times 1 -Exactly
     }
 
     It 'stays quiet about rights when the console has them' {
         Mock Test-PnElevated { $true }
-        $err = Get-PnStderr { Invoke-PnNow -ArgList @() }
+        $err = Get-PnReport { Invoke-PnNow -ArgList @() }
         $err | Should -Not -Match 'stays OPEN'
     }
 
     It 'status answers whether locking would work at all' {
         Mock Test-PnElevated { $false }
-        $err = Get-PnStderr { Invoke-PnStatus }
+        $err = Get-PnReport { Invoke-PnStatus }
         $err | Should -Match 'administrator: NO'
     }
 }
@@ -237,13 +232,9 @@ Describe 'panic clears the clipboard HISTORY, not just the slot (P1-1)' {
 Describe 'panic reports Notepad tabs on disk and refuses to delete them (P1-1)' {
 
     BeforeAll {
-        function global:Get-PnStderr2 {
+        function global:Get-PnReport {
             param([scriptblock]$Body)
-            $sw = New-Object System.IO.StringWriter
-            $orig = [Console]::Error
-            [Console]::SetError($sw)
-            try { & $Body | Out-Null } finally { [Console]::SetError($orig) }
-            return $sw.ToString()
+            return ((& $Body) -join "`n")
         }
     }
 
@@ -260,14 +251,14 @@ Describe 'panic reports Notepad tabs on disk and refuses to delete them (P1-1)' 
 
     It 'names the count and says panic will not delete them' {
         Mock Get-PnNotepadTabStateCount { 3 }
-        $err = Get-PnStderr2 { Invoke-PnStatus }
+        $err = Get-PnReport { Invoke-PnStatus }
         $err | Should -Match 'TabState'
         $err | Should -Match 'does NOT delete'
     }
 
     It 'stays silent when there are none' {
         Mock Get-PnNotepadTabStateCount { 0 }
-        $err = Get-PnStderr2 { Invoke-PnStatus }
+        $err = Get-PnReport { Invoke-PnStatus }
         $err | Should -Not -Match 'TabState'
     }
 }
