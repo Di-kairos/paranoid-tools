@@ -104,8 +104,8 @@ function T {
         'ru:now_detached'     { return "panic: отсоединено образов дисков (VHD/VHDX): $A." }
         'en:status_images'    { return "  disk images attached (VHD/VHDX): $A — would be detached by ``panic now``" }
         'ru:status_images'    { return "  присоединённых образов дисков (VHD/VHDX): $A — будут отсоединены ``panic now``" }
-        'en:status_no_images' { return '  disk images (VHD/VHDX): none attached' }
-        'ru:status_no_images' { return '  образов дисков (VHD/VHDX): не присоединено' }
+        'en:status_no_images' { return '  disk images (VHD/VHDX): none attached (or no administrator rights to look)' }
+        'ru:status_no_images' { return '  образов дисков (VHD/VHDX): не присоединено (или нет прав администратора, чтобы посмотреть)' }
         'en:now_hard'         { return 'panic --hard: cloud daemons killed, recent items cleared.' }
         'ru:now_hard'         { return 'panic --hard: cloud-демоны убиты, recent items очищены.' }
         'en:now_report'       { return "panic: locked/dismounted $A encrypted volume(s), cleared clipboard." }
