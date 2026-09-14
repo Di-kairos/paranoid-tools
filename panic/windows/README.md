@@ -38,8 +38,8 @@ that folder to your user `PATH`. Open a new terminal afterward so `PATH` refresh
 
 | Command | What it does |
 |---------|--------------|
-| `panic status` | Read-only preflight — show what `panic now` would lock/dismount/clear. Makes no changes. |
-| `panic now [--hard]` | Lock BitLocker volumes, dismount VeraCrypt, clear the clipboard **and its Win+V history**, lock screen. `--hard` also kills cloud daemons (OneDrive/Dropbox/Google Drive) and clears recent items and jump lists. |
+| `panic status` | Read-only preflight — show what `panic now` would lock/detach/clear. Makes no changes. |
+| `panic now [--hard]` | Lock BitLocker volumes, detach VHD/VHDX images (the vault container), dismount VeraCrypt, clear the clipboard **and its Win+V history**, lock screen. `--hard` also kills cloud daemons (OneDrive/Dropbox/Google Drive) and clears recent items and jump lists. |
 | `panic version` | Show the version. |
 
 ```powershell
@@ -56,7 +56,7 @@ messages to Russian.
 
 | macOS (bash) | Windows (this port) |
 |--------------|---------------------|
-| `hdiutil detach -force` (vault images) | `Lock-BitLocker -ForceDismount` + `VeraCrypt /d /f` |
+| `hdiutil detach -force` (vault images) | `Lock-BitLocker -ForceDismount` + `Dismount-DiskImage` (VHD/VHDX) + `VeraCrypt /d /f` |
 | `pbcopy </dev/null` | `Set-Clipboard -Value ''` |
 | `CGSession -suspend` | P/Invoke `user32!LockWorkStation` (not `rundll32` — its exit code says nothing about whether the screen locked) |
 | `pkill` cloud daemons | `Stop-Process` (OneDrive, Dropbox, GoogleDriveFS) |

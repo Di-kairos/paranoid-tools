@@ -93,6 +93,14 @@ function T {
         'ru:status_cloud'     { return "  cloud-демон запущен: $A — будет убит ``panic now --hard``" }
         'en:dismount_fail'    { return "could not lock/dismount $A (may have open files, or needs admin)." }
         'ru:dismount_fail'    { return "не удалось запереть/размонтировать $A (открыты файлы или нужен admin)." }
+        'en:detach_fail'      { return "could not detach $A (may have open files, or needs admin)." }
+        'ru:detach_fail'      { return "не удалось отсоединить $A (открыты файлы или нужен admin)." }
+        'en:now_detached'     { return "panic: detached $A disk image(s) (VHD/VHDX)." }
+        'ru:now_detached'     { return "panic: отсоединено образов дисков (VHD/VHDX): $A." }
+        'en:status_images'    { return "  disk images attached (VHD/VHDX): $A — would be detached by ``panic now``" }
+        'ru:status_images'    { return "  присоединённых образов дисков (VHD/VHDX): $A — будут отсоединены ``panic now``" }
+        'en:status_no_images' { return '  disk images (VHD/VHDX): none attached' }
+        'ru:status_no_images' { return '  образов дисков (VHD/VHDX): не присоединено' }
         'en:now_hard'         { return 'panic --hard: cloud daemons killed, recent items cleared.' }
         'ru:now_hard'         { return 'panic --hard: cloud-демоны убиты, recent items очищены.' }
         'en:now_report'       { return "panic: locked/dismounted $A encrypted volume(s), cleared clipboard." }
@@ -120,9 +128,9 @@ Usage: panic <command> [args]
 
 Commands:
   status              Только чтение: что затронет `panic now` (безопасно, предпросмотр).
-  now [--hard]        Спрятать и запереть сейчас: запереть BitLocker-тома, размонтировать
-                      тома VeraCrypt, очистить буфер И его историю (Win+V), заблокировать
-                      экран. --hard также прибивает cloud-демоны и чистит Recent items
+  now [--hard]        Спрятать и запереть сейчас: запереть BitLocker-тома, отсоединить
+                      образы VHD/VHDX, размонтировать тома VeraCrypt, очистить буфер И его
+                      историю (Win+V), заблокировать экран. --hard также прибивает cloud-демоны и чистит Recent items
                       и jump-списки.
   hotkey              Нет в Windows-порте — печатает, как повесить Ctrl+Alt+P средствами ОС.
   version             Показать версию
@@ -136,9 +144,9 @@ Usage: panic <command> [args]
 
 Commands:
   status              Read-only preflight: show what `panic now` would affect.
-  now [--hard]        Hide & lock now: lock BitLocker volumes, dismount VeraCrypt
-                      volumes, clear the clipboard AND its history (Win+V), lock the
-                      screen. --hard also kills cloud daemons and clears recent items
+  now [--hard]        Hide & lock now: lock BitLocker volumes, detach VHD/VHDX images,
+                      dismount VeraCrypt volumes, clear the clipboard AND its history
+                      (Win+V), lock the screen. --hard also kills cloud daemons and clears recent items
                       and jump lists.
   hotkey              Not in the Windows port - prints how to bind Ctrl+Alt+P with the OS itself.
   version             Show the version
@@ -192,6 +200,25 @@ function Get-PnVeraCryptMounted {
 function Invoke-PnDismountVeraCrypt {
     & $script:PN_VERACRYPT '/q' '/d' '/f' 2>$null
     if ($LASTEXITCODE -ne 0) { throw "VeraCrypt dismount exit $LASTEXITCODE" }
+}
+
+# Attached file-backed virtual disks (VHD/VHDX) by container path - the vault's container among
+# them (mirror of _mounted_images: hdiutil lists every mounted image, not just the vault).
+# Empty without rights, for the same reason as Get-PnBitLockerUnlocked: Dismount-DiskImage is
+# administrator-only, so nothing here could be detached anyway.
+function Get-PnVirtualDisks {
+    if (-not (Test-PnElevated)) { return @() }
+    try {
+        return @(Get-Disk -ErrorAction Stop |
+            Where-Object { $_.BusType -eq 'File Backed Virtual' -and $_.Location } |
+            ForEach-Object { $_.Location })
+    } catch { return @() }
+}
+
+# Detach a virtual disk by its container path (mirror of `hdiutil detach -force`). Throws on failure.
+function Invoke-PnDetachDisk {
+    param([string]$Path)
+    Dismount-DiskImage -ImagePath $Path -ErrorAction Stop | Out-Null
 }
 
 # Clear the clipboard (mirror of `pbcopy </dev/null`).
@@ -401,9 +428,18 @@ function Invoke-PnNow {
         catch { Write-PnWarn (T 'dismount_fail' ($vc -join ',')) }
     }
 
+    # 3. Detach file-backed virtual disks. Locking alone leaves the container attached: Explorer
+    # keeps drawing "SecretVault (E:)" over a locked volume, and the person reads that as "panic
+    # did not work" (live Windows run, s46). macOS detaches every mounted image; this is the mirror.
+    $nImg = 0
+    foreach ($vd in (Get-PnVirtualDisks)) {
+        try { Invoke-PnDetachDisk -Path $vd; $nImg++ }
+        catch { Write-PnWarn (T 'detach_fail' $vd) }
+    }
+
     $tVols = $sw.Elapsed.TotalSeconds
 
-    # 3. Clear the clipboard AND its history. Not a --hard extra: the current slot was never the
+    # 4. Clear the clipboard AND its history. Not a --hard extra: the current slot was never the
     # whole story - Win+V keeps every earlier copy, which is where a secret actually sits.
     Invoke-PnClearClipboard
     $histCleared = Invoke-PnClearClipboardHistory
@@ -421,6 +457,7 @@ function Invoke-PnNow {
     }
 
     Write-PnInfo (T 'now_report' "$n")
+    if ($nImg -gt 0) { Write-PnInfo (T 'now_detached' "$nImg") }
     Write-PnInfo (T 'now_timing' ('{0:0.00}' -f $tVols) ('{0:0.00}' -f $tLock))
     if ($null -ne $tStartup) { Write-PnInfo (T 'now_startup' ('{0:0.00}' -f $tStartup)) }
     if ($null -ne $tTrigger) {
@@ -454,6 +491,15 @@ function Invoke-PnStatus {
         foreach ($v in $vols) { Write-Output "    $v" }
     } else {
         Write-PnInfo (T 'status_no_vols')
+    }
+
+    # Attached disk images (VHD/VHDX) — `panic now` would detach them.
+    $imgs = @(Get-PnVirtualDisks)
+    if ($imgs.Count -gt 0) {
+        Write-PnInfo (T 'status_images' "$($imgs.Count)")
+        foreach ($i in $imgs) { Write-Output "    $i" }
+    } else {
+        Write-PnInfo (T 'status_no_images')
     }
 
     # Clipboard.

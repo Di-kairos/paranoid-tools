@@ -28,6 +28,8 @@ Describe 'panic now — orchestration' {
         Mock Invoke-PnClearRecentItems  { }
         Mock Invoke-PnClearClipboardHistory { $true }   # never shell out to real WinRT in tests
         Mock Invoke-PnClearJumpLists    { }
+        Mock Get-PnVirtualDisks         { @() }
+        Mock Invoke-PnDetachDisk        { }
     }
 
     It 'locks each BitLocker volume, dismounts VeraCrypt, clears clipboard, locks screen' {
@@ -53,6 +55,7 @@ Describe 'panic now — orchestration' {
 
     It 'reports 0 when nothing is mounted/unlocked' {
         Mock Get-PnBitLockerUnlocked { @() }
+        Mock Get-PnVirtualDisks      { @() }
         Mock Get-PnVeraCryptMounted  { @() }
         $out = Invoke-PnNow -ArgList @()
         Should -Invoke Invoke-PnDismountVeraCrypt -Times 0 -Exactly
@@ -61,8 +64,30 @@ Describe 'panic now — orchestration' {
 
     It 'still clears clipboard and locks screen even with no volumes' {
         Mock Get-PnBitLockerUnlocked { @() }
+        Mock Get-PnVirtualDisks      { @() }
         Mock Get-PnVeraCryptMounted  { @() }
         Invoke-PnNow -ArgList @() | Out-Null
+        Should -Invoke Invoke-PnClearClipboard -Times 1 -Exactly
+        Should -Invoke Invoke-PnLockScreen -Times 1 -Exactly
+    }
+
+    It 'detaches every attached disk image after locking, and says how many (D3, s46)' {
+        Mock Get-PnVirtualDisks { @('C:\v\SecureVault.vhdx', 'D:\other.vhd') }
+        $out = (Invoke-PnNow -ArgList @()) -join "`n"
+        Should -Invoke Invoke-PnDetachDisk -Times 2 -Exactly
+        Should -Invoke Invoke-PnDetachDisk -Times 1 -Exactly -ParameterFilter { $Path -eq 'C:\v\SecureVault.vhdx' }
+        $out | Should -Match 'detached 2 disk image'
+    }
+
+    It 'says nothing about images when none were attached' {
+        $out = (Invoke-PnNow -ArgList @()) -join "`n"
+        $out | Should -Not -Match 'disk image'
+    }
+
+    It 'a failed detach warns and does not abort the run (best-effort)' {
+        Mock Get-PnVirtualDisks  { @('C:\v\SecureVault.vhdx') }
+        Mock Invoke-PnDetachDisk { throw 'in use' }
+        { Invoke-PnNow -ArgList @() } | Should -Not -Throw
         Should -Invoke Invoke-PnClearClipboard -Times 1 -Exactly
         Should -Invoke Invoke-PnLockScreen -Times 1 -Exactly
     }
@@ -115,6 +140,7 @@ Describe 'panic without administrator rights says so (P0-2)' {
     BeforeEach {
         $script:PN_LOCALE = 'en'
         Mock Get-PnBitLockerUnlocked { @() }      # what an unelevated enumeration really returns
+        Mock Get-PnVirtualDisks      { @() }
         Mock Get-PnVeraCryptMounted  { @() }
         Mock Invoke-PnClearClipboard { }
         Mock Invoke-PnClearClipboardHistory { $true }
@@ -160,6 +186,7 @@ Describe 'panic clears the clipboard HISTORY, not just the slot (P1-1)' {
     BeforeEach {
         $script:PN_LOCALE = 'en'
         Mock Get-PnBitLockerUnlocked { @() }
+        Mock Get-PnVirtualDisks      { @() }
         Mock Get-PnVeraCryptMounted  { @() }
         Mock Invoke-PnClearClipboard { }
         Mock Invoke-PnLockScreen     { $true }
@@ -223,6 +250,7 @@ Describe 'panic reports Notepad tabs on disk and refuses to delete them (P1-1)' 
     BeforeEach {
         $script:PN_LOCALE = 'en'
         Mock Get-PnBitLockerUnlocked  { @() }
+        Mock Get-PnVirtualDisks       { @() }
         Mock Get-PnVeraCryptMounted   { @() }
         Mock Test-PnClipboardNonEmpty { $false }
         Mock Test-PnBitLockerOn       { $true }
@@ -253,25 +281,31 @@ Describe 'panic status — read-only preflight' {
         Mock Test-PnClipboardNonEmpty { $true }
         Mock Test-PnBitLockerOn       { $true }
         Mock Get-PnRunningCloudDaemons { @('OneDrive') }
+        Mock Get-PnVirtualDisks       { @('C:\v\SecureVault.vhdx') }
         $out = (Invoke-PnStatus) -join "`n"
         $out | Should -Match '2'           # volume counter
         $out | Should -Match 'D:'
         $out | Should -Match 'F:'
         $out | Should -Match 'OneDrive'
+        $out | Should -Match 'SecureVault\.vhdx'
     }
 
     It 'makes no changes (never calls a mutating primitive)' {
         Mock Get-PnBitLockerUnlocked  { @() }
+        Mock Get-PnVirtualDisks       { @() }
         Mock Get-PnVeraCryptMounted   { @() }
         Mock Test-PnClipboardNonEmpty { $false }
         Mock Test-PnBitLockerOn       { $false }
         Mock Get-PnRunningCloudDaemons { @() }
+        Mock Get-PnVirtualDisks         { @('C:\v\SecureVault.vhdx') }
         Mock Invoke-PnLockBitLocker     { }
         Mock Invoke-PnDismountVeraCrypt { }
+        Mock Invoke-PnDetachDisk        { }
         Mock Invoke-PnClearClipboard    { }
         Mock Invoke-PnLockScreen        { }
         Invoke-PnStatus | Out-Null
         Should -Invoke Invoke-PnLockBitLocker -Times 0 -Exactly
+        Should -Invoke Invoke-PnDetachDisk -Times 0 -Exactly
         Should -Invoke Invoke-PnDismountVeraCrypt -Times 0 -Exactly
         Should -Invoke Invoke-PnClearClipboard -Times 0 -Exactly
         Should -Invoke Invoke-PnLockScreen -Times 0 -Exactly
@@ -326,6 +360,7 @@ Describe 'panic now — honest timing (s45)' {
     BeforeEach {
         $script:PnLines = @()
         Mock Get-PnBitLockerUnlocked { @() }
+        Mock Get-PnVirtualDisks      { @() }
         Mock Get-PnVeraCryptMounted  { @() }
         Mock Invoke-PnClearClipboard { }
         Mock Invoke-PnClearClipboardHistory { $true }
@@ -435,5 +470,30 @@ Describe 'unelevated enumeration does not pay the BitLocker WMI toll (s46)' {
         Mock Get-BitLockerVolume { @() }
         Get-PnBitLockerUnlocked | Out-Null
         Should -Invoke Get-BitLockerVolume -Times 1 -Exactly
+    }
+}
+
+Describe 'attached disk images are found the same way (D3, s46)' {
+
+    BeforeAll {
+        if (-not (Get-Command Get-Disk -ErrorAction SilentlyContinue)) {
+            function script:Get-Disk { [CmdletBinding()] param() }
+        }
+    }
+
+    It 'returns nothing without rights and never asks the Storage stack' {
+        Mock Test-PnElevated { $false }
+        Mock Get-Disk { throw 'Access denied' }
+        @(Get-PnVirtualDisks).Count | Should -Be 0
+        Should -Invoke Get-Disk -Times 0 -Exactly
+    }
+
+    It 'returns the container paths of file-backed disks only, with rights' {
+        Mock Test-PnElevated { $true }
+        Mock Get-Disk {
+            [pscustomobject]@{ BusType = 'NVMe';                Location = 'PCI bus 1' }
+            [pscustomobject]@{ BusType = 'File Backed Virtual'; Location = 'C:\v\SecureVault.vhdx' }
+        }
+        @(Get-PnVirtualDisks) | Should -Be @('C:\v\SecureVault.vhdx')
     }
 }
