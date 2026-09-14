@@ -68,8 +68,8 @@ function T {
         'en:admin_yes'    { return 'yes' }           'ru:admin_yes'    { return 'да' }
         'en:admin_no'     { return 'no - vault actions ask Windows for rights when you pick them (one prompt, one click)' }
         'ru:admin_no'     { return 'нет - действия с сейфом сами запросят права у Windows (один запрос, один клик)' }
-        'en:elev_ask'     { return 'This needs administrator rights - Windows will ask now. Confirm, and the action runs in its own window; type the vault password there.' }
-        'ru:elev_ask'     { return 'Для этого нужны права администратора — Windows сейчас спросит. Подтверди, и действие выполнится в отдельном окне; пароль сейфа вводи там.' }
+        'en:elev_ask'     { return 'This needs administrator rights - Windows will ask now. Confirm, and the action runs in its own window.' }
+        'ru:elev_ask'     { return 'Для этого нужны права администратора — Windows сейчас спросит. Подтверди, и действие выполнится в отдельном окне.' }
         'en:elev_declined' { return 'The rights prompt was declined - nothing was done. On Windows the vault runs on diskpart and BitLocker, and those need administrator rights.' }
         'ru:elev_declined' { return 'Запрос прав отклонён — ничего не сделано. На Windows сейф работает через diskpart и BitLocker, а им нужны права администратора.' }
         'en:elev_back'    { return 'The elevated window has closed - the state below is re-read now.' }
