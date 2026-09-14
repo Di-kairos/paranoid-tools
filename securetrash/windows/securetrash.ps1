@@ -205,6 +205,8 @@ Flags:
     'ru:vault_mounted'      = 'Смонтировано: {0}'
     'en:vault_already_open' = 'Already open: {0}'
     'ru:vault_already_open' = 'Уже открыт: {0}'
+    'en:vault_open_locked'  = 'Container is attached at {0} but LOCKED — that is not open. Detaching it and opening properly.'
+    'ru:vault_open_locked'  = 'Контейнер подключён ({0}), но ЗАБЛОКИРОВАН — это не «открыт». Отключаю и открываю по-настоящему.'
 
     'en:vault_detach_fail'  = 'Could not unmount (not open?).'
     'ru:vault_detach_fail'  = 'Не удалось размонтировать (не открыт?).'
@@ -1437,14 +1439,28 @@ function Invoke-StVault {
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container_open'); Stop-StCommand }
             # Idempotency: already mounted → don't duplicate the attach (AUDIT P2-5, parity with bash).
             if ((Get-StVaultState -Path $vaultPath) -eq 'mounted') {
-                # Refresh the mount sidecar: a legacy vault may have been mounted before the
-                # sidecar existed (or the write failed) — without it ghostdraft/paranoid can't find
-                # the volume's real letter (AUDIT_2026-08-03 P0-3, Codex review). Best-effort.
-                try {
-                    $curRoot = Get-StMountedVaultRoot -Path $vaultPath
-                    if ($curRoot) { Write-StVaultMount -VaultPath $vaultPath -Mount $curRoot }
-                } catch { }
-                Write-StInfo (T 'vault_already_open' $vaultPath); return
+                $curRoot = Get-StMountedVaultRoot -Path $vaultPath
+                # Attached is not open (same verdict as `vault status`): a panic locks the volume
+                # and leaves the container attached, and "Already open" over ciphertext sent the
+                # person to Explorer's "Access is denied" (live Windows run, s46-s48). Locked is
+                # detached and opened properly below; plaintext is refused, not called open.
+                # ponytail: probed by letter only - a locked volume keeps its letter, a container
+                # attached with none reads 'unknown' and keeps the old answer.
+                switch (Get-StVaultProtection -MountRoot $curRoot) {
+                    'locked' {
+                        Write-StWarn (T 'vault_open_locked' $curRoot)
+                        try { Dismount-StVault -Path $vaultPath }
+                        catch { Write-StErr (T 'vault_detach_fail'); Stop-StCommand }
+                    }
+                    'unencrypted' { Write-StWarn (T 'vault_status_unencrypted' $curRoot); Stop-StCommand }
+                    default {
+                        # Refresh the mount sidecar: a legacy vault may have been mounted before the
+                        # sidecar existed (or the write failed) — without it ghostdraft/paranoid can't find
+                        # the volume's real letter (AUDIT_2026-08-03 P0-3, Codex review). Best-effort.
+                        try { if ($curRoot) { Write-StVaultMount -VaultPath $vaultPath -Mount $curRoot } } catch { }
+                        Write-StInfo (T 'vault_already_open' $vaultPath); return
+                    }
+                }
             }
             $backend = Read-StVaultBackend -VaultPath $vaultPath
             # Legacy/unknown sidecar: assume bitlocker only if the cmdlet exists.

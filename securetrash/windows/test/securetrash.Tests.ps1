@@ -1764,6 +1764,7 @@ Describe 'vault open idempotency (P2-5)' {
         Mock Write-StVaultMount { }
         Mock Invoke-StVaultHook { }
         Mock Show-StVaultInExplorer { }
+        Mock Get-StVaultProtection { 'protected' }   # attached AND unlocked: the honest "already open"
     }
     AfterEach { Remove-Item Env:\ST_VAULT_PASS -ErrorAction SilentlyContinue }
 
@@ -1793,6 +1794,38 @@ Describe 'vault open idempotency (P2-5)' {
         Mock Get-StVaultState { 'unmounted' }
         Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
         Should -Invoke Mount-StVaultNoLetter -Times 1 -Exactly
+    }
+
+    # Attached is not open: after a panic the volume is LOCKED and the container still attached
+    # (live Windows run, s46-s48). "Already open" over ciphertext was a lie - detach, then open.
+    It 'open on an attached-but-LOCKED vault detaches it and opens properly, never "Already open"' {
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'E:\' }
+        Mock Get-StVaultProtection { 'locked' }
+        Mock Dismount-StVault { }
+        $out = (Invoke-StVault -VaultArgs @('open') 6>&1) -join "`n"
+        Should -Invoke Dismount-StVault -Times 1 -Exactly
+        Should -Invoke Mount-StVaultNoLetter -Times 1 -Exactly
+        Should -Invoke Unlock-StBitLockerVault -Times 1 -Exactly
+        $out | Should -Not -Match 'Already open'
+    }
+
+    It 'open on an attached-but-PLAINTEXT vault refuses instead of calling it open' {
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'E:\' }
+        Mock Get-StVaultProtection { 'unencrypted' }
+        { Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null } | Should -Throw
+        Should -Invoke Mount-StVaultNoLetter -Times 0 -Exactly
+        Should -Invoke Write-StVaultMount -Times 0 -Exactly
+    }
+
+    It 'open on an attached vault whose protection is unknown keeps the old answer' {
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'D:\' }
+        Mock Get-StVaultProtection { 'unknown' }
+        $out = (Invoke-StVault -VaultArgs @('open') 6>&1) -join "`n"
+        Should -Invoke Mount-StVaultNoLetter -Times 0 -Exactly
+        $out | Should -Match 'Already open'
     }
 }
 
