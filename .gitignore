@@ -10,6 +10,7 @@ docs/sessions/
 # Внутренние аудиты и отчёты о живых тестах — рабочее состояние, живёт на X10.
 # Публично проект отвечает за THREAT-MODEL.md и SECURITY.md, а не за черновики самокритики.
 AUDIT_*.md
+MARKET_RESEARCH_*.md
 USER_TRIAL_REPORT_*.md
 tri-mozga-out/
 
