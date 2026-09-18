@@ -457,6 +457,51 @@ Describe 'Get-StBitLockerState — tri-state, зеркало macOS _fv_state (F5
     }
 }
 
+Describe 'Get-StVaultProtection — what the probe is asked and how the answer is read' {
+    BeforeAll {
+        if (-not (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue)) {
+            function script:Get-BitLockerVolume { [CmdletBinding()] param($MountPoint) }
+        }
+    }
+
+    # A drive letter goes in as 'E:' (the cmdlet's own form), a volume path keeps its trailing
+    # backslash: '\\?\Volume{...}' without it is not a mount point at all. Same form `vault open`
+    # already hands to Unlock-BitLocker on the letterless attach.
+    It 'a letter root is trimmed to E:, a volume path is passed through untouched' {
+        $script:seen = @()
+        Mock Get-BitLockerVolume { $script:seen += $MountPoint; [pscustomobject]@{ ProtectionStatus = 'On' } }
+        Get-StVaultProtection -MountRoot 'E:\' | Out-Null
+        Get-StVaultProtection -MountRoot '\\?\Volume{5c1b}\' | Out-Null
+        $script:seen[0] | Should -Be 'E:'
+        $script:seen[1] | Should -Be '\\?\Volume{5c1b}\'
+    }
+
+    It 'Locked wins over everything else' {
+        Mock Get-BitLockerVolume { [pscustomobject]@{ LockStatus = 'Locked'; ProtectionStatus = 'On'; VolumeStatus = 'FullyEncrypted' } }
+        Get-StVaultProtection -MountRoot 'E:\' | Should -Be 'locked'
+    }
+
+    # Protection Off is not plaintext: suspended (and mid-conversion) volumes read Off over
+    # ciphertext, and 'unencrypted' tells the person to destroy the container and start again.
+    It 'suspended / converting protection is NOT called plaintext' {
+        foreach ($vs in 'FullyEncrypted', 'EncryptionInProgress', 'DecryptionInProgress') {
+            Mock Get-BitLockerVolume { [pscustomobject]@{ LockStatus = 'Unlocked'; ProtectionStatus = 'Off'; VolumeStatus = $vs } }.GetNewClosure()
+            Get-StVaultProtection -MountRoot 'E:\' | Should -Be 'protected'
+        }
+    }
+
+    It 'a genuinely decrypted volume is still called plaintext' {
+        Mock Get-BitLockerVolume { [pscustomobject]@{ LockStatus = 'Unlocked'; ProtectionStatus = 'Off'; VolumeStatus = 'FullyDecrypted' } }
+        Get-StVaultProtection -MountRoot 'E:\' | Should -Be 'unencrypted'
+    }
+
+    It 'no mount point and a throwing cmdlet both answer unknown, never a verdict' {
+        Get-StVaultProtection -MountRoot '' | Should -Be 'unknown'
+        Mock Get-BitLockerVolume { throw 'not available' }
+        Get-StVaultProtection -MountRoot 'E:\' | Should -Be 'unknown'
+    }
+}
+
 Describe 'check' {
 
     BeforeEach {
@@ -1115,6 +1160,21 @@ Describe 'vault: attached is not open, and a failed create leaves nothing behind
         $out | Should -Not -Match 'is OPEN'
     }
 
+    # No letter to probe by (attached with -NoDriveLetter): the sidecar letter belongs to an
+    # older mount and may now be somebody else's volume, so status probes the volume path.
+    It 'a locked volume with no drive letter is still reported as LOCKED' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { $null }
+        Mock Read-StVaultMount { 'Z:\' }
+        Mock Get-StVaultVolumePath { '\\?\Volume{noletter}\' }
+        Mock Get-StVaultProtection { 'locked' } -ParameterFilter { $MountRoot -eq '\\?\Volume{noletter}\' }
+
+        $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('status') }
+        $out | Should -Match 'LOCKED'
+        $out | Should -Not -Match 'is OPEN'
+    }
+
     It 'a protected volume is still reported as OPEN' {
         Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like '*SecureVault.vhdx' }
         Mock Get-StVaultState { 'mounted' }
@@ -1770,6 +1830,7 @@ Describe 'vault open idempotency (P2-5)' {
 
     It 'open on an already-mounted vault does not attach again' {
         Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { 'D:\' }   # mounted, unlocked AND reachable: the real "already open"
         Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
         Should -Invoke Mount-StVaultNoLetter -Times 0 -Exactly
     }
@@ -1783,11 +1844,14 @@ Describe 'vault open idempotency (P2-5)' {
         Should -Invoke Write-StVaultMount -Times 1 -Exactly -ParameterFilter { $Mount -eq 'D:\' }
     }
 
-    It 'sidecar refresh is skipped when the current letter cannot be resolved' {
+    # A letterless container is reopened, so the sidecar it ends with names the letter the new
+    # mount actually got — never an empty mount, and never the stale one it came in with.
+    It 'a reopened letterless container leaves a sidecar for the NEW letter' {
         Mock Get-StVaultState { 'mounted' }
         Mock Get-StMountedVaultRoot { $null }
+        Mock Dismount-StVault { }
         Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
-        Should -Invoke Write-StVaultMount -Times 0 -Exactly
+        Should -Invoke Write-StVaultMount -Times 1 -Exactly -ParameterFilter { $Mount -eq 'W:\' }
     }
 
     It 'open on an unmounted vault proceeds to attach' {
@@ -1817,6 +1881,31 @@ Describe 'vault open idempotency (P2-5)' {
         { Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null } | Should -Throw
         Should -Invoke Mount-StVaultNoLetter -Times 0 -Exactly
         Should -Invoke Write-StVaultMount -Times 0 -Exactly
+    }
+
+    # A container attached with -NoDriveLetter (an open interrupted between attach and letter,
+    # a panic in the same gap) is unreachable whatever BitLocker says about it — "Already open"
+    # there sent the person to a volume nothing can address. Redone like locked: detach, reopen.
+    It 'open on an attached vault with NO drive letter detaches it and opens properly' {
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { $null }
+        Mock Dismount-StVault { }
+        $out = (Invoke-StVault -VaultArgs @('open') 6>&1) -join "`n"
+        Should -Invoke Dismount-StVault -Times 1 -Exactly
+        Should -Invoke Mount-StVaultNoLetter -Times 1 -Exactly
+        Should -Invoke Unlock-StBitLockerVault -Times 1 -Exactly
+        $out | Should -Not -Match 'Already open'
+    }
+
+    # The sidecar letter is from an older mount and may now belong to another volume: a
+    # letterless container must not be judged by it.
+    It 'open on a letterless container never asks BitLocker about the sidecar letter' {
+        Mock Get-StVaultState { 'mounted' }
+        Mock Get-StMountedVaultRoot { $null }
+        Mock Read-StVaultMount { 'Z:\' }
+        Mock Dismount-StVault { }
+        Invoke-StVault -VaultArgs @('open') 6>&1 | Out-Null
+        Should -Invoke Get-StVaultProtection -Times 0 -Exactly
     }
 
     It 'open on an attached vault whose protection is unknown keeps the old answer' {

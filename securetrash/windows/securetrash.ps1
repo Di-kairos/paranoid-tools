@@ -205,6 +205,8 @@ Flags:
     'ru:vault_mounted'      = 'Смонтировано: {0}'
     'en:vault_already_open' = 'Already open: {0}'
     'ru:vault_already_open' = 'Уже открыт: {0}'
+    'en:vault_open_noletter' = 'Container is attached but has no drive letter — nothing can reach it, so that is not open either. Detaching it and opening properly.'
+    'ru:vault_open_noletter' = 'Контейнер подключён, но буквы диска у него нет — добраться до него нечем, это тоже не «открыт». Отключаю и открываю по-настоящему.'
     'en:vault_open_locked'  = 'Container is attached at {0} but LOCKED — that is not open. Detaching it and opening properly.'
     'ru:vault_open_locked'  = 'Контейнер подключён ({0}), но ЗАБЛОКИРОВАН — это не «открыт». Отключаю и открываю по-настоящему.'
 
@@ -683,6 +685,19 @@ function Get-StMountedVaultRoot {
     return $null
 }
 
+# Volume path of an attached container ('\\?\Volume{...}\'); $null if it could not be
+# determined. A container attached with -NoDriveLetter (a failed open, a panic between attach
+# and letter) has no letter to probe by, and the volume path is the mount point BitLocker
+# itself accepts. Wrapper for Mock.
+function Get-StVaultVolumePath {
+    param([string]$Path)
+    try {
+        $vol = Get-StVaultPartition -Path $Path | Get-Volume -ErrorAction Stop
+        if ($vol -and $vol.Path) { return $vol.Path }
+    } catch { }
+    return $null
+}
+
 # BitLocker protection of an ALREADY attached vault volume: 'protected' (unlocked and
 # encrypted), 'locked' (attached, password not accepted), 'unencrypted' (attached, no
 # protection — what a half-failed create leaves behind), or 'unknown'. Attached is neither
@@ -691,9 +706,17 @@ function Get-StVaultProtection {
     param([string]$MountRoot)
     if (-not $MountRoot) { return 'unknown' }
     try {
-        $v = Get-BitLockerVolume -MountPoint ($MountRoot.TrimEnd('\')) -ErrorAction Stop
+        # A letter root goes in as 'E:', a volume path keeps its trailing backslash —
+        # '\\?\Volume{...}' without it is not a mount point BitLocker accepts.
+        $mp = if ($MountRoot -match '^[A-Za-z]:\\?$') { $MountRoot.TrimEnd('\') } else { $MountRoot }
+        $v = Get-BitLockerVolume -MountPoint $mp -ErrorAction Stop
         if ($v.LockStatus -eq 'Locked')   { return 'locked' }
         if ($v.ProtectionStatus -eq 'On') { return 'protected' }
+        # Protection off is NOT the same as plaintext: a suspended volume (and one still being
+        # encrypted or decrypted) reads Off while the data is ciphertext. Only 'FullyDecrypted'
+        # earns the plaintext verdict — 'unencrypted' tells the person to destroy the container
+        # and create it again, and saying that over real data is the worst answer here.
+        if ($v.VolumeStatus -and $v.VolumeStatus -ne 'FullyDecrypted') { return 'protected' }
         return 'unencrypted'
     } catch {
         # No BitLocker cmdlets, or a VeraCrypt/foreign volume: unknown, never a verdict.
@@ -1444,21 +1467,32 @@ function Invoke-StVault {
                 # and leaves the container attached, and "Already open" over ciphertext sent the
                 # person to Explorer's "Access is denied" (live Windows run, s46-s48). Locked is
                 # detached and opened properly below; plaintext is refused, not called open.
-                # ponytail: probed by letter only - a locked volume keeps its letter, a container
-                # attached with none reads 'unknown' and keeps the old answer.
-                switch (Get-StVaultProtection -MountRoot $curRoot) {
-                    'locked' {
-                        Write-StWarn (T 'vault_open_locked' $curRoot)
-                        try { Dismount-StVault -Path $vaultPath }
-                        catch { Write-StErr (T 'vault_detach_fail'); Stop-StCommand }
-                    }
-                    'unencrypted' { Write-StWarn (T 'vault_status_unencrypted' $curRoot); Stop-StCommand }
-                    default {
-                        # Refresh the mount sidecar: a legacy vault may have been mounted before the
-                        # sidecar existed (or the write failed) — without it ghostdraft/paranoid can't find
-                        # the volume's real letter (AUDIT_2026-08-03 P0-3, Codex review). Best-effort.
-                        try { if ($curRoot) { Write-StVaultMount -VaultPath $vaultPath -Mount $curRoot } } catch { }
-                        Write-StInfo (T 'vault_already_open' $vaultPath); return
+                # No drive letter at all (attached with -NoDriveLetter: an open interrupted
+                # between attach and letter, a panic in the same gap) — whatever BitLocker would
+                # say about it, nothing on the machine can reach the volume, so this is not
+                # "already open" either. Redone the same way as locked: detach, then open for
+                # real. Probing such a container by the sidecar letter is worse than useless —
+                # that letter is from an older mount and may now belong to another volume.
+                if (-not $curRoot) {
+                    Write-StWarn (T 'vault_open_noletter')
+                    try { Dismount-StVault -Path $vaultPath }
+                    catch { Write-StErr (T 'vault_detach_fail'); Stop-StCommand }
+                }
+                else {
+                    switch (Get-StVaultProtection -MountRoot $curRoot) {
+                        'locked' {
+                            Write-StWarn (T 'vault_open_locked' $curRoot)
+                            try { Dismount-StVault -Path $vaultPath }
+                            catch { Write-StErr (T 'vault_detach_fail'); Stop-StCommand }
+                        }
+                        'unencrypted' { Write-StWarn (T 'vault_status_unencrypted' $curRoot); Stop-StCommand }
+                        default {
+                            # Refresh the mount sidecar: a legacy vault may have been mounted before the
+                            # sidecar existed (or the write failed) — without it ghostdraft/paranoid can't find
+                            # the volume's real letter (AUDIT_2026-08-03 P0-3, Codex review). Best-effort.
+                            try { Write-StVaultMount -VaultPath $vaultPath -Mount $curRoot } catch { }
+                            Write-StInfo (T 'vault_already_open' $vaultPath); return
+                        }
                     }
                 }
             }
@@ -1659,16 +1693,21 @@ function Invoke-StVault {
                 Stop-StCommand
             } elseif ($state -eq 'mounted') {
                 # The real volume, not a guess: the letter is picked dynamically at open.
-                $mount = Get-StMountedVaultRoot -Path $vaultPath
+                $curRoot = Get-StMountedVaultRoot -Path $vaultPath
+                $mount = $curRoot
                 if (-not $mount) { $mount = Read-StVaultMount -VaultPath $vaultPath }
                 if (-not $mount) { $mount = $vaultPath }
                 # Attached is not the same as open: a failed unlock leaves the vhdx attached and
                 # LOCKED, a create that died on Enable-BitLocker leaves it attached and PLAINTEXT.
                 # Both used to print "OPEN" — reassuring and false. 'unknown' (VeraCrypt, no
                 # cmdlets) keeps the old wording: no verdict without evidence.
-                switch (Get-StVaultProtection -MountRoot $mount) {
-                    'locked'      { Write-StWarn (T 'vault_status_locked' $mount) }
-                    'unencrypted' { Write-StWarn (T 'vault_status_unencrypted' $mount) }
+                # Asked about the volume we actually have, never about $mount: the sidecar letter
+                # is from an older mount and may now belong to somebody else's volume, and the
+                # container path is not a mount point at all.
+                $probe = if ($curRoot) { $curRoot } else { Get-StVaultVolumePath -Path $vaultPath }
+                switch (Get-StVaultProtection -MountRoot $probe) {
+                    'locked'      { Write-StWarn (T 'vault_status_locked' $probe) }
+                    'unencrypted' { Write-StWarn (T 'vault_status_unencrypted' $probe) }
                     default       { Write-StInfo (T 'vault_status_open' $mount) }
                 }
             } else {
