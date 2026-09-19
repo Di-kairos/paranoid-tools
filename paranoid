@@ -5,6 +5,9 @@
 # secrets — secrets are typed directly into the stdin of the relevant CLI. paranoid merely shows
 # live status and launches the same five signed CLIs, hiding nothing (Scope & limitations and
 # `check` verdicts go to the screen as-is). There is no global hotkey/daemon here — that is Phase B.
+# One exception to "launcher only": `paranoid exposure` reads this machine's own state (FileVault,
+# snapshots, Spotlight, iCloud, shell history, disk type…) and reports it. It is read-only — it
+# changes nothing, needs no rights, and touches no secret — see the exposure section below.
 #
 # Zero dependencies (pure Bash). Installed tools are looked up in PATH by name; a missing
 # tool is shown greyed out with an install hint, not faked.
@@ -768,17 +771,328 @@ _menu_secrets() {
   done
 }
 
+# --- exposure: the read-only report "where a copy of a secret may already be" ---
+#
+# This is the one place in the launcher that holds logic of its own rather than shelling out
+# to a tool. It is still read-only: every probe below reads a state and prints it. Nothing is
+# deleted, disabled or "fixed" — a report that changes the machine could not be run first,
+# and this one is meant to be the first command a person ever runs.
+#
+# Each line has exactly one of three states, and the third one is the point of the report:
+#   clear  — nothing of yours is in that channel
+#   action — it is there and you can do something about it (the command is named)
+#   stuck  — it is there and neither we nor you can take it back; here is why
+# A probe that cannot read its state prints `stuck` with "could not read", never "clear":
+# silence must not look like safety.
+#
+# Row format: id|state|title|detail  (detail is a single line — it also travels through --json)
+EXP_ROWS=()
+_exp_add() { EXP_ROWS+=("$1|$2|$3|$4"); }
+
+# Exposure strings. Kept out of t() on purpose: t() is launcher chrome, this is report copy
+# and it is long. RU is written, not translated.
+_exp_t() {
+  case "$LOCALE:$1" in
+    en:title)     echo 'PARANOID EXPOSURE — where a copy of a secret may already be on this Mac' ;;
+    ru:title)     echo 'PARANOID EXPOSURE — где на этом Mac уже может лежать копия секрета' ;;
+    en:sub)       echo 'Read-only: this report changes nothing. It only says what is already there.' ;;
+    ru:sub)       echo 'Только чтение: отчёт ничего не меняет. Он лишь называет то, что уже лежит.' ;;
+    en:sum)       printf '%s clear · %s you can still fix · %s cannot be taken back' "$2" "$3" "$4" ;;
+    ru:sum)       printf 'чисто: %s · можно убрать: %s · уже не вернуть: %s' "$2" "$3" "$4" ;;
+    en:closing)   echo 'The answer to most lines above is the same: a secret that was never outside the vault.' ;;
+    ru:closing)   echo 'Ответ почти на все строки выше один: секрет, который никогда не выходил из сейфа.' ;;
+
+    en:fv)        echo 'FileVault' ;;                 ru:fv)        echo 'FileVault' ;;
+    en:fv_on)     echo 'on — with the Mac powered off the disk is ciphertext.' ;;
+    ru:fv_on)     echo 'включён — у выключенного Mac диск лежит шифротекстом.' ;;
+    en:fv_off)    echo 'off — the whole disk is plaintext to anyone holding this Mac, and every line below is moot until you turn it on: System Settings → Privacy & Security → FileVault.' ;;
+    ru:fv_off)    echo 'выключен — весь диск открыт любому, кто держит этот Mac, и до включения остальные строки не имеют смысла: Системные настройки → Конфиденциальность и безопасность → FileVault.' ;;
+    en:fv_na)     echo 'could not read the FileVault state (fdesetup unavailable) — treat the disk as plaintext until you have checked by hand.' ;;
+    ru:fv_na)     echo 'состояние FileVault прочитать не удалось (нет fdesetup) — считай диск открытым, пока не проверишь руками.' ;;
+
+    en:swap)      echo 'Swap' ;;                      ru:swap)      echo 'Подкачка' ;;
+    en:swap_enc)  echo 'encrypted — plaintext paged out of RAM lands there, but as ciphertext.' ;;
+    ru:swap_enc)  echo 'зашифрована — то, что выгрузили из памяти, попадает туда шифротекстом.' ;;
+    en:swap_pt)   echo 'not encrypted — anything that was in RAM while you worked, a typed secret included, can sit in the swap file in the clear. No userland tool reaches in there; the lever is FileVault.' ;;
+    ru:swap_pt)   echo 'не зашифрована — всё, что было в памяти во время работы, включая набранный секрет, может лежать в файле подкачки открытым текстом. Из пользовательского режима туда не дотянуться; рычаг — FileVault.' ;;
+    en:swap_na)   echo 'could not read the swap state (sysctl unavailable).' ;;
+    ru:swap_na)   echo 'состояние подкачки прочитать не удалось (нет sysctl).' ;;
+
+    en:snap)      echo 'APFS local snapshots' ;;      ru:snap)      echo 'Локальные снапшоты APFS' ;;
+    en:snap_none) echo 'none on this disk right now.' ;;
+    ru:snap_none) echo 'сейчас на диске их нет.' ;;
+    en:snap_some) printf '%s on this disk. A file that sat outside the vault when one was taken is still inside it — and a single file cannot be taken out of a snapshot, only whole snapshots go (tmutil deletelocalsnapshots <date>), together with the restore point they are for.' "$2" ;;
+    ru:snap_some) printf 'их %s. Файл, лежавший вне сейфа в момент снимка, всё ещё внутри него — и вынуть из снапшота один файл нельзя, удаляются только снимки целиком (tmutil deletelocalsnapshots <дата>), вместе с точкой восстановления.' "$2" ;;
+    en:snap_na)   echo 'could not read the snapshot list (tmutil unavailable) — do not read that as "none".' ;;
+    ru:snap_na)   echo 'список снапшотов прочитать не удалось (нет tmutil) — это не то же самое, что «их нет».' ;;
+
+    en:tm)        echo 'Time Machine' ;;              ru:tm)        echo 'Time Machine' ;;
+    en:tm_none)   echo 'no backup destination configured.' ;;
+    ru:tm_none)   echo 'хранилище для бэкапов не настроено.' ;;
+    en:tm_some)   echo 'a destination is configured — copies of files that were outside the vault live on that disk too, and deleting the original here does not touch them.' ;;
+    ru:tm_some)   echo 'хранилище настроено — копии файлов, лежавших вне сейфа, есть и на том диске, и удаление оригинала здесь их не трогает.' ;;
+    en:tm_na)     echo 'could not ask Time Machine (tmutil unavailable).' ;;
+    ru:tm_na)     echo 'спросить Time Machine не удалось (нет tmutil).' ;;
+
+    en:mds)       echo 'Spotlight index' ;;           ru:mds)       echo 'Индекс Spotlight' ;;
+    en:mds_off)   echo 'indexing is off for this volume.' ;;
+    ru:mds_off)   echo 'индексация этого тома выключена.' ;;
+    en:mds_on)    echo 'on — names and content of files indexed while they were outside the vault are in the index, and turning indexing off now does not remove what is already in it. vaultwatch keeps an open vault out of future indexing; the past is past.' ;;
+    ru:mds_on)    echo 'включена — имена и содержимое файлов, попавших в индекс, пока они лежали вне сейфа, уже там, и выключение индексации сейчас их оттуда не убирает. vaultwatch держит открытый сейф вне будущей индексации; прошлое остаётся прошлым.' ;;
+    en:mds_na)    echo 'could not read the index state (mdutil unavailable).' ;;
+    ru:mds_na)    echo 'состояние индекса прочитать не удалось (нет mdutil).' ;;
+
+    en:icl)       echo 'iCloud Drive' ;;              ru:icl)       echo 'iCloud Drive' ;;
+    en:icl_none)  echo 'not in use on this account.' ;;
+    ru:icl_none)  echo 'на этой учётной записи не используется.' ;;
+    en:icl_on)    echo 'in use — anything you put there has left this Mac, and no command here reaches the copy on the server or on your other devices.' ;;
+    ru:icl_on)    echo 'используется — всё, что туда попало, уже ушло с этого Mac, и ни одна здешняя команда не дотянется до копии на сервере и на других устройствах.' ;;
+    en:icl_dd)    echo 'in use, and Desktop & Documents are synced — a file dropped on the Desktop for a minute was uploaded within that minute. No command here reaches the copy on the server or on your other devices.' ;;
+    ru:icl_dd)    echo 'используется, причём синхронизированы Рабочий стол и Документы — файл, брошенный на стол на минуту, за эту минуту уехал наверх. Ни одна здешняя команда до копии на сервере и на других устройствах не дотянется.' ;;
+
+    en:hist)      echo 'Shell history' ;;             ru:hist)      echo 'История shell' ;;
+    en:hist_none) echo 'no shell history file found.' ;;
+    ru:hist_none) echo 'файла истории shell не нашёл.' ;;
+    en:hist_some) printf '%s commands kept in plaintext (%s). A secret ever pasted into a command line is in there verbatim; the file is readable by anything running as you. Clearing it is yours to do — the launcher will not wipe your history for you.' "$2" "$3" ;;
+    ru:hist_some) printf 'команд в открытом виде: %s (%s). Секрет, однажды вставленный в командную строку, лежит там дословно, и файл читает всё, что запущено от твоего имени. Чистить — твоё решение: лаунчер историю за тебя не стирает.' "$2" "$3" ;;
+
+    en:clip)      echo 'Clipboard' ;;                 ru:clip)      echo 'Буфер обмена' ;;
+    en:clip_none) echo 'no clipboard manager found. macOS itself keeps only the last copy — but with Handoff on, Universal Clipboard has already sent it to your other Apple devices, and this report cannot see that from here.' ;;
+    ru:clip_none) echo 'менеджера буфера не нашёл. Сама macOS держит только последнюю копию — но при включённом Handoff Универсальный буфер уже отправил её на другие твои устройства Apple, и отсюда это не видно.' ;;
+    en:clip_some) printf 'a clipboard manager is present (%s). It keeps a history of everything you copied, on disk, across reboots — including anything you copied out of the vault. Clear it in that app; nothing here can do it for you.' "$2" ;;
+    ru:clip_some) printf 'установлен менеджер буфера (%s). Он хранит историю всего скопированного на диске и переживает перезагрузку — включая то, что ты копировал из сейфа. Чистить — в самом приложении, отсюда никак.' "$2" ;;
+
+    en:ssd)       echo 'Overwriting on this disk' ;;  ru:ssd)       echo 'Перезапись на этом диске' ;;
+    en:ssd_yes)   echo 'SSD — overwriting a file in place does not reliably destroy the old copy: wear levelling has already moved blocks the controller will not let anyone address. This is why "shred" is best-effort here and why the real answer is to create the secret inside the vault, never outside it.' ;;
+    ru:ssd_yes)   echo 'SSD — перезапись файла на месте не уничтожает старую копию надёжно: выравнивание износа уже увело блоки, к которым контроллер никого не пустит. Поэтому «shred» здесь — только best-effort, а настоящий ответ — создавать секрет внутри сейфа, а не снаружи.' ;;
+    en:ssd_no)    echo 'not an SSD — overwriting in place does what it says, as long as no snapshot or backup holds an older copy (see the lines above).' ;;
+    ru:ssd_no)    echo 'не SSD — перезапись на месте делает то, что обещает, если старую копию не держит снапшот или бэкап (см. строки выше).' ;;
+    en:ssd_na)    echo 'could not read the disk type (diskutil unavailable) — assume SSD, it is the common case.' ;;
+    ru:ssd_na)    echo 'тип диска прочитать не удалось (нет diskutil) — считай, что SSD: так чаще всего и есть.' ;;
+
+    en:vlt)       echo 'Vault' ;;                     ru:vlt)       echo 'Сейф' ;;
+    en:vlt_none)  echo 'not created yet. Everything above describes a machine where secrets live as ordinary files; the vault is the part that ends that. Create it: paranoid → Vault.' ;;
+    ru:vlt_none)  echo 'ещё не создан. Всё выше описывает машину, где секреты лежат обычными файлами; сейф — это то, что прекращает такое. Создать: paranoid → Сейф.' ;;
+    en:vlt_closed) echo 'created and closed — its contents are ciphertext right now.' ;;
+    ru:vlt_closed) echo 'создан и закрыт — его содержимое сейчас шифротекст.' ;;
+    en:vlt_open)  echo 'open right now. While it is open its files are ordinary files: indexable, snapshot-able, copyable. Close it when you are done: paranoid → Vault.' ;;
+    ru:vlt_open)  echo 'сейчас открыт. Пока он открыт, его файлы — обычные файлы: их индексируют, снимают в снапшот, копируют. Закрой, когда закончишь: paranoid → Сейф.' ;;
+    en:vlt_na)    echo 'state could not be determined (the mount table could not be read).' ;;
+    ru:vlt_na)    echo 'состояние определить не удалось (таблица монтирования недоступна).' ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# --- probes (each one: read a state, add exactly one row, never guess) ---
+
+_exp_probe_filevault() {
+  case "$(_status_filevault)" in
+    on)  _exp_add filevault clear  "$(_exp_t fv)" "$(_exp_t fv_on)" ;;
+    off) _exp_add filevault action "$(_exp_t fv)" "$(_exp_t fv_off)" ;;
+    *)   _exp_add filevault stuck  "$(_exp_t fv)" "$(_exp_t fv_na)" ;;
+  esac
+}
+
+_exp_probe_swap() {
+  local out
+  command -v sysctl >/dev/null 2>&1 || { _exp_add swap stuck "$(_exp_t swap)" "$(_exp_t swap_na)"; return; }
+  out="$(sysctl vm.swapusage 2>/dev/null)" || out=""
+  if [[ -z "$out" ]]; then _exp_add swap stuck "$(_exp_t swap)" "$(_exp_t swap_na)"
+  # macOS reports the mode in the same line: "... (encrypted)". No "(encrypted)" and a
+  # readable line means it really is plaintext — that is a finding, not an unknown.
+  elif grep -q "(encrypted)" <<<"$out"; then _exp_add swap clear "$(_exp_t swap)" "$(_exp_t swap_enc)"
+  else _exp_add swap stuck "$(_exp_t swap)" "$(_exp_t swap_pt)"; fi
+}
+
+_exp_probe_snapshots() {
+  local out n
+  command -v tmutil >/dev/null 2>&1 || { _exp_add snapshots stuck "$(_exp_t snap)" "$(_exp_t snap_na)"; return; }
+  out="$(tmutil listlocalsnapshots / 2>/dev/null)" || { _exp_add snapshots stuck "$(_exp_t snap)" "$(_exp_t snap_na)"; return; }
+  # Count the snapshot names, not the lines: the first line is a header ("Snapshots for disk /:").
+  n="$(grep -c 'com.apple.TimeMachine' <<<"$out" || true)"
+  if [[ "${n:-0}" -gt 0 ]]; then _exp_add snapshots stuck "$(_exp_t snap)" "$(_exp_t snap_some "$n")"
+  else _exp_add snapshots clear "$(_exp_t snap)" "$(_exp_t snap_none)"; fi
+}
+
+_exp_probe_timemachine() {
+  local out
+  command -v tmutil >/dev/null 2>&1 || { _exp_add timemachine stuck "$(_exp_t tm)" "$(_exp_t tm_na)"; return; }
+  # `tmutil destinationinfo` exits nonzero precisely when nothing is configured, so the exit
+  # code cannot tell "no destination" from "tmutil failed" — the text does.
+  out="$(tmutil destinationinfo 2>&1)" || true
+  if [[ -z "$out" ]]; then _exp_add timemachine stuck "$(_exp_t tm)" "$(_exp_t tm_na)"
+  elif grep -qi 'no destinations' <<<"$out"; then _exp_add timemachine clear "$(_exp_t tm)" "$(_exp_t tm_none)"
+  else _exp_add timemachine stuck "$(_exp_t tm)" "$(_exp_t tm_some)"; fi
+}
+
+_exp_probe_spotlight() {
+  local out
+  command -v mdutil >/dev/null 2>&1 || { _exp_add spotlight stuck "$(_exp_t mds)" "$(_exp_t mds_na)"; return; }
+  out="$(mdutil -s / 2>/dev/null)" || out=""
+  if [[ -z "$out" ]]; then _exp_add spotlight stuck "$(_exp_t mds)" "$(_exp_t mds_na)"
+  elif grep -qi 'indexing enabled' <<<"$out"; then _exp_add spotlight stuck "$(_exp_t mds)" "$(_exp_t mds_on)"
+  elif grep -qi 'indexing disabled\|indexing and searching disabled' <<<"$out"; then _exp_add spotlight clear "$(_exp_t mds)" "$(_exp_t mds_off)"
+  else _exp_add spotlight stuck "$(_exp_t mds)" "$(_exp_t mds_na)"; fi
+}
+
+_exp_probe_icloud() {
+  local root="$HOME/Library/Mobile Documents/com~apple~CloudDocs"
+  if [[ ! -d "$root" ]]; then _exp_add icloud clear "$(_exp_t icl)" "$(_exp_t icl_none)"; return; fi
+  # Desktop & Documents sync shows up as those two folders INSIDE CloudDocs.
+  if [[ -d "$root/Desktop" || -d "$root/Documents" ]]; then
+    _exp_add icloud stuck "$(_exp_t icl)" "$(_exp_t icl_dd)"
+  else
+    _exp_add icloud stuck "$(_exp_t icl)" "$(_exp_t icl_on)"
+  fi
+}
+
+_exp_probe_history() {
+  local f n total=0 names=""
+  for f in "${HISTFILE:-$HOME/.zsh_history}" "$HOME/.bash_history"; do
+    [[ -f "$f" ]] || continue
+    n="$(wc -l <"$f" 2>/dev/null | tr -d ' ')" || n=0
+    [[ "${n:-0}" -gt 0 ]] || continue
+    total=$(( total + n ))
+    names="${names:+$names, }${f/#$HOME/~}"
+  done
+  if [[ "$total" -gt 0 ]]; then _exp_add history action "$(_exp_t hist)" "$(_exp_t hist_some "$total" "$names")"
+  else _exp_add history clear "$(_exp_t hist)" "$(_exp_t hist_none)"; fi
+}
+
+_exp_probe_clipboard() {
+  # Installed app bundles, not running processes: a manager that is closed right now still
+  # has its history on disk, which is the thing being reported.
+  local found="" app
+  for app in Maccy Raycast Alfred Paste Flycut CopyClip Clipy Pastebot; do
+    if [[ -d "/Applications/$app.app" || -d "$HOME/Applications/$app.app" ]]; then
+      found="${found:+$found, }$app"
+    fi
+  done
+  if [[ -n "$found" ]]; then _exp_add clipboard stuck "$(_exp_t clip)" "$(_exp_t clip_some "$found")"
+  else _exp_add clipboard clear "$(_exp_t clip)" "$(_exp_t clip_none)"; fi
+}
+
+_exp_probe_ssd() {
+  local out
+  command -v diskutil >/dev/null 2>&1 || { _exp_add ssd stuck "$(_exp_t ssd)" "$(_exp_t ssd_na)"; return; }
+  out="$(diskutil info / 2>/dev/null)" || out=""
+  if   grep -qi 'solid state:[[:space:]]*yes' <<<"$out"; then _exp_add ssd stuck "$(_exp_t ssd)" "$(_exp_t ssd_yes)"
+  elif grep -qi 'solid state:[[:space:]]*no'  <<<"$out"; then _exp_add ssd clear "$(_exp_t ssd)" "$(_exp_t ssd_no)"
+  else _exp_add ssd stuck "$(_exp_t ssd)" "$(_exp_t ssd_na)"; fi
+}
+
+_exp_probe_vault() {
+  case "$(_status_vault)" in
+    open)   _exp_add vault action "$(_exp_t vlt)" "$(_exp_t vlt_open)" ;;
+    closed) _exp_add vault clear  "$(_exp_t vlt)" "$(_exp_t vlt_closed)" ;;
+    none)   _exp_add vault action "$(_exp_t vlt)" "$(_exp_t vlt_none)" ;;
+    *)      _exp_add vault stuck  "$(_exp_t vlt)" "$(_exp_t vlt_na)" ;;
+  esac
+}
+
+# Order is the reading order of the report: what protects the disk, what keeps copies,
+# what you typed, and finally the vault — the answer to most of the lines above.
+_exp_collect() {
+  EXP_ROWS=()
+  _exp_probe_filevault
+  _exp_probe_swap
+  _exp_probe_snapshots
+  _exp_probe_timemachine
+  _exp_probe_spotlight
+  _exp_probe_icloud
+  _exp_probe_history
+  _exp_probe_clipboard
+  _exp_probe_ssd
+  _exp_probe_vault
+}
+
+# Minimal JSON string escaping. The detail strings are single-line prose we write ourselves,
+# so backslash, quote and control characters are all that can realistically show up — but a
+# file path from $HOME can carry any of them, hence the escaping rather than trust.
+_json_esc() {
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  s="${s//$'\t'/\\t}"; s="${s//$'\r'/\\r}"; s="${s//$'\n'/\\n}"
+  printf '%s' "$s"
+}
+
+_exp_render_json() {
+  local row id state title detail first=1 clear=0 action=0 stuck=0
+  printf '{"tool":"paranoid","report":"exposure","version":"%s","platform":"macos","rows":[' "$PARANOID_VERSION"
+  for row in "${EXP_ROWS[@]}"; do
+    IFS='|' read -r id state title detail <<<"$row"
+    case "$state" in clear) clear=$((clear+1)) ;; action) action=$((action+1)) ;; *) stuck=$((stuck+1)) ;; esac
+    [[ $first -eq 1 ]] || printf ','
+    first=0
+    printf '{"id":"%s","state":"%s","title":"%s","detail":"%s"}' \
+      "$(_json_esc "$id")" "$(_json_esc "$state")" "$(_json_esc "$title")" "$(_json_esc "$detail")"
+  done
+  printf '],"summary":{"clear":%d,"action":%d,"stuck":%d}}\n' "$clear" "$action" "$stuck"
+}
+
+# Word-wrap for the detail lines. Pure Bash on purpose: `fold` on macOS counts bytes, so a
+# Russian line would break at half the intended width. Bash's ${#s} counts characters in a
+# UTF-8 locale, which is what the terminal actually shows.
+_exp_wrap() {
+  local text="$1" indent="$2" width="${3:-76}" line="" word
+  for word in $text; do
+    if [[ -z "$line" ]]; then line="$word"
+    elif (( ${#line} + 1 + ${#word} <= width )); then line="$line $word"
+    else printf '%s%s\n' "$indent" "$line"; line="$word"; fi
+  done
+  [[ -n "$line" ]] && printf '%s%s\n' "$indent" "$line"
+}
+
+_exp_render_text() {
+  local row id state title detail sym col clear=0 action=0 stuck=0
+  echo
+  echo "  ${C_BLD}$(_exp_t title)${C_RST}"
+  echo "  ${C_DIM}$(_exp_t sub)${C_RST}"
+  echo
+  for row in "${EXP_ROWS[@]}"; do
+    IFS='|' read -r id state title detail <<<"$row"
+    case "$state" in
+      clear)  sym='✓'; col="$C_GRN"; clear=$((clear+1)) ;;
+      action) sym='→'; col="$C_YEL"; action=$((action+1)) ;;
+      *)      sym='✕'; col="$C_YEL"; stuck=$((stuck+1)) ;;
+    esac
+    # No column alignment on purpose: padding with printf counts bytes, and a Cyrillic
+    # title would tear the columns apart. Title and detail get their own lines instead.
+    echo "  ${col}${sym}${C_RST} ${C_BLD}${title}${C_RST}"
+    _exp_wrap "$detail" "    "
+    echo
+  done
+  echo "  ${C_DIM}$(_exp_t sum "$clear" "$action" "$stuck")${C_RST}"
+  echo "  $(_exp_t closing)"
+  echo
+}
+
+_act_exposure() {
+  local json=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --json) json=1 ;;
+      *) echo "exposure: unknown option: $arg" >&2; return 1 ;;
+    esac
+  done
+  _exp_collect
+  if [[ $json -eq 1 ]]; then _exp_render_json; else _exp_render_text; fi
+}
+
 usage() {
   cat <<EOF
 paranoid $PARANOID_VERSION — interactive launcher for the Paranoid Tools ecosystem.
 
 Usage: paranoid            launch the interactive dashboard
+       paranoid exposure   report where a copy of a secret may already be on this Mac
+                           (read-only; --json for the same report as data)
        paranoid version    print the version
        paranoid help       show this help
 
 A thin launcher over the five CLIs (securetrash, vaultwatch, panic, seedsplit,
 ghostdraft). It holds no secrets and adds no crypto — it runs the same signed
-tools and shows their output (limits and verdicts included) unaltered.
+tools and shows their output (limits and verdicts included) unaltered. The one
+exception is exposure, which reads this machine's own state and reports it.
 EOF
 }
 
@@ -786,6 +1100,7 @@ main() {
   case "${1:-}" in
     version|-v|--version) echo "paranoid $PARANOID_VERSION"; return 0 ;;
     help|-h|--help)       usage; return 0 ;;
+    exposure)             shift; _act_exposure "$@"; return $? ;;
     "") : ;;
     *) echo "Unknown command: $1" >&2; usage >&2; return 1 ;;
   esac

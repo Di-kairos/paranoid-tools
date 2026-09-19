@@ -757,3 +757,166 @@ _make_fake_clone() {
   [ "$status" -eq 0 ]
   ! grep -q "vaultwatch start" "$LOG"
 }
+
+# --- exposure: the read-only report (paranoid exposure) ---
+# The system probes are stubbed the same way the ecosystem CLIs are: a stub in $STUBS shadows
+# the real /usr/bin tool. HOME points into $TMP so the filesystem probes (history, iCloud)
+# see a machine under the test's control rather than the developer's.
+
+_exp_home() {
+  EXP_HOME="$TMP/home"
+  mkdir -p "$EXP_HOME"
+  printf '%s' "$EXP_HOME"
+}
+
+# Overwrite a stub with a fixed body (no argument logging — these are probes, not tools).
+_stub_as() {
+  local name="$1" body="$2"
+  printf '#!/usr/bin/env bash\n%s\n' "$body" >"$STUBS/$name"
+  chmod +x "$STUBS/$name"
+}
+
+# Default probe answers: a clean machine (FileVault on, encrypted swap, no snapshots,
+# no Time Machine, indexing on, SSD). Individual tests override one of them.
+_exp_stubs() {
+  _stub_as tmutil 'case "${1:-}" in
+  listlocalsnapshots) echo "Snapshots for disk /:" ;;
+  destinationinfo)    echo "tmutil: No destinations configured."; exit 1 ;;
+esac
+exit 0'
+  _stub_as mdutil 'echo "/:"; echo "	Indexing enabled."'
+  _stub_as sysctl 'echo "vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)"'
+  _stub_as diskutil 'echo "   Solid State:              Yes"'
+}
+
+# Run `paranoid exposure` with the stubbed probes and a controlled HOME.
+run_exposure() {
+  _exp_stubs
+  local home; home="$(_exp_home)"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" \
+    LC_ALL="${LC_ALL:-C}" ST_LOCALE="${ST_LOCALE:-en}" "$@" \
+    bash "$SCRIPT" exposure
+}
+
+@test "exposure prints the report and every channel it promises" {
+  run_exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PARANOID EXPOSURE"* ]]
+  [[ "$output" == *"FileVault"* ]]
+  [[ "$output" == *"Swap"* ]]
+  [[ "$output" == *"APFS local snapshots"* ]]
+  [[ "$output" == *"Time Machine"* ]]
+  [[ "$output" == *"Spotlight index"* ]]
+  [[ "$output" == *"iCloud Drive"* ]]
+  [[ "$output" == *"Shell history"* ]]
+  [[ "$output" == *"Clipboard"* ]]
+  [[ "$output" == *"Vault"* ]]
+}
+
+# The whole point of running it first: it is safe. No ecosystem tool is invoked, so nothing
+# can be created, mounted, cleared or destroyed by asking for the report.
+@test "exposure runs no ecosystem tool (read-only)" {
+  run_exposure
+  [ "$status" -eq 0 ]
+  # fdesetup shows up in the log (it is how FileVault is read) — the five CLIs must not:
+  # none of them is read-only, so calling one from a report would break the promise.
+  ! grep -qE '^(securetrash|vaultwatch|panic|seedsplit|ghostdraft) ' "$LOG"
+}
+
+@test "exposure --json carries ten rows and a summary that adds up" {
+  _exp_stubs
+  local home; home="$(_exp_home)"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" LC_ALL=C ST_LOCALE=en \
+    bash "$SCRIPT" exposure --json
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"report":"exposure"'* ]]
+  [[ "$output" == *'"platform":"macos"'* ]]
+  [ "$(grep -o '"id":"' <<<"$output" | wc -l | tr -d ' ')" -eq 10 ]
+  [[ "$output" == *'"summary":{"clear":'* ]]
+}
+
+@test "exposure rejects an unknown option" {
+  _exp_stubs
+  local home; home="$(_exp_home)"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" LC_ALL=C ST_LOCALE=en \
+    bash "$SCRIPT" exposure --nope
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"unknown option"* ]]
+}
+
+@test "FileVault off is reported as something you can still fix" {
+  _make_stub fdesetup
+  _stub_as fdesetup 'echo "FileVault is Off."'
+  run_exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"off — the whole disk is plaintext"* ]]
+}
+
+# A probe that cannot read its state must never print as "clear" — silence is not safety.
+@test "a failing probe reads as 'could not', not as clear" {
+  _exp_stubs
+  _stub_as tmutil 'exit 1'
+  local home; home="$(_exp_home)"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" LC_ALL=C ST_LOCALE=en \
+    bash "$SCRIPT" exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"could not read the snapshot list"* ]]
+  [[ "$output" != *"none on this disk right now"* ]]
+}
+
+@test "snapshots are counted and named as unreachable" {
+  _exp_stubs
+  _stub_as tmutil 'case "${1:-}" in
+  listlocalsnapshots) echo "Snapshots for disk /:"; echo "com.apple.TimeMachine.2026-09-19-080000.local"; echo "com.apple.TimeMachine.2026-09-18-080000.local" ;;
+  destinationinfo)    echo "tmutil: No destinations configured."; exit 1 ;;
+esac
+exit 0'
+  local home; home="$(_exp_home)"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" LC_ALL=C ST_LOCALE=en \
+    bash "$SCRIPT" exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2 on this disk"* ]]
+  [[ "$output" == *"cannot be taken out of a snapshot"* ]]
+}
+
+@test "shell history is counted when it exists and clear when it does not" {
+  _exp_stubs
+  local home; home="$(_exp_home)"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" LC_ALL=C ST_LOCALE=en \
+    bash "$SCRIPT" exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no shell history file found"* ]]
+
+  printf 'echo one\necho two\necho three\n' >"$home/.zsh_history"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" LC_ALL=C ST_LOCALE=en \
+    bash "$SCRIPT" exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"3 commands kept in plaintext"* ]]
+}
+
+@test "iCloud with Desktop & Documents synced says the file left within the minute" {
+  _exp_stubs
+  local home; home="$(_exp_home)"
+  mkdir -p "$home/Library/Mobile Documents/com~apple~CloudDocs/Desktop"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" LC_ALL=C ST_LOCALE=en \
+    bash "$SCRIPT" exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Desktop & Documents are synced"* ]]
+}
+
+@test "an installed clipboard manager is reported by name" {
+  _exp_stubs
+  local home; home="$(_exp_home)"
+  mkdir -p "$home/Applications/Maccy.app"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$home" LC_ALL=C ST_LOCALE=en \
+    bash "$SCRIPT" exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"clipboard manager is present (Maccy)"* ]]
+}
+
+@test "the report renders in Russian under ST_LOCALE=ru" {
+  LC_ALL="$(utf8_locale)" ST_LOCALE=ru run_exposure
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"где на этом Mac уже может лежать копия секрета"* ]]
+  [[ "$output" == *"Локальные снапшоты APFS"* ]]
+}
