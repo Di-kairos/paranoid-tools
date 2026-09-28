@@ -133,7 +133,7 @@ paranoid-tools/
   CHANGELOG.md            # new (umbrella has none yet) or a README note
 ```
 
-## Build process (per Mr. Di directive)
+## Build process (per Di-kairos directive)
 
 Implementation runs with: mandatory re-check, **three-brain (ТриМозга) cross-review**,
 **parallel agents** for independent pieces, a **full run** (bats + shellcheck + manual
