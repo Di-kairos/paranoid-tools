@@ -425,6 +425,19 @@ panic's README) or the tray's `Ctrl+Alt+P` twice on Windows. An open vault is al
 `windows\install.cmd` puts it on your PATH as `paranoid`, and it drives the same five
 PowerShell ports — and starts the [tray](#the-tray).
 
+**Where a copy may already be.** `paranoid exposure` is a read-only report over the places
+this machine keeps copies on its own — disk encryption, swap or pagefile, snapshots and
+shadow copies, backups, the search index, iCloud Drive or OneDrive, shell history, the
+clipboard (and, on Windows, Notepad's unsaved tabs), the disk type and the vault. Each line
+lands in one of three states: clear, something you can still fix (the step is named), or
+something nobody can take back, and why. A probe that cannot read its state says so instead
+of printing "clear". It changes nothing and runs none of the five tools, so it is safe as
+the first command you ever run. `--json` gives the same rows as data.
+
+```bash
+paranoid exposure          # macOS and Windows
+```
+
 **Opt-in update check.** Off by default — nothing on the dashboard touches the network
 unless you ask. Set `PARANOID_UPDATE_CHECK=1` and the dashboard adds an *"update
 available"* line when an installed tool has a newer signed release. It's the only

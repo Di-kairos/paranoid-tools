@@ -1109,17 +1109,336 @@ function Invoke-PnDispatch {
     return $false
 }
 
+# --- exposure: the read-only report "where a copy of a secret may already be" ---
+#
+# Mirror of the macOS `paranoid exposure`, over the channels THREAT-MODEL.md maps in "Where
+# Windows copies your text". The one place in the launcher with logic of its own rather than a
+# tool call, and still read-only: every probe reads a state and reports it. Nothing is deleted,
+# disabled or "fixed", and no ecosystem tool is run — none of the five is read-only.
+#
+# Each row has exactly one of three states:
+#   clear  — nothing of yours is in that channel
+#   action — it is there and you can do something about it (the step is named)
+#   stuck  — it is there and neither we nor you can take it back; here is why
+# A probe that cannot read its state reports `stuck` with "could not read", never `clear`.
+
+# Report copy. Kept out of T() like the macOS _exp_t: T() is launcher chrome, this is long prose.
+# RU is written, not translated.
+function Get-PnExpText {
+    param([string]$Key, [string]$A, [string]$B, [string]$C)
+    switch ("$($script:PN_LOCALE):$Key") {
+        'en:title'   { return 'PARANOID EXPOSURE — where a copy of a secret may already be on this PC' }
+        'ru:title'   { return 'PARANOID EXPOSURE — где на этом компьютере уже может лежать копия секрета' }
+        'en:sub'     { return 'Read-only: this report changes nothing. It only says what is already there.' }
+        'ru:sub'     { return 'Только чтение: отчёт ничего не меняет. Он лишь называет то, что уже лежит.' }
+        'en:sum'     { return ('{0} clear · {1} you can still fix · {2} cannot be taken back' -f $A, $B, $C) }
+        'ru:sum'     { return ('чисто: {0} · можно убрать: {1} · уже не вернуть: {2}' -f $A, $B, $C) }
+        'en:closing' { return 'The answer to most lines above is the same: a secret that was never outside the vault.' }
+        'ru:closing' { return 'Ответ почти на все строки выше один: секрет, который никогда не выходил из сейфа.' }
+
+        'en:bl'      { return 'BitLocker (system drive)' }   'ru:bl' { return 'BitLocker (системный диск)' }
+        'en:bl_on'   { return 'on — with the PC powered off the system drive is ciphertext.' }
+        'ru:bl_on'   { return 'включён — у выключенного компьютера системный диск лежит шифротекстом.' }
+        'en:bl_off'  { return 'off — the whole system drive is plaintext to anyone holding this PC, and every line below is moot until it is on: Settings → Privacy & security → Device encryption (or BitLocker on Pro). Windows Home without device encryption has no switch for this at all.' }
+        'ru:bl_off'  { return 'выключен — весь системный диск открыт любому, кто держит этот компьютер, и до включения остальные строки не имеют смысла: «Параметры» → «Конфиденциальность и защита» → «Шифрование устройства» (или BitLocker на Pro). У Windows Home без шифрования устройства такого переключателя нет вовсе.' }
+        'en:bl_na'   { return 'could not read the BitLocker state (it is in between — encrypting, decrypting, suspended — or this console has no rights to ask) — treat the drive as plaintext until you have checked: manage-bde -status C: from an administrator console.' }
+        'ru:bl_na'   { return 'состояние BitLocker прочитать не удалось (оно промежуточное — шифруется, расшифровывается, приостановлено — или у этой консоли нет прав спросить) — считай диск открытым, пока не проверишь: manage-bde -status C: из консоли администратора.' }
+
+        'en:pf'      { return 'Pagefile' }                    'ru:pf' { return 'Файл подкачки' }
+        'en:pf_enc'  { return 'encrypted (EncryptPagingFile) — plaintext paged out of RAM lands there as ciphertext.' }
+        'ru:pf_enc'  { return 'зашифрован (EncryptPagingFile) — то, что выгрузили из памяти, попадает туда шифротекстом.' }
+        'en:pf_bl'   { return 'sits on the BitLocker-protected system drive — whatever was paged out of RAM is ciphertext while the PC is off. While it runs, anything with administrator rights can read it.' }
+        'ru:pf_bl'   { return 'лежит на системном диске под BitLocker — всё, что выгрузили из памяти, у выключенного компьютера шифротекст. Пока он работает, файл может прочитать любой процесс с правами администратора.' }
+        'en:pf_pt'   { return 'not encrypted — anything that was in RAM while you worked, a typed secret included, can sit in pagefile.sys in the clear. No userland tool reaches in there; the lever is BitLocker, a system setting none of these tools flips for you.' }
+        'ru:pf_pt'   { return 'не зашифрован — всё, что было в памяти во время работы, включая набранный секрет, может лежать в pagefile.sys открытым текстом. Из пользовательского режима туда не дотянуться; рычаг — BitLocker, системная настройка, которую ни один из инструментов за тебя не переключает.' }
+        'en:pf_na'   { return 'could not tell whether the pagefile is protected (the BitLocker state is unknown) — assume it is not.' }
+        'ru:pf_na'   { return 'понять, защищён ли файл подкачки, не удалось (состояние BitLocker неизвестно) — считай, что нет.' }
+
+        'en:vss'      { return 'Volume Shadow Copies' }       'ru:vss' { return 'Теневые копии (VSS)' }
+        'en:vss_none' { return 'none on this machine right now.' }
+        'ru:vss_none' { return 'сейчас их нет.' }
+        'en:vss_some' { return ('{0} on this machine. A file that sat outside the vault when one was taken is still inside it in full — and a single file cannot be taken out of a shadow copy, only whole copies go (vssadmin delete shadows, from an administrator console), together with the restore point they are for.' -f $A) }
+        'ru:vss_some' { return ('их {0}. Файл, лежавший вне сейфа в момент снимка, всё ещё внутри целиком — и вынуть из теневой копии один файл нельзя, удаляются только копии целиком (vssadmin delete shadows, из консоли администратора), вместе с точкой восстановления.' -f $A) }
+        'en:vss_na'   { return 'could not count them: Windows lists shadow copies to administrators only, and without rights it answers with an empty list. Do not read that as "none" — run this report from an administrator console to know.' }
+        'ru:vss_na'   { return 'посчитать не удалось: Windows показывает теневые копии только администраторам, а без прав отвечает пустым списком. Это не то же самое, что «их нет» — запусти отчёт из консоли администратора, чтобы знать.' }
+
+        'en:srch'     { return 'Windows Search index' }       'ru:srch' { return 'Индекс Windows Search' }
+        'en:srch_off' { return 'the indexing service is not running.' }
+        'ru:srch_off' { return 'служба индексации не запущена.' }
+        'en:srch_on'  { return 'running — names and content of files indexed while they were outside the vault are in the index, and stopping the service now does not remove what is already in it. vaultwatch keeps an open vault out of future indexing; the past is past.' }
+        'ru:srch_on'  { return 'работает — имена и содержимое файлов, попавших в индекс, пока они лежали вне сейфа, уже там, и остановка службы сейчас их оттуда не убирает. vaultwatch держит открытый сейф вне будущей индексации; прошлое остаётся прошлым.' }
+        'en:srch_na'  { return 'could not read the state of the indexing service (WSearch).' }
+        'ru:srch_na'  { return 'состояние службы индексации (WSearch) прочитать не удалось.' }
+
+        'en:od'       { return 'OneDrive' }                   'ru:od' { return 'OneDrive' }
+        'en:od_none'  { return 'not set up on this account.' }
+        'ru:od_none'  { return 'на этой учётной записи не настроен.' }
+        'en:od_on'    { return 'in use — anything you put in the OneDrive folder has left this PC, and no command here reaches the copy on the server or on your other devices.' }
+        'ru:od_on'    { return 'используется — всё, что попало в папку OneDrive, уже ушло с этого компьютера, и ни одна здешняя команда не дотянется до копии на сервере и на других устройствах.' }
+        'en:od_kfm'   { return ('in use, and {0} live inside it — a file dropped there for a minute was uploaded within that minute. No command here reaches the copy on the server or on your other devices.' -f $A) }
+        'ru:od_kfm'   { return ('используется, причём {0} лежат внутри него — файл, брошенный туда на минуту, за эту минуту уехал наверх. Ни одна здешняя команда до копии на сервере и на других устройствах не дотянется.' -f $A) }
+        'en:od_desk'  { return 'the Desktop' }                'ru:od_desk' { return 'Рабочий стол' }
+        'en:od_docs'  { return 'Documents' }                  'ru:od_docs' { return 'Документы' }
+        'en:od_and'   { return ' and ' }                      'ru:od_and'  { return ' и ' }
+
+        'en:hist'      { return 'PowerShell history' }        'ru:hist' { return 'История PowerShell' }
+        'en:hist_none' { return 'no PSReadLine history file found.' }
+        'ru:hist_none' { return 'файла истории PSReadLine не нашёл.' }
+        'en:hist_some' { return ('{0} commands kept in plaintext ({1}). A secret ever pasted into a command line is in there verbatim; the file is readable by anything running as you. Clearing it is yours to do — the launcher will not wipe your history for you.' -f $A, $B) }
+        'ru:hist_some' { return ('команд в открытом виде: {0} ({1}). Секрет, однажды вставленный в командную строку, лежит там дословно, и файл читает всё, что запущено от твоего имени. Чистить — твоё решение: лаунчер историю за тебя не стирает.' -f $A, $B) }
+
+        'en:clip'       { return 'Clipboard' }                'ru:clip' { return 'Буфер обмена' }
+        'en:clip_off'   { return 'clipboard history (Win+V) is off — Windows keeps only the last copy.' }
+        'ru:clip_off'   { return 'журнал буфера (Win+V) выключен — Windows держит только последнюю копию.' }
+        'en:clip_hist'  { return 'clipboard history (Win+V) is on — every copy you made, not just the last one, including anything copied out of the vault. Clear it: Win+V → Clear all (pinned items stay; unpin them first), or turn it off in Settings → System → Clipboard. panic now clears it too.' }
+        'ru:clip_hist'  { return 'журнал буфера (Win+V) включён — там всё, что ты копировал, а не только последнее, включая скопированное из сейфа. Очистить: Win+V → «Очистить всё» (закреплённые остаются — сначала открепи), или выключить в «Параметры» → «Система» → «Буфер обмена». panic now тоже его чистит.' }
+        'en:clip_cloud' { return 'clipboard history syncs across devices (Cloud Clipboard) — what you copied has gone to your Microsoft account and your other devices, and no command here reaches those copies. Turn it off in Settings → System → Clipboard so the next copy stays here.' }
+        'ru:clip_cloud' { return 'журнал буфера синхронизируется между устройствами (облачный буфер) — скопированное ушло в учётную запись Microsoft и на другие устройства, и ни одна здешняя команда до тех копий не дотянется. Выключи в «Параметры» → «Система» → «Буфер обмена», чтобы следующая копия осталась здесь.' }
+
+        'en:np'      { return 'Notepad unsaved tabs' }        'ru:np' { return 'Несохранённые вкладки «Блокнота»' }
+        'en:np_none' { return 'none held on disk.' }
+        'ru:np_none' { return 'на диске их нет.' }
+        'en:np_some' { return ('{0} held on disk (TabState) with their full text, surviving reboots — a standard forensic artifact. Close them in Notepad, or turn off Settings → Opening files → Open content from the previous session. Nothing here deletes them: they hold your other notes too.' -f $A) }
+        'ru:np_some' { return ('на диске их {0} (TabState), с полным текстом, и они переживают перезагрузку — стандартный форензик-артефакт. Закрой их в «Блокноте» или выключи «Параметры» → «Открытие файлов» → «Открывать содержимое предыдущего сеанса». Отсюда их никто не удаляет: там же лежат твои другие заметки.' -f $A) }
+        'en:np_na'   { return 'could not read the Notepad package folder.' }
+        'ru:np_na'   { return 'папку пакета «Блокнота» прочитать не удалось.' }
+
+        'en:disk'     { return 'Overwriting on this disk' }   'ru:disk' { return 'Перезапись на этом диске' }
+        'en:disk_ssd' { return 'SSD — overwriting a file in place does not reliably destroy the old copy: wear levelling has already moved blocks the controller will not let anyone address. And on NTFS a file under roughly 700 bytes — a seed phrase, a key — lives inside its MFT record, which cipher /w never touches. The real answer is to create the secret inside the vault, never outside it.' }
+        'ru:disk_ssd' { return 'SSD — перезапись файла на месте не уничтожает старую копию надёжно: выравнивание износа уже увело блоки, к которым контроллер никого не пустит. А на NTFS файл меньше ~700 байт — seed-фраза, ключ — живёт прямо в своей записи MFT, куда cipher /w не заходит. Настоящий ответ — создавать секрет внутри сейфа, а не снаружи.' }
+        'en:disk_hdd' { return 'not an SSD — overwriting in place does what it says, except for one case: on NTFS a file under roughly 700 bytes — a seed phrase, a key — lives inside its MFT record, and cipher /w never touches the MFT. The answer for those is to create them inside the vault.' }
+        'ru:disk_hdd' { return 'не SSD — перезапись на месте делает то, что обещает, кроме одного случая: на NTFS файл меньше ~700 байт — seed-фраза, ключ — живёт прямо в записи MFT, а cipher /w MFT не трогает. Для таких файлов ответ — создавать их внутри сейфа.' }
+        'en:disk_na'  { return 'could not read the disk type — assume SSD, it is the common case.' }
+        'ru:disk_na'  { return 'тип диска прочитать не удалось — считай, что SSD: так чаще всего и есть.' }
+
+        'en:vlt'        { return 'Vault' }                    'ru:vlt' { return 'Сейф' }
+        'en:vlt_none'   { return 'not created yet. Everything above describes a machine where secrets live as ordinary files; the vault is the part that ends that. Create it: paranoid → Vault.' }
+        'ru:vlt_none'   { return 'ещё не создан. Всё выше описывает машину, где секреты лежат обычными файлами; сейф — это то, что прекращает такое. Создать: paranoid → Сейф.' }
+        'en:vlt_closed' { return 'created and closed — its contents are ciphertext right now.' }
+        'ru:vlt_closed' { return 'создан и закрыт — его содержимое сейчас шифротекст.' }
+        'en:vlt_open'   { return 'open right now. While it is open its files are ordinary files: indexable, shadow-copied, copyable. Close it when you are done: paranoid → Vault.' }
+        'ru:vlt_open'   { return 'сейчас открыт. Пока он открыт, его файлы — обычные файлы: их индексируют, захватывают теневые копии, копируют. Закрой, когда закончишь: paranoid → Сейф.' }
+        'en:vlt_na'     { return 'state could not be determined (the volume table could not be read).' }
+        'ru:vlt_na'     { return 'состояние определить не удалось (таблица томов недоступна).' }
+        default { return $Key }
+    }
+}
+
+# --- probe seams (each wraps one system call for Mock; none of them changes anything) ---
+
+# One registry value, or $null when the key or the value is absent.
+function Get-PnRegValue {
+    param([string]$Path, [string]$Name)
+    try { return (Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction Stop).$Name } catch { return $null }
+}
+# Shadow copies: a count, or 'unknown'. Mirror of securetrash's Get-StSnapshotCount — without
+# administrator rights the VSS provider returns an EMPTY list rather than an error, and counting
+# that as "none" would be lying in the most dangerous direction.
+function Get-PnShadowCount {
+    if ((Get-PnAdminState) -ne 'yes') { return 'unknown' }
+    try { return @(Get-CimInstance -ClassName Win32_ShadowCopy -OperationTimeoutSec 10 -ErrorAction Stop).Count }
+    catch { return 'unknown' }
+}
+function Get-PnSearchState {
+    try {
+        $s = Get-Service -Name 'WSearch' -ErrorAction Stop
+        if ("$($s.Status)" -eq 'Running') { return 'on' } else { return 'off' }
+    } catch { return 'unknown' }
+}
+function Get-PnKnownFolder { param([string]$Name) try { return [Environment]::GetFolderPath($Name) } catch { return '' } }
+# PSReadLine keeps one history file per host (ConsoleHost_history.txt, the VS Code host's, ...).
+function Get-PnHistoryFiles {
+    if (-not $env:APPDATA) { return @() }
+    $dir = Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine'
+    if (-not (Test-Path -LiteralPath $dir)) { return @() }
+    return @(Get-ChildItem -LiteralPath $dir -File -Filter '*_history.txt' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+}
+# Mirror of panic's Get-PnNotepadTabStateCount: 0 = none / feature off, -1 = could not read.
+function Get-PnNotepadTabCount {
+    try {
+        if (-not $env:LOCALAPPDATA) { return 0 }
+        $pkg = Join-Path $env:LOCALAPPDATA 'Packages'
+        if (-not (Test-Path -LiteralPath $pkg)) { return 0 }
+        $n = 0
+        foreach ($d in @(Get-ChildItem -LiteralPath $pkg -Directory -Force -ErrorAction Stop |
+                         Where-Object { $_.Name -like 'Microsoft.WindowsNotepad_*' })) {
+            $ts = Join-Path $d.FullName 'LocalState\TabState'
+            if (-not (Test-Path -LiteralPath $ts)) { continue }
+            $n += @(Get-ChildItem -LiteralPath $ts -File -Force -Filter '*.bin' -ErrorAction SilentlyContinue).Count
+        }
+        return $n
+    } catch { return -1 }
+}
+# Mirror of securetrash's Get-StDiskKind: an unspecified MediaType is 'unknown', never 'hdd'.
+function Get-PnDiskKind {
+    try {
+        $kinds = @(Get-PhysicalDisk -ErrorAction Stop | ForEach-Object { "$($_.MediaType)" })
+        if ($kinds -contains 'SSD') { return 'ssd' }
+        if ($kinds -contains 'HDD') { return 'hdd' }
+        return 'unknown'
+    } catch { return 'unknown' }
+}
+
+# --- the rows, in reading order: what protects the disk, what keeps copies, what you typed,
+# and finally the vault — the answer to most of the lines above ---
+function Get-PnExposureRows {
+    $rows = New-Object System.Collections.ArrayList
+    function Add-Row([string]$Id, [string]$State, [string]$TitleKey, [string]$Detail) {
+        [void]$rows.Add([pscustomobject]@{ id = $Id; state = $State; title = (Get-PnExpText $TitleKey); detail = $Detail })
+    }
+
+    $bl = Get-PnBitLockerState
+    switch ($bl) {
+        'on'    { Add-Row 'bitlocker' 'clear'  'bl' (Get-PnExpText 'bl_on') }
+        'off'   { Add-Row 'bitlocker' 'action' 'bl' (Get-PnExpText 'bl_off') }
+        default { Add-Row 'bitlocker' 'stuck'  'bl' (Get-PnExpText 'bl_na') }
+    }
+
+    # The pagefile lives on the system drive, so BitLocker covers it at rest. EncryptPagingFile
+    # (`fsutil behavior set EncryptPagingFile 1`) is the other way to the same place.
+    $epf = Get-PnRegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' 'NtfsEncryptPagingFile'
+    if ("$epf" -eq '1')    { Add-Row 'pagefile' 'clear' 'pf' (Get-PnExpText 'pf_enc') }
+    elseif ($bl -eq 'on')  { Add-Row 'pagefile' 'clear' 'pf' (Get-PnExpText 'pf_bl') }
+    elseif ($bl -eq 'off') { Add-Row 'pagefile' 'stuck' 'pf' (Get-PnExpText 'pf_pt') }
+    else                   { Add-Row 'pagefile' 'stuck' 'pf' (Get-PnExpText 'pf_na') }
+
+    $vss = Get-PnShadowCount
+    if ("$vss" -eq 'unknown') { Add-Row 'shadowcopies' 'stuck' 'vss' (Get-PnExpText 'vss_na') }
+    elseif ([int]$vss -gt 0)  { Add-Row 'shadowcopies' 'stuck' 'vss' (Get-PnExpText 'vss_some' "$vss") }
+    else                      { Add-Row 'shadowcopies' 'clear' 'vss' (Get-PnExpText 'vss_none') }
+
+    switch (Get-PnSearchState) {
+        'on'    { Add-Row 'search' 'stuck' 'srch' (Get-PnExpText 'srch_on') }
+        'off'   { Add-Row 'search' 'clear' 'srch' (Get-PnExpText 'srch_off') }
+        default { Add-Row 'search' 'stuck' 'srch' (Get-PnExpText 'srch_na') }
+    }
+
+    # OneDrive sets these for the signed-in accounts. Known Folder Move shows up as the Desktop
+    # or Documents path resolving INSIDE one of them.
+    $odRoots = @($env:OneDrive, $env:OneDriveConsumer, $env:OneDriveCommercial | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\') } | Select-Object -Unique)
+    if ($odRoots.Count -eq 0) { Add-Row 'onedrive' 'clear' 'od' (Get-PnExpText 'od_none') }
+    else {
+        $moved = @()
+        foreach ($f in @(@('Desktop', 'od_desk'), @('MyDocuments', 'od_docs'))) {
+            $p = Get-PnKnownFolder $f[0]
+            foreach ($r in $odRoots) { if ($p -and $p.StartsWith("$r\", [StringComparison]::OrdinalIgnoreCase)) { $moved += (Get-PnExpText $f[1]); break } }
+        }
+        if ($moved.Count -gt 0) { Add-Row 'onedrive' 'stuck' 'od' (Get-PnExpText 'od_kfm' ($moved -join (Get-PnExpText 'od_and'))) }
+        else                    { Add-Row 'onedrive' 'stuck' 'od' (Get-PnExpText 'od_on') }
+    }
+
+    $total = 0; $names = @()
+    foreach ($h in (Get-PnHistoryFiles)) {
+        $n = 0
+        try { $n = @(Get-Content -LiteralPath $h -ErrorAction Stop).Count } catch { }
+        if ($n -le 0) { continue }
+        $total += $n
+        $names += ($h -replace [regex]::Escape("$env:APPDATA"), '%APPDATA%')
+    }
+    if ($total -gt 0) { Add-Row 'history' 'action' 'hist' (Get-PnExpText 'hist_some' "$total" ($names -join ', ')) }
+    else              { Add-Row 'history' 'clear'  'hist' (Get-PnExpText 'hist_none') }
+
+    # Absent values are the Windows defaults: history off, cloud sync off.
+    $clipKey = 'HKCU:\Software\Microsoft\Clipboard'
+    if ("$(Get-PnRegValue $clipKey 'EnableCloudClipboard')" -eq '1')       { Add-Row 'clipboard' 'stuck'  'clip' (Get-PnExpText 'clip_cloud') }
+    elseif ("$(Get-PnRegValue $clipKey 'EnableClipboardHistory')" -eq '1') { Add-Row 'clipboard' 'action' 'clip' (Get-PnExpText 'clip_hist') }
+    else                                                                    { Add-Row 'clipboard' 'clear'  'clip' (Get-PnExpText 'clip_off') }
+
+    $tabs = Get-PnNotepadTabCount
+    if ($tabs -lt 0)     { Add-Row 'notepad' 'stuck'  'np' (Get-PnExpText 'np_na') }
+    elseif ($tabs -gt 0) { Add-Row 'notepad' 'action' 'np' (Get-PnExpText 'np_some' "$tabs") }
+    else                 { Add-Row 'notepad' 'clear'  'np' (Get-PnExpText 'np_none') }
+
+    # Stuck on either disk kind: the MFT-resident case holds on NTFS whatever is under it.
+    switch (Get-PnDiskKind) {
+        'ssd'   { Add-Row 'disk' 'stuck' 'disk' (Get-PnExpText 'disk_ssd') }
+        'hdd'   { Add-Row 'disk' 'stuck' 'disk' (Get-PnExpText 'disk_hdd') }
+        default { Add-Row 'disk' 'stuck' 'disk' (Get-PnExpText 'disk_na') }
+    }
+
+    switch (Get-PnVaultState) {
+        'open'   { Add-Row 'vault' 'action' 'vlt' (Get-PnExpText 'vlt_open') }
+        'closed' { Add-Row 'vault' 'clear'  'vlt' (Get-PnExpText 'vlt_closed') }
+        'none'   { Add-Row 'vault' 'action' 'vlt' (Get-PnExpText 'vlt_none') }
+        default  { Add-Row 'vault' 'stuck'  'vlt' (Get-PnExpText 'vlt_na') }
+    }
+    return , $rows.ToArray()
+}
+
+function Get-PnExposureSummary {
+    param([object[]]$Rows)
+    $c = @{ clear = 0; action = 0; stuck = 0 }
+    foreach ($r in $Rows) { $c[$r.state]++ }
+    return $c
+}
+
+function Get-PnExposureJson {
+    param([object[]]$Rows)
+    $s = Get-PnExposureSummary $Rows
+    return ([ordered]@{
+        tool = 'paranoid'; report = 'exposure'; version = $PARANOID_VERSION; platform = 'windows'
+        rows = @($Rows | ForEach-Object { [ordered]@{ id = $_.id; state = $_.state; title = $_.title; detail = $_.detail } })
+        summary = [ordered]@{ clear = $s.clear; action = $s.action; stuck = $s.stuck }
+    } | ConvertTo-Json -Depth 4 -Compress)
+}
+
+# Word-wrap by characters. PowerShell strings count UTF-16 units, so Cyrillic wraps at the
+# width the console shows (the reason the macOS twin avoids `fold`).
+function Format-PnWrap {
+    param([string]$Text, [string]$Indent = '    ', [int]$Width = 76)
+    $out = @(); $line = ''
+    foreach ($w in ($Text -split ' ' | Where-Object { $_ })) {
+        if (-not $line) { $line = $w }
+        elseif (($line.Length + 1 + $w.Length) -le $Width) { $line = "$line $w" }
+        else { $out += "$Indent$line"; $line = $w }
+    }
+    if ($line) { $out += "$Indent$line" }
+    return $out
+}
+
+function Get-PnExposureText {
+    param([object[]]$Rows)
+    $lines = @('', "  $(Get-PnExpText 'title')", "  $(Get-PnExpText 'sub')", '')
+    foreach ($r in $Rows) {
+        $sym = switch ($r.state) { 'clear' { '✓' } 'action' { '→' } default { '✕' } }
+        $lines += "  $sym $($r.title)"
+        $lines += (Format-PnWrap $r.detail)
+        $lines += ''
+    }
+    $s = Get-PnExposureSummary $Rows
+    $lines += "  $(Get-PnExpText 'sum' "$($s.clear)" "$($s.action)" "$($s.stuck)")"
+    $lines += "  $(Get-PnExpText 'closing')"
+    $lines += ''
+    return ($lines -join [Environment]::NewLine)
+}
+
+# The report as one string, or $null on an unknown option (named on stderr).
+function Get-PnExposure {
+    param([string[]]$ExpArgs = @())
+    $json = $false
+    foreach ($a in $ExpArgs) {
+        if ($a -eq '--json') { $json = $true }
+        else { [Console]::Error.WriteLine("exposure: unknown option: $a"); return $null }
+    }
+    $rows = Get-PnExposureRows
+    if ($json) { return (Get-PnExposureJson $rows) }
+    return (Get-PnExposureText $rows)
+}
+
 function Get-PnUsage {
     return @"
 paranoid $PARANOID_VERSION — interactive launcher for the Paranoid Tools ecosystem (Windows).
 
 Usage: paranoid            launch the interactive dashboard
+       paranoid exposure   report where a copy of a secret may already be on this PC
+                           (read-only; --json for the same report as data)
        paranoid version    print the version
        paranoid help       show this help
 
 A thin launcher over the five PowerShell ports (securetrash, vaultwatch, panic,
 seedsplit, ghostdraft). It holds no secrets and adds no crypto — it runs the same
-signed tools and shows their output (limits and verdicts included) unaltered.
+signed tools and shows their output (limits and verdicts included) unaltered. The one
+exception is exposure, which reads this machine's own state and reports it.
 "@
 }
 
@@ -1129,6 +1448,13 @@ function Invoke-PnMain {
     switch ($cmd) {
         { $_ -in 'version', '-v', '--version' } { Write-Output "paranoid $PARANOID_VERSION"; return }
         { $_ -in 'help', '-h', '--help' }       { Write-Output (Get-PnUsage); return }
+        'exposure' {
+            $expArgs = @(if ($Argv.Count -ge 2) { $Argv[1..($Argv.Count - 1)] } else { @() })
+            $report = Get-PnExposure -ExpArgs $expArgs
+            if ($null -eq $report) { exit 1 }
+            Write-Output $report
+            return
+        }
         # Internal: this is the launcher re-entered through UAC by Invoke-PnToolElevated. It
         # runs exactly one tool command and then waits, so the window does not vanish with its
         # output — and so the vault password can be typed into it.

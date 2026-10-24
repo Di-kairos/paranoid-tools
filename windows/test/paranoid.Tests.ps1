@@ -939,6 +939,13 @@ Describe 'CLI surface (child pwsh)' {
         $out = & pwsh -NoProfile -File $script:ScriptPath version
         ($out -join "`n") | Should -Match 'paranoid 0\.1\.0'
     }
+    It 'exposure --json prints valid JSON, and a bad option exits non-zero' {
+        $out = & pwsh -NoProfile -File $script:ScriptPath exposure --json
+        $LASTEXITCODE | Should -Be 0
+        (($out -join "`n") | ConvertFrom-Json).report | Should -Be 'exposure'
+        & pwsh -NoProfile -File $script:ScriptPath exposure --nope *> $null
+        $LASTEXITCODE | Should -Not -Be 0
+    }
     It 'exits non-zero on an unknown command' {
         & pwsh -NoProfile -File $script:ScriptPath bogus *> $null
         $LASTEXITCODE | Should -Not -Be 0
@@ -1028,5 +1035,143 @@ Describe 'the launcher starts the tray' {
         $m = [regex]::Match($tray, "(?m)^\`$PtTrayMutexName = '([^']+)'")
         $m.Success | Should -BeTrue
         $m.Groups[1].Value | Should -Be $script:PN_TRAY_MUTEX
+    }
+}
+
+# --- paranoid exposure: the read-only report (mirror of the macOS one, test/paranoid.bats) ---
+Describe 'paranoid exposure' {
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        # A clean machine: BitLocker on, no shadow copies, Search off, no OneDrive, no history,
+        # clipboard history off, no Notepad tabs, SSD, vault closed. Each test flips one seam.
+        Mock Get-PnBitLockerState { 'on' }
+        Mock Get-PnRegValue { $null }
+        Mock Get-PnShadowCount { 0 }
+        Mock Get-PnSearchState { 'off' }
+        Mock Get-PnKnownFolder { 'C:\Users\u\Desktop' }
+        Mock Get-PnHistoryFiles { @() }
+        Mock Get-PnNotepadTabCount { 0 }
+        Mock Get-PnDiskKind { 'ssd' }
+        Mock Get-PnVaultState { 'closed' }
+        Mock Invoke-PnTool { }
+        $script:savedOd = @($env:OneDrive, $env:OneDriveConsumer, $env:OneDriveCommercial)
+        Remove-Item Env:\OneDrive, Env:\OneDriveConsumer, Env:\OneDriveCommercial -ErrorAction SilentlyContinue
+    }
+    AfterEach {
+        $env:OneDrive = $script:savedOd[0]; $env:OneDriveConsumer = $script:savedOd[1]; $env:OneDriveCommercial = $script:savedOd[2]
+    }
+
+    It 'reports the ten channels THREAT-MODEL.md maps, in order' {
+        (Get-PnExposureRows).id | Should -Be @('bitlocker', 'pagefile', 'shadowcopies', 'search', 'onedrive',
+            'history', 'clipboard', 'notepad', 'disk', 'vault')
+    }
+    It 'runs no ecosystem tool: asking for the report cannot change the machine' {
+        Get-PnExposure | Out-Null
+        Should -Invoke Invoke-PnTool -Times 0 -Exactly
+    }
+    It 'every row is one of the three states' {
+        (Get-PnExposureRows).state | ForEach-Object { $_ | Should -BeIn @('clear', 'action', 'stuck') }
+    }
+    It 'BitLocker off is something you can still fix, and the pagefile goes plaintext with it' {
+        Mock Get-PnBitLockerState { 'off' }
+        $r = Get-PnExposureRows
+        ($r | Where-Object id -eq 'bitlocker').state | Should -Be 'action'
+        ($r | Where-Object id -eq 'pagefile').state | Should -Be 'stuck'
+        ($r | Where-Object id -eq 'pagefile').detail | Should -Match 'pagefile.sys in the clear'
+    }
+    It 'EncryptPagingFile clears the pagefile even without BitLocker' {
+        Mock Get-PnBitLockerState { 'off' }
+        Mock Get-PnRegValue { 1 } -ParameterFilter { $Name -eq 'NtfsEncryptPagingFile' }
+        ((Get-PnExposureRows) | Where-Object id -eq 'pagefile').state | Should -Be 'clear'
+    }
+    # Silence must not look like safety.
+    It 'an unreadable state is "could not", never clear' {
+        Mock Get-PnBitLockerState { 'unknown' }
+        Mock Get-PnShadowCount { 'unknown' }
+        Mock Get-PnSearchState { 'unknown' }
+        Mock Get-PnNotepadTabCount { -1 }
+        Mock Get-PnDiskKind { 'unknown' }
+        Mock Get-PnVaultState { 'unknown' }
+        $r = Get-PnExposureRows
+        foreach ($id in 'bitlocker', 'pagefile', 'shadowcopies', 'search', 'notepad', 'disk', 'vault') {
+            ($r | Where-Object id -eq $id).state | Should -Be 'stuck' -Because $id
+        }
+        ($r | Where-Object id -eq 'shadowcopies').detail | Should -Match 'administrators only'
+    }
+    It 'counts shadow copies and names them as unreachable' {
+        Mock Get-PnShadowCount { 3 }
+        $row = (Get-PnExposureRows) | Where-Object id -eq 'shadowcopies'
+        $row.state | Should -Be 'stuck'
+        $row.detail | Should -Match '^3 on this machine'
+    }
+    It 'OneDrive with the Desktop moved into it says the file left within the minute' {
+        $env:OneDrive = 'C:\Users\u\OneDrive'
+        Mock Get-PnKnownFolder { 'C:\Users\u\OneDrive\Desktop' } -ParameterFilter { $Name -eq 'Desktop' }
+        $row = (Get-PnExposureRows) | Where-Object id -eq 'onedrive'
+        $row.state | Should -Be 'stuck'
+        $row.detail | Should -Match 'the Desktop live inside it'
+        $row.detail | Should -Not -Match 'Documents'
+    }
+    It 'OneDrive in use without moved folders is still a copy off this PC' {
+        $env:OneDrive = 'C:\Users\u\OneDrive'
+        ((Get-PnExposureRows) | Where-Object id -eq 'onedrive').detail | Should -Match '^in use — anything you put'
+    }
+    It 'PowerShell history is counted across files' {
+        $dir = Join-Path $TestDrive 'psrl'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'ConsoleHost_history.txt') -Value @('a', 'b', 'c')
+        Set-Content -LiteralPath (Join-Path $dir 'Code_history.txt') -Value @('d')
+        Mock Get-PnHistoryFiles { @((Join-Path $dir 'ConsoleHost_history.txt'), (Join-Path $dir 'Code_history.txt')) }
+        $row = (Get-PnExposureRows) | Where-Object id -eq 'history'
+        $row.state | Should -Be 'action'
+        $row.detail | Should -Match '^4 commands kept in plaintext'
+    }
+    It 'cloud clipboard outranks local history: a synced copy cannot be taken back' {
+        Mock Get-PnRegValue { 1 } -ParameterFilter { $Name -in 'EnableCloudClipboard', 'EnableClipboardHistory' }
+        ((Get-PnExposureRows) | Where-Object id -eq 'clipboard').state | Should -Be 'stuck'
+    }
+    It 'local clipboard history is something you can still clear' {
+        Mock Get-PnRegValue { 1 } -ParameterFilter { $Name -eq 'EnableClipboardHistory' }
+        $row = (Get-PnExposureRows) | Where-Object id -eq 'clipboard'
+        $row.state | Should -Be 'action'
+        $row.detail | Should -Match 'Win\+V'
+    }
+    It 'unsaved Notepad tabs are counted and left alone' {
+        Mock Get-PnNotepadTabCount { 2 }
+        $row = (Get-PnExposureRows) | Where-Object id -eq 'notepad'
+        $row.state | Should -Be 'action'
+        $row.detail | Should -Match '^2 held on disk'
+    }
+    It 'an open vault is an action; a missing one too' {
+        Mock Get-PnVaultState { 'open' }
+        ((Get-PnExposureRows) | Where-Object id -eq 'vault').state | Should -Be 'action'
+        Mock Get-PnVaultState { 'none' }
+        ((Get-PnExposureRows) | Where-Object id -eq 'vault').state | Should -Be 'action'
+    }
+    It '--json carries ten rows and a summary that adds up' {
+        $j = Get-PnExposure -ExpArgs @('--json') | ConvertFrom-Json
+        $j.report | Should -Be 'exposure'
+        $j.platform | Should -Be 'windows'
+        @($j.rows).Count | Should -Be 10
+        ($j.summary.clear + $j.summary.action + $j.summary.stuck) | Should -Be 10
+    }
+    It 'rejects an unknown option' {
+        Get-PnExposure -ExpArgs @('--nope') 2>$null | Should -BeNullOrEmpty
+    }
+    It 'the text report carries the title, every row and the summary' {
+        $t = Get-PnExposure
+        $t | Should -Match 'PARANOID EXPOSURE'
+        $t | Should -Match 'Volume Shadow Copies'
+        $t | Should -Match '\d+ clear · \d+ you can still fix · \d+ cannot be taken back'
+    }
+    It 'renders in Russian' {
+        $script:PN_LOCALE = 'ru'
+        $t = Get-PnExposure
+        $t | Should -Match 'где на этом компьютере уже может лежать копия секрета'
+        $t | Should -Match 'Теневые копии \(VSS\)'
+    }
+    It 'wraps by characters, so Cyrillic lines stay within the width' {
+        $lines = Format-PnWrap ('слово ' * 40) '    ' 30
+        $lines | ForEach-Object { $_.Length | Should -BeLessOrEqual 34 }
     }
 }
