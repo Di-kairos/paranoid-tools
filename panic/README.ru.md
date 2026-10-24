@@ -21,7 +21,7 @@ Kill-switch в один шаг — всё с экрана, vault'ы заперт
 Checksum-verified установка с релизного тега — verify-then-run (не доверяй — проверяй):
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.18
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.19
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -35,7 +35,7 @@ bash install.sh                                  # тянет panic + сумму
 Быстрая форма (одна строка, **пропускает проверку** — выбирай осознанно):
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.18/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.19/install.sh | bash
 ```
 
 `install.sh` тянет бинарь и `SHA256SUMS` из неизменного релизного тега и проверяет хеш
@@ -49,7 +49,7 @@ curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v
 > этом репо; без проверки установщик отказывает (см. `SECURITY.md`). Остаточный риск —
 > один проектный ключ на все пять тулов, см.
 > [модель угроз](../THREAT-MODEL.ru.md). Зафиксируй конкретную
-> версию через `PANIC_VERSION=0.1.18` вместо `latest` для воспроизводимости.
+> версию через `PANIC_VERSION=0.1.19` вместо `latest` для воспроизводимости.
 
 ## Использование
 

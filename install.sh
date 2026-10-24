@@ -147,7 +147,7 @@ tool_version_for() {
   case "$1" in
     securetrash) echo "0.5.8" ;;
     vaultwatch)  echo "0.1.17" ;;
-    panic)       echo "0.1.18" ;;
+    panic)       echo "0.1.19" ;;
     ghostdraft)  echo "0.1.20" ;;
     seedsplit)   echo "0.5.8" ;;
   esac

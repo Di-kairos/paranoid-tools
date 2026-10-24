@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.1.19] — 2026-10-24
+
 ### Added
 - **Хоткей паники в трее Windows — `Ctrl+Alt+P` дважды (s48, решение Di-kairos).** «Четыре клавиши
   одновременно, очень быстро, два раза — слишком большая комбинация»: было `Ctrl+Alt+Shift+P`.
@@ -371,7 +373,8 @@
   `PANIC_SFL_DIR` overrides.
 - Real-device smoke на macOS: `now` распарсил живой `hdiutil info` и размонтировал тест-образ.
 
-[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/panic-v0.1.18...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/panic-v0.1.19...HEAD
+[0.1.19]: https://github.com/Di-kairos/paranoid-tools/compare/panic-v0.1.18...panic-v0.1.19
 [0.1.18]: https://github.com/Di-kairos/paranoid-tools/compare/panic-v0.1.17...panic-v0.1.18
 [0.1.17]: https://github.com/Di-kairos/paranoid-tools/compare/panic-v0.1.16...panic-v0.1.17
 [0.1.16]: https://github.com/Di-kairos/paranoid-tools/releases/tag/panic-v0.1.16

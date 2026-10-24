@@ -22,7 +22,7 @@ clipboard, and locks the screen.
 Checksum-verified install from the release tag — verify-then-run (don't trust, verify):
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.18
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.19
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -36,7 +36,7 @@ bash install.sh                                  # pulls panic + checksum, verif
 Quick form (one line, **skips verification** — choose deliberately):
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.18/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/panic-v0.1.19/install.sh | bash
 ```
 
 `install.sh` pulls the binary and `SHA256SUMS` from the immutable release tag (not the
@@ -51,7 +51,7 @@ moving `main` branch) and verifies the hash **before** installing. Environment v
 > against a key pinned in this repo, and the installer fails closed when it can't (see
 > `SECURITY.md`). Residual risk: one project key signs all five tools — see the ecosystem
 > [threat model](../THREAT-MODEL.md). Pin a
-> specific version with `PANIC_VERSION=0.1.18` instead of `latest` for reproducibility.
+> specific version with `PANIC_VERSION=0.1.19` instead of `latest` for reproducibility.
 
 ## Usage
 

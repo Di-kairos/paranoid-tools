@@ -16,7 +16,7 @@
 # BETA: logic is covered by Pester (system primitives are mocked); behavior on real hardware with
 # exotic locales/BitLocker/VeraCrypt configurations is not widely field-tested.
 
-$VERSION = '0.1.18'
+$VERSION = '0.1.19'
 
 # --- configurable primitives (mirror of bash PANIC_*; overridable for tests) ---
 # VeraCrypt CLI process name (on PATH). Cloud daemons and the Recent items directory are below.

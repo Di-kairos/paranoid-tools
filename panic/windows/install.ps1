@@ -31,7 +31,7 @@ $Repo = 'Di-kairos/paranoid-tools'
 # Default release of this tool; kept in lockstep with the panic-vX.Y.Z tag by a
 # release.yml gate. In the monorepo `releases/latest` is the latest release of ANY
 # tool, so nothing here uses `latest` — the tag is always pinned.
-$PANIC_VERSION_DEFAULT = '0.1.18'
+$PANIC_VERSION_DEFAULT = '0.1.19'
 # Source: explicit PANIC_BASE_URL → PANIC_VERSION override → the baked-in default tag.
 if ($env:PANIC_BASE_URL) {
     $BaseUrl = $env:PANIC_BASE_URL
