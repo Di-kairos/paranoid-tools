@@ -37,7 +37,7 @@ printf '%s namespaces="file" %s\n' "$PRINCIPAL" "$PUB" > "$W/allowed_signers"
 
 PASS=0; FAIL=0
 # Pins of the current release tags (kept in sync with docs/RELEASE-STATE.md).
-for spec in ${PT_VERIFY_SPECS-securetrash:0.5.8 vaultwatch:0.1.17 panic:0.1.19 ghostdraft:0.1.20 seedsplit:0.5.8}; do
+for spec in ${PT_VERIFY_SPECS-securetrash:0.5.9 vaultwatch:0.1.17 panic:0.1.19 ghostdraft:0.1.20 seedsplit:0.5.8}; do
   t="${spec%%:*}"; ver="${spec##*:}"; tag="${t}-v${ver}"; d="$W/$t"; mkdir -p "$d"
   rel="$BASE/$tag"
   printf '%-12s %-20s ' "$t" "$tag"

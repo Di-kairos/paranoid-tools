@@ -33,7 +33,7 @@ Piping an installer straight into `iex` runs code you have not read. Download it
 signed manifest, check it, read it, and only then run it:
 
 ```powershell
-$base = "https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.8"
+$base = "https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.9"
 irm "$base/install.ps1"    -OutFile install.ps1
 irm "$base/SHA256SUMS"     -OutFile SHA256SUMS
 irm "$base/SHA256SUMS.sig" -OutFile SHA256SUMS.sig
@@ -71,7 +71,7 @@ Requires **PowerShell 5.1+** (Windows PowerShell or PowerShell 7).
 | `vault reset [size]` | Empty the vault for real: crypto-shred its contents, then recreate it empty (keeps the container). |
 | `vault status` | Read-only: is the container open (and where it is mounted), closed, or missing. |
 | `vault destroy-old` | Crypto-shreds a container left set aside by an interrupted `reset`. |
-| `version` | `securetrash 0.5.8 (Windows, beta)`. |
+| `version` | `securetrash 0.5.9 (Windows, beta)`. |
 
 Flags: `--yes` skips confirmation prompts (for scripts). `version`/`help` also accept the
 `-v`/`--version` and `-h`/`--help` spellings, same as the macOS version.

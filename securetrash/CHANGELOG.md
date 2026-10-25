@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.5.9] — 2026-10-25
+
 ### Fixed
 - **Windows: `vault open` на подключённом, но ЗАПЕРТОМ контейнере больше не отвечает «Уже
   открыт» (живой прогон, s46–s48).** После паники том заперт, а контейнер остаётся присоединён;
@@ -549,7 +551,8 @@
 - На SSD перезапись (`rm -P`) гарантий НЕ даёт (wear leveling, COW, TRIM) — для секретов
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
-[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.8...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.9...HEAD
+[0.5.9]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.8...securetrash-v0.5.9
 [0.5.8]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.7...securetrash-v0.5.8
 [0.5.7]: https://github.com/Di-kairos/paranoid-tools/releases/tag/securetrash-v0.5.7
 [0.5.5]: https://github.com/Di-kairos/securetrash/compare/v0.5.4...v0.5.5
