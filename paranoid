@@ -67,6 +67,16 @@ t() {
     en:update_avail) echo 'update available:' ;; ru:update_avail) echo 'доступно обновление:' ;;
     en:update_how)   echo 'to update: re-run the installer (git pull && bash install.sh) or brew upgrade' ;;
     ru:update_how)   echo 'обновить: перезапусти установщик (git pull && bash install.sh) или brew upgrade' ;;
+    en:consent_q)    echo 'Check for updates once a day? That is one request to github.com for the list of releases. GitHub sees your IP address, as with any visit; nothing else is sent. You can change this later with item 7 of the menu.' ;;
+    ru:consent_q)    echo 'Проверять обновления раз в сутки? Это один запрос к github.com за списком релизов. GitHub видит твой IP-адрес, как при любом заходе на сайт; больше ничего не отправляется. Поменять можно потом — пункт 7 меню.' ;;
+    en:consent_ask)  echo 'Check for updates? [y/N]' ;;
+    ru:consent_ask)  echo 'Проверять обновления? [y/N]' ;;
+    en:m_updchk_on)  echo 'Update check   on: once a day, one request to github.com' ;;
+    ru:m_updchk_on)  echo 'Автопроверка   вкл: раз в сутки, один запрос к github.com' ;;
+    en:m_updchk_off) echo 'Update check   off' ;;
+    ru:m_updchk_off) echo 'Автопроверка   выкл' ;;
+    en:updchk_env)   echo "PARANOID_UPDATE_CHECK=$2 is set in the environment and overrides this switch — change or remove it there." ;;
+    ru:updchk_env)   echo "В окружении задано PARANOID_UPDATE_CHECK=$2, и оно сильнее этого переключателя — поменяй или убери его там." ;;
     en:m_status)     echo 'Status — full read-only check' ;;
     ru:m_status)     echo 'Статус — полная проверка (только чтение)' ;;
     en:m_panic)      echo 'PANIC NOW — hide & lock everything, hard mode (instant, no confirm)' ;;
@@ -318,12 +328,53 @@ _ver_gt() {
   [[ "$hi" == "$1" ]]
 }
 
+# The launcher's small state: the consent answer and the update cache. ParanoidBar reads both.
+# ponytail: the consent lives in the cache dir next to what it governs; clearing caches makes the
+# launcher ask again, and the answer until then is "off" — the safe side.
+_state_dir() { printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/paranoid-tools"; }
+
+# Consent to the update check: on | off | "" (never asked). PARANOID_UPDATE_CHECK=1/0 overrides
+# the saved answer both ways, so a managed setup can pin it without the file.
+_update_consent() {
+  case "${PARANOID_UPDATE_CHECK:-}" in 1) echo on; return 0 ;; 0) echo off; return 0 ;; esac
+  local v=""
+  [[ -f "$(_state_dir)/update-consent" ]] && v="$(head -n1 "$(_state_dir)/update-consent" 2>/dev/null | tr -d '[:space:]')"
+  case "$v" in on|off) echo "$v" ;; *) echo "" ;; esac
+}
+
+_set_update_consent() {
+  mkdir -p "$(_state_dir)" 2>/dev/null || return 0
+  printf '%s' "$1" >"$(_state_dir)/update-consent" 2>/dev/null || return 0
+  # The cached summary was computed under the previous answer.
+  rm -f "$(_state_dir)/update-check" 2>/dev/null || true
+}
+
+# Asked once, on the first interactive start. Anything but an explicit yes is a no: the network
+# stays off unless the person turns it on. EOF saves nothing, so the question comes back.
+_ask_update_consent() {
+  [[ -z "$(_update_consent)" ]] || return 0
+  local a
+  echo
+  echo "  $(t consent_q)"
+  read -r -p "  $(t consent_ask) " a <&0 || return 0
+  a="$(printf '%s' "$a" | tr '[:upper:]' '[:lower:]')"
+  case "$a" in y|yes|д|да|Д|Да|ДА) _set_update_consent on ;; *) _set_update_consent off ;; esac
+}
+
+# Item 7: flips the saved answer. An environment override would silently win, so we say so.
+_act_update_check() {
+  case "${PARANOID_UPDATE_CHECK:-}" in
+    1|0) echo "  ${C_YEL}$(t updchk_env "$PARANOID_UPDATE_CHECK")${C_RST}"; _pause; return ;;
+  esac
+  if [[ "$(_update_consent)" == on ]]; then _set_update_consent off; else _set_update_consent on; fi
+}
+
 # A "tool inst→latest, …" summary over installed tools whose release is newer. Empty if
-# the check is disabled, everything is fresh, or the network is unavailable. The result is cached for 24h.
+# the check is not consented to, everything is fresh, or the network is unavailable. Cached for 24h.
 _update_summary() {
-  [[ "${PARANOID_UPDATE_CHECK:-0}" == "1" ]] || return 0
+  [[ "$(_update_consent)" == on ]] || return 0
   local cache_dir cache
-  cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/paranoid-tools"
+  cache_dir="$(_state_dir)"
   cache="$cache_dir/update-check"
   # A fresh cache (<24h) is served as-is; feed mode (tests) does not touch the cache — always recomputes.
   if [[ -z "${PARANOID_UPDATE_FEED:-}" && -f "$cache" ]]; then
@@ -406,7 +457,7 @@ _render() {
     idle)   printf '  %s %s %s\n' "$(t vw)" "$(_dot dim)" "$(t vw_idle)" ;;
     *)      : ;;  # absent → the vaultwatch line is not shown
   esac
-  # Optional updates line (only if PARANOID_UPDATE_CHECK=1 and something newer exists).
+  # Optional updates line (only with consent and when something newer exists).
   local _upd; _upd="$(_update_summary)"
   if [[ -n "$_upd" ]]; then
     printf '  %s⬆ %s%s %s\n' "$C_YEL" "$(t update_avail)" "$C_RST" "$_upd"
@@ -426,6 +477,7 @@ _render() {
   printf '  4) %s\n' "$(t m_t_notepad)"
   printf '  5) %s\n' "$(t m_t_secrets)"
   printf '  6) %s\n' "$(t m_update)"
+  if [[ "$(_update_consent)" == on ]]; then printf '  7) %s\n' "$(t m_updchk_on)"; else printf '  7) %s\n' "$(t m_updchk_off)"; fi
   printf '  0) %s\n\n' "$(t m_quit)"
 }
 
@@ -1086,6 +1138,7 @@ paranoid $PARANOID_VERSION — interactive launcher for the Paranoid Tools ecosy
 Usage: paranoid            launch the interactive dashboard
        paranoid exposure   report where a copy of a secret may already be on this Mac
                            (read-only; --json for the same report as data)
+       paranoid update     re-run the installer from your clone (same as item 6)
        paranoid version    print the version
        paranoid help       show this help
 
@@ -1101,12 +1154,18 @@ main() {
     version|-v|--version) echo "paranoid $PARANOID_VERSION"; return 0 ;;
     help|-h|--help)       usage; return 0 ;;
     exposure)             shift; _act_exposure "$@"; return $? ;;
+    # ParanoidBar's "Update available" item opens Terminal on exactly this.
+    update)               _act_update; return 0 ;;
+    # Internal: ParanoidBar's background check. Respects the consent like the dashboard does,
+    # prints nothing; the result lands in the cache ParanoidBar reads.
+    _update-check)        _update_summary >/dev/null; return 0 ;;
     "") : ;;
     *) echo "Unknown command: $1" >&2; usage >&2; return 1 ;;
   esac
 
   # Ctrl-C in a sub-item → back to the menu (not exit). On the dashboard — a clean exit.
   trap 'echo' INT
+  _ask_update_consent
   local choice
   while true; do
     _render
@@ -1118,6 +1177,7 @@ main() {
       4) _menu_notepad ;;
       5) _menu_secrets ;;
       6) _act_update ;;
+      7) _act_update_check ;;
       0|q|Q) echo; return 0 ;;
       *) : ;;   # invalid input → redraw the menu
     esac

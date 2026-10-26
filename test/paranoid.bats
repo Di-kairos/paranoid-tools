@@ -87,8 +87,11 @@ utf8_locale() {
 # LC_ALL is passed through when the caller sets it (default C, as before).
 run_paranoid() {
   local input="$1"; shift
+  # PARANOID_UPDATE_CHECK=0 by default: the first-run consent question would otherwise eat the
+  # first line of every scripted menu run (and read the real ~/.cache answer). Tests of the
+  # question pass PARANOID_UPDATE_CHECK= (empty) together with their own HOME.
   run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$HOME" \
-    LC_ALL="${LC_ALL:-C}" ST_LOCALE="${ST_LOCALE:-en}" "$@" \
+    LC_ALL="${LC_ALL:-C}" ST_LOCALE="${ST_LOCALE:-en}" PARANOID_UPDATE_CHECK=0 "$@" \
     bash -c "printf '%s' \"\$0\" | bash '$SCRIPT'" "$input"
 }
 
@@ -465,6 +468,74 @@ EOF
   [[ "$output" != *"→"* ]]
 }
 
+@test "first start asks once; a yes is saved and turns the check on" {
+  printf 'ghostdraft=v0.1.9\n' >"$TMP/feed"
+  run_paranoid $'y\n0\n' PARANOID_UPDATE_CHECK= HOME="$TMP" PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.7
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"github.com"* ]]
+  [ "$(cat "$TMP/.cache/paranoid-tools/update-consent")" = on ]
+  [[ "$output" == *"update available"* ]]
+  [[ "$output" == *"7) Update check   on"* ]]
+  # Second start: no question, the saved answer holds.
+  run_paranoid $'0\n' PARANOID_UPDATE_CHECK= HOME="$TMP" PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.7
+  [[ "$output" != *"Check for updates?"* ]]
+  [[ "$output" == *"update available"* ]]
+}
+
+@test "first start: Enter alone is a no, and the no is saved" {
+  run_paranoid $'\n0\n' PARANOID_UPDATE_CHECK= HOME="$TMP"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TMP/.cache/paranoid-tools/update-consent")" = off ]
+  [[ "$output" == *"7) Update check   off"* ]]
+}
+
+@test "first start: Russian да counts as yes" {
+  ST_LOCALE=ru run_paranoid $'да\n0\n' PARANOID_UPDATE_CHECK= HOME="$TMP"
+  [ "$(cat "$TMP/.cache/paranoid-tools/update-consent")" = on ]
+}
+
+@test "first start: EOF saves nothing, so the question comes back" {
+  run_paranoid '' PARANOID_UPDATE_CHECK= HOME="$TMP"
+  [ "$status" -eq 0 ]
+  [ ! -f "$TMP/.cache/paranoid-tools/update-consent" ]
+}
+
+@test "item 7 flips the saved answer" {
+  mkdir -p "$TMP/.cache/paranoid-tools"; printf off >"$TMP/.cache/paranoid-tools/update-consent"
+  run_paranoid $'7\n0\n' PARANOID_UPDATE_CHECK= HOME="$TMP"
+  [ "$(cat "$TMP/.cache/paranoid-tools/update-consent")" = on ]
+  run_paranoid $'7\n0\n' PARANOID_UPDATE_CHECK= HOME="$TMP"
+  [ "$(cat "$TMP/.cache/paranoid-tools/update-consent")" = off ]
+}
+
+@test "item 7 under an environment override changes nothing and says why" {
+  run_paranoid $'7\n\n0\n' PARANOID_UPDATE_CHECK=1 HOME="$TMP" PARANOID_UPDATE_FEED="$TMP/none"
+  [[ "$output" == *"PARANOID_UPDATE_CHECK=1"* ]]
+  [ ! -f "$TMP/.cache/paranoid-tools/update-consent" ]
+}
+
+@test "_update-check without consent never touches the network" {
+  printf '#!/usr/bin/env bash\necho hit >>"%s/hits"\n' "$TMP" >"$STUBS/curl"; chmod +x "$STUBS/curl"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" bash "$SCRIPT" _update-check
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ ! -f "$TMP/hits" ]
+  [ ! -f "$TMP/.cache/paranoid-tools/update-check" ]
+}
+
+@test "_update-check with consent writes the cache ParanoidBar reads" {
+  mkdir -p "$TMP/.cache/paranoid-tools"; printf on >"$TMP/.cache/paranoid-tools/update-consent"
+  cat >"$STUBS/curl" <<'EOF'
+#!/usr/bin/env bash
+echo "<title>panic-v9.9.9</title>"
+EOF
+  chmod +x "$STUBS/curl"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" STUB_VER=0.1.7 bash "$SCRIPT" _update-check
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -q 'panic 0.1.7' "$TMP/.cache/paranoid-tools/update-check"
+}
+
 @test "update check shows a newer release when enabled and one is available" {
   printf 'ghostdraft=v0.1.9\n' >"$TMP/feed"
   run_paranoid $'0\n' PARANOID_UPDATE_CHECK=1 PARANOID_UPDATE_FEED="$TMP/feed" STUB_VER=0.1.7
@@ -567,7 +638,7 @@ _make_fake_clone() {
 
 @test "update says plainly when no installer can be found" {
   cp "$SCRIPT" "$TMP/paranoid-standalone"
-  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en \
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_UPDATE_CHECK=0 \
     bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
   [ "$status" -eq 0 ]
   [[ "$output" == *"Cannot find the installer"* ]]
@@ -599,7 +670,7 @@ _make_fake_clone() {
   printf '#!/usr/bin/env bash\necho "STRANGER RAN" >> "%s"\n' "$LOG" > "$TMP/notclone/install.sh"
   chmod +x "$TMP/notclone/install.sh"
   cp "$SCRIPT" "$TMP/paranoid-standalone"
-  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_SRC="$TMP/notclone" \
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_UPDATE_CHECK=0 PARANOID_SRC="$TMP/notclone" \
     bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
   [ "$status" -eq 0 ]
   ! grep -q "STRANGER RAN" "$LOG"
@@ -661,7 +732,7 @@ _make_fake_clone() {
   ln -s "$TMP/evil/install.sh" "$TMP/clone/install.sh"
   : > "$TMP/clone/paranoid"
   cp "$SCRIPT" "$TMP/paranoid-standalone"
-  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_SRC="$TMP/clone" \
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_UPDATE_CHECK=0 PARANOID_SRC="$TMP/clone" \
     bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
   [ "$status" -eq 0 ]
   ! grep -q "EVIL RAN" "$LOG"
@@ -674,7 +745,7 @@ _make_fake_clone() {
   mkdir -p "$TMP/.local/share/paranoid-tools"
   printf '%s \n' "$TMP/other" > "$TMP/.local/share/paranoid-tools/source"
   cp "$SCRIPT" "$TMP/paranoid-standalone"
-  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en \
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_UPDATE_CHECK=0 \
     bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
   [ "$status" -eq 0 ]
   ! grep -q "OTHER RAN" "$LOG"
