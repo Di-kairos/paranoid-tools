@@ -69,7 +69,7 @@ private let strings: [String: (en: String, ru: String)] = [
     "vault_close":      ("Close the vault", "Закрыть сейф"),
     "vault_open":       ("Open the vault", "Открыть сейф"),
     "vault_create":     ("Create a vault", "Создать сейф"),
-    "vault_empty":      ("Empty — wipe contents, keep the vault", "Очистить — стереть содержимое, сейф оставить"),
+    "vault_empty":      ("Reset — new empty vault, new password", "Сбросить — новый пустой сейф, новый пароль"),
     "vault_destroy":    ("Destroy the vault (irreversible)", "Уничтожить сейф (необратимо)"),
     "launcher_item":    ("Open the full launcher (paranoid)", "Открыть полный лаунчер (paranoid)"),
     "settings_item":    ("Settings…", "Настройки…"),

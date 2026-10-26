@@ -282,8 +282,8 @@ Flags:
     'ru:vault_aside_left'   = 'Новый сейф создан, но старый контейнер удалить НЕ удалось: {0} остался на диске и по-прежнему расшифровывается старым паролем. Удали его сам — до этого обещание crypto-shred не выполнено.'
     'en:vault_reset_confirm' = 'RESET the vault — destroy {0} and EVERYTHING inside, then create a fresh empty one?'
     'ru:vault_reset_confirm' = 'СБРОСИТЬ сейф — уничтожить {0} и ВСЁ внутри, затем создать новый пустой?'
-    'en:vault_reset_done'   = 'Vault reset — old container crypto-shredded, fresh empty vault created. (Old contents are unrecoverable only if your password was strong and no copies/backups/snapshots (VSS, File History, cloud) remain.)'
-    'ru:vault_reset_done'   = 'Сейф сброшен — старый контейнер crypto-shred, создан новый пустой. (Старое невосстановимо только если пароль был стойким и не осталось копий/бэкапов/снимков (VSS, История файлов, облако).)'
+    'en:vault_reset_done'   = 'Vault reset — old container crypto-shredded, fresh empty vault created. It is closed: open it with the NEW password. (Old contents are unrecoverable only if your password was strong and no copies/backups/snapshots (VSS, File History, cloud) remain.)'
+    'ru:vault_reset_done'   = 'Сейф сброшен — старый контейнер crypto-shred, создан новый пустой. Он закрыт: открывай НОВЫМ паролем. (Старое невосстановимо только если пароль был стойким и не осталось копий/бэкапов/снимков (VSS, История файлов, облако).)'
 
     # VeraCrypt: automated creation/mounting is disabled in BETA (the password leaks via argv).
     'en:vault_vc_manual'    = 'VeraCrypt detected, but automated VeraCrypt vault is NOT supported in this BETA: passing the password on the command line would leak it (visible via ps/WMI/ETW). Create and mount the container with the VeraCrypt GUI instead, then move secrets into the mounted drive.'
@@ -1641,7 +1641,6 @@ function Invoke-StVault {
                 Write-StErr (T 'vault_aside_left' $aside); Stop-StCommand
             }
             Remove-StVaultMount -VaultPath $vaultPath
-            Write-StInfo (T 'vault_destroyed')
             Write-StInfo (T 'vault_reset_done')
         }
         'destroy-old' {

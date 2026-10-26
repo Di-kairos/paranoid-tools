@@ -92,8 +92,8 @@ t() {
     ru:m_unwatch)    echo 'Снять охрану сейфа (vaultwatch)' ;;
     en:m_quit)       echo 'Quit' ;;          ru:m_quit)       echo 'Выход' ;;
     # --- top-level group items (each opens a submenu) ---
-    en:m_t_vault)    echo 'Vault ▸        open · empty · destroy · watch' ;;
-    ru:m_t_vault)    echo 'Сейф ▸         открыть · очистить · уничтожить · сторожить' ;;
+    en:m_t_vault)    echo 'Vault ▸        open · reset · destroy · watch' ;;
+    ru:m_t_vault)    echo 'Сейф ▸         открыть · сбросить · уничтожить · сторожить' ;;
     en:m_t_notepad)  echo 'Notepad ▸      ghostdraft: ephemeral note / clipboard' ;;
     ru:m_t_notepad)  echo 'Блокнот ▸      ghostdraft: эфемерная заметка / буфер' ;;
     en:m_update)     echo 'Update         re-run the installer from your clone' ;;
@@ -135,13 +135,13 @@ t() {
     en:m_v_unknown)  echo 'Vault state unknown — ask securetrash' ;;
     ru:m_v_unknown)  echo 'Состояние сейфа неизвестно — спросить securetrash' ;;
     # --- empty (= securetrash vault reset) ---
-    en:m_empty)      echo 'Empty — wipe contents, keep the vault (crypto-shred)' ;;
-    ru:m_empty)      echo 'Очистить — стереть содержимое, сейф оставить (crypto-shred)' ;;
+    en:m_empty)      echo 'Reset — new empty vault, new password (crypto-shred)' ;;
+    ru:m_empty)      echo 'Сбросить — новый пустой сейф, новый пароль (crypto-shred)' ;;
     en:empty_na)     echo 'no vault' ;;        ru:empty_na)     echo 'нет сейфа' ;;
     en:empty_none)   echo 'No vault to empty — create one first.' ;;
     ru:empty_none)   echo 'Очищать нечего — сначала создай сейф.' ;;
-    en:empty_hint)   echo 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place on an SSD). It runs "securetrash vault reset", NOT "securetrash empty" (that one only clears the ~/SecureTrash drop folder). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' ;;
-    ru:empty_hint)   echo 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте на SSD). Запускается «securetrash vault reset», а НЕ «securetrash empty» (та команда лишь чистит папку-приёмник ~/SecureTrash). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' ;;
+    en:empty_hint)   echo 'Reset destroys the vault with everything inside and creates a NEW empty one in its place: you set a new password, and the vault stays closed until you open it. Files are not deleted one by one: on an SSD the old key would still decrypt their leftovers, a new key kills them for good. securetrash will ask you to confirm with "yes".' ;;
+    ru:empty_hint)   echo 'Сброс уничтожает сейф со всем содержимым и создаёт на его месте НОВЫЙ пустой: ты задаёшь новый пароль, сейф остаётся закрытым, пока ты его не откроешь. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, а новый ключ убивает их насовсем. securetrash попросит подтвердить «yes».' ;;
     # --- vault size choice (a cap, not a reservation — sparsebundle is thin) ---
     en:size_free)    printf 'Free space on this disk: ~%s GB.' "$2" ;;
     ru:size_free)    printf 'Свободно на диске: ~%s ГБ.' "$2" ;;

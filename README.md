@@ -397,7 +397,7 @@ Usage guides: **[English](GUIDE.md)** · [Русский](ИНСТРУКЦИЯ.m
 
 `paranoid` is an interactive launcher — a status dashboard plus a menu — over the five
 CLIs. Pure Bash, zero dependencies, just like the tools it drives. The menu is grouped
-into submenus — **Vault** (open/close · empty · destroy · watch), **Notepad**
+into submenus — **Vault** (open/close · reset · destroy · watch), **Notepad**
 (ghostdraft), **Secrets** (seedsplit) — with *Status* and one-key *PANIC* kept at the
 top. **Empty** crypto-shreds the vault's contents and hands you a fresh empty one (a
 real guarantee, unlike wiping files in place on an SSD).

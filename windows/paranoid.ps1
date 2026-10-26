@@ -138,8 +138,8 @@ function T {
         'en:upd_fail'     { return 'The installer exited with an error - nothing was silently half-done, see the output above.' }
         'ru:upd_fail'     { return 'Установщик завершился с ошибкой — молчаливой полуустановки нет, смотри вывод выше.' }
         # --- top-level group items (open submenus) ---
-        'en:m_t_vault'   { return 'Vault >        open / empty / destroy / watch' }
-        'ru:m_t_vault'   { return 'Сейф >         открыть / очистить / уничтожить / сторожить' }
+        'en:m_t_vault'   { return 'Vault >        open / reset / destroy / watch' }
+        'ru:m_t_vault'   { return 'Сейф >         открыть / сбросить / уничтожить / сторожить' }
         'en:m_t_notepad' { return 'Notepad >      ghostdraft: ephemeral note / clipboard' }
         'ru:m_t_notepad' { return 'Блокнот >      ghostdraft: эфемерная заметка / буфер' }
         'en:m_t_secrets' { return 'Secrets >      seedsplit: split / combine' }
@@ -159,13 +159,13 @@ function T {
         'en:m_v_unknown' { return 'Vault state unknown — ask securetrash' }
         'ru:m_v_unknown' { return 'Состояние сейфа неизвестно — спросить securetrash' }
         # --- empty (= securetrash vault reset) ---
-        'en:m_empty'     { return 'Empty — wipe contents, keep the vault (crypto-shred)' }
-        'ru:m_empty'     { return 'Очистить — стереть содержимое, сейф оставить (crypto-shred)' }
+        'en:m_empty'     { return 'Reset — new empty vault, new password (crypto-shred)' }
+        'ru:m_empty'     { return 'Сбросить — новый пустой сейф, новый пароль (crypto-shred)' }
         'en:empty_na'    { return 'no vault' }        'ru:empty_na'    { return 'нет сейфа' }
         'en:empty_none'  { return 'No vault to empty — create one first.' }
         'ru:empty_none'  { return 'Очищать нечего — сначала создай сейф.' }
-        'en:empty_hint'  { return 'This destroys everything inside and recreates an EMPTY vault — a real crypto-shred guarantee (unlike wiping files in place). It runs "securetrash vault reset", NOT "securetrash empty" (that one only clears the ~/SecureTrash drop folder). securetrash will ask you to confirm with "yes" and set a password for the fresh vault.' }
-        'ru:empty_hint'  { return 'Это уничтожит всё внутри и создаст ПУСТОЙ сейф заново — настоящая crypto-shred гарантия (в отличие от перезаписи файлов на месте). Запускается «securetrash vault reset», а НЕ «securetrash empty» (та команда лишь чистит папку-приёмник ~/SecureTrash). securetrash попросит подтвердить «yes» и задать пароль нового сейфа.' }
+        'en:empty_hint'  { return 'Reset destroys the vault with everything inside and creates a NEW empty one in its place: you set a new password, and the vault stays closed until you open it. Files are not deleted one by one: on an SSD the old key would still decrypt their leftovers, a new key kills them for good. securetrash will ask you to confirm with "yes".' }
+        'ru:empty_hint'  { return 'Сброс уничтожает сейф со всем содержимым и создаёт на его месте НОВЫЙ пустой: ты задаёшь новый пароль, сейф остаётся закрытым, пока ты его не откроешь. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, а новый ключ убивает их насовсем. securetrash попросит подтвердить «yes».' }
         # --- size choice (Windows: MB for diskpart; a cap, not a reserve) ---
         'en:size_prompt' { return 'Vault size cap in MB (e.g. 1024 = 1 GB; empty = default 1024 MB). A ceiling, not reserved space — the VHDX grows as you add files:' }
         'ru:size_prompt' { return 'Потолок размера сейфа в МБ (напр. 1024 = 1 ГБ; пусто = по умолчанию 1024 МБ). Это лимит, не резерв — VHDX растёт по мере добавления файлов:' }
