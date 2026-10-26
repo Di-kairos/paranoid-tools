@@ -851,9 +851,7 @@ Describe 'Cross-platform l10n parity' {
                      'vw_start', 'vw_stop', 'vw_needs_open', 'ttl_30m', 'ttl_1h', 'ttl_2h', 'ttl_4h', 'ttl_none',
                      'notepad_menu', 'ghost_note', 'ghost_pipe', 'secrets_menu', 'split_item', 'combine_item',
                      'press_enter_close', 'hint_combine', 'hint_pipe', 'hint_split', 'notif_hotkey_moved',
-                     'ob_icon_line', 'ob_show_btn', 'ob_howto', 'set_vol_auto',
-                     # The update check ships on Windows first; ParanoidBar mirrors these in the macOS pack.
-                     'upd_item', 'upd_check_item', 'notif_update', 'ob_update_line')
+                     'ob_icon_line', 'ob_show_btn', 'ob_howto', 'set_vol_auto')
         foreach ($k in $winOnly) { $swiftKeys | Should -Not -Contain $k }
         $psKeys = $PtStrings.en.Keys | Where-Object { $_ -notin $winOnly } | Sort-Object -Unique
         ($psKeys -join ',') | Should -Be ($swiftKeys -join ',')

@@ -35,6 +35,31 @@ func terminalEnvPrefix(volume: String, path: String) -> String {
     "ST_VAULT_VOLUME=\(shellQuote(volume)) ST_VAULT_PATH=\(shellQuote(path)) "
 }
 
+// --- update check: the rules shared with the launcher (paranoid _update_consent) and the
+// Windows tray, as pure functions for --selftest. ---
+// Consent: PARANOID_UPDATE_CHECK=1/0 beats the saved answer; otherwise the file's "on"/"off";
+// anything else is "" — never asked, and the check stays off.
+func updateConsent(env: String?, file: String?) -> String {
+    if env == "1" { return "on" }
+    if env == "0" { return "off" }
+    let v = (file ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    return (v == "on" || v == "off") ? v : ""
+}
+// The launcher's cache is a day old (or missing) → time to start its check again.
+func updateCacheStale(mtime: Date?, now: Date) -> Bool {
+    guard let m = mtime else { return true }
+    return now.timeIntervalSince(m) >= 86400
+}
+// One notification per new set of versions: the last one announced is kept on disk.
+func shouldAnnounceUpdate(summary: String, lastAnnounced: String) -> Bool {
+    !summary.isEmpty && summary != lastAnnounced.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+// Where a GUI app looks for the CLIs: launchd gives it a bare PATH, while install.sh puts them
+// in ~/.local/bin and Homebrew in /opt/homebrew/bin or /usr/local/bin.
+func cliSearchDirs(path: String?, home: String) -> [String] {
+    (path ?? "").split(separator: ":").map(String.init) + [home + "/.local/bin", "/usr/local/bin", "/opt/homebrew/bin"]
+}
+
 // Clamp the poll interval to sane bounds: 5s floor (battery/CPU), 3600s ceiling (otherwise the status
 // "freezes" for an hour+ and TTL notifications arrive too late to be useful). Mirrors the Windows-tray clamp.
 func clampPoll(_ v: Int) -> Int { min(max(v, 5), 3600) }
@@ -112,6 +137,12 @@ private let strings: [String: (en: String, ru: String)] = [
     "ob_risk":          ("An open vault is always “at risk” — the GUI never hides that.",
                          "Открытый сейф всегда «под риском» — GUI этого не прячет."),
     "ob_done":          ("Done", "Готово"),
+    "upd_item":         ("Update available: {0}", "Доступно обновление: {0}"),
+    "upd_check_item":   ("Check for updates once a day", "Проверять обновления раз в сутки"),
+    "notif_update":     ("Update available: {0}. Install it from the menu bar: “Update available”.",
+                         "Доступно обновление: {0}. Установить — в строке меню: «Доступно обновление»."),
+    "ob_update_line":   ("Check for updates once a day (one request to github.com)",
+                         "Проверять обновления раз в сутки (один запрос к github.com)"),
 ]
 
 // Language selection: the settings override ("en"/"ru") beats the system; "system" → locale prefix,
@@ -385,7 +416,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             statusItem.button?.toolTip = tip
         }
-        rebuildMenu(open: open, sessions: sessions)
+        // Update check: only with consent. A day-old cache starts the launcher's check in the
+        // background (at most once an hour, so a dead network is not retried every poll); its
+        // result shows up on a later refresh. ParanoidBar itself never goes online.
+        let updOn = updateConsentNow() == "on"
+        var updSummary = ""
+        if updOn {
+            let f = stateDir + "/update-check"
+            let mtime = (try? FileManager.default.attributesOfItem(atPath: f))?[.modificationDate] as? Date
+            updSummary = (readState("update-check") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if updateCacheStale(mtime: mtime, now: Date()),
+               updSpawnedAt.map({ Date().timeIntervalSince($0) >= 3600 }) ?? true {
+                updSpawnedAt = Date()
+                startUpdateCheck()
+            }
+        }
+        rebuildMenu(open: open, sessions: sessions, update: updSummary, updOn: updOn)
+        if shouldAnnounceUpdate(summary: updSummary, lastAnnounced: readState("update-notified") ?? "") {
+            writeState("update-notified", updSummary)
+            notify(L("notif_update").replacingOccurrences(of: "{0}", with: updSummary))
+        }
 
         let (events, newState) = decideNotifications(
             open: open, ttl: ttl, hasSessions: !vaultSessions.isEmpty, now: Date(), state: notifyState)
@@ -401,7 +451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // --- menu ---
-    private func rebuildMenu(open: Bool, sessions: [VWSession]) {
+    private func rebuildMenu(open: Bool, sessions: [VWSession], update: String, updOn: Bool) {
         let menu = NSMenu()
         let mountState = vaultMountState()
         let vaultStatusText: String
@@ -452,8 +502,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(vaultItem)
 
         menu.addItem(item(L("launcher_item"), #selector(doLauncher)))
+        if !update.isEmpty {
+            menu.addItem(item(L("upd_item").replacingOccurrences(of: "{0}", with: update), #selector(doUpdate)))
+        }
         menu.addItem(.separator())
 
+        let updItem = item(L("upd_check_item"), #selector(doToggleUpdateCheck))
+        updItem.state = updOn ? .on : .off
+        menu.addItem(updItem)
         menu.addItem(item(L("settings_item"), #selector(doSettings)))
         menu.addItem(item(L("setup_item"), #selector(doWelcome)))
         // Start at login — the checkmark reflects the current LaunchAgent state.
@@ -492,6 +548,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func doVaultEmpty()    { runInTerminal("securetrash vault reset") }
     @objc private func doVaultDestroy()  { runInTerminal("securetrash vault destroy") }
     @objc private func doLauncher()      { runInTerminal("paranoid") }
+    @objc private func doUpdate()        { runInTerminal("paranoid update") }
+    @objc private func doToggleUpdateCheck() {
+        setUpdateConsent(updateConsentNow() == "on" ? "off" : "on")
+        refresh()
+    }
+
+    // --- update check state: the launcher's files in ~/.cache/paranoid-tools (XDG_CACHE_HOME) ---
+    private var updSpawnedAt: Date?
+    private var stateDir: String {
+        let env = ProcessInfo.processInfo.environment
+        return (env["XDG_CACHE_HOME"] ?? (FileManager.default.homeDirectoryForCurrentUser.path + "/.cache")) + "/paranoid-tools"
+    }
+    private func readState(_ name: String) -> String? {
+        try? String(contentsOfFile: stateDir + "/" + name, encoding: .utf8)
+    }
+    private func writeState(_ name: String, _ value: String) {
+        try? FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
+        try? value.write(toFile: stateDir + "/" + name, atomically: true, encoding: .utf8)
+    }
+    private func updateConsentNow() -> String {
+        updateConsent(env: ProcessInfo.processInfo.environment["PARANOID_UPDATE_CHECK"], file: readState("update-consent"))
+    }
+    private func setUpdateConsent(_ v: String) {
+        writeState("update-consent", v)
+        // The cached summary was computed under the previous answer.
+        try? FileManager.default.removeItem(atPath: stateDir + "/update-check")
+    }
+    // The launcher's own check, in the background: no Terminal window, and nothing waits for it.
+    // PATH is set explicitly so the launcher finds the five tools the way a login shell would.
+    private func startUpdateCheck() {
+        let fm = FileManager.default
+        let dirs = cliSearchDirs(path: ProcessInfo.processInfo.environment["PATH"],
+                                 home: fm.homeDirectoryForCurrentUser.path) + ["/usr/bin", "/bin"]
+        guard let dir = dirs.first(where: { fm.isExecutableFile(atPath: $0 + "/paranoid") }) else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: dir + "/paranoid")
+        p.arguments = ["_update-check"]
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = dirs.joined(separator: ":")
+        p.environment = env
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try? p.run()
+    }
     @objc private func doQuit()          { NSApp.terminate(nil) }
 
     // --- start at login (LaunchAgent) ---
@@ -535,10 +635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // there would be a false ❌. We check the executables directly: process PATH + typical install dirs.
     private func clisInstalled() -> Bool {
         let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser.path
-        var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":").map(String.init)
-        dirs += [home + "/.local/bin", "/usr/local/bin", "/opt/homebrew/bin"]
+        let dirs = cliSearchDirs(path: ProcessInfo.processInfo.environment["PATH"],
+                                 home: fm.homeDirectoryForCurrentUser.path)
         for tool in ecosystemCLIs {
             guard dirs.contains(where: { fm.isExecutableFile(atPath: $0 + "/" + tool) }) else { return false }
         }
@@ -550,7 +648,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rebuildWelcome(in: w)   // the checklist is live on reopen too, not a stale snapshot
             w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
         }
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 250),
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 276),
                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
         w.isReleasedWhenClosed = false
         rebuildWelcome(in: w)
@@ -561,8 +659,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Rebuild the content (after every action — the checklist is live).
     private func rebuildWelcome(in w: NSWindow) {
         w.title = L("ob_title")   // here, not in doWelcome: a language change updates the title too
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 250))
-        var y: CGFloat = 214
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 276))
+        var y: CGFloat = 240
         func label(_ s: String, size: CGFloat = 13, color: NSColor = .labelColor, wrap: Bool = false) {
             let l = NSTextField(labelWithString: s)
             l.font = .systemFont(ofSize: size)
@@ -605,6 +703,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let login = loginEnabled()
         label((login ? "✅ " : "⬜ ") + L("ob_login_line"))
         if !login { actionButton(L("ob_enable_btn"), #selector(obEnableLogin)) }
+        // The first-run question about the update check. Off until someone presses Enable —
+        // the same default the launcher's question has.
+        let upd = updateConsentNow() == "on"
+        label((upd ? "✅ " : "⬜ ") + L("ob_update_line"))
+        if !upd { actionButton(L("ob_enable_btn"), #selector(obEnableUpdateCheck)) }
         label("⚠ " + L("ob_risk"), size: 11, color: .systemOrange)
         let done = NSButton(title: L("ob_done"), target: self, action: #selector(obDone))
         done.bezelStyle = .rounded; done.keyEquivalent = "\r"
@@ -625,6 +728,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func obEnableLogin() {
         setLogin(true)
+        if let w = welcomeWindow { rebuildWelcome(in: w) }
+    }
+    @objc private func obEnableUpdateCheck() {
+        setUpdateConsent("on")
+        refresh()
         if let w = welcomeWindow { rebuildWelcome(in: w) }
     }
     @objc private func obDone() { welcomeWindow?.close() }
@@ -798,6 +906,21 @@ private func runSelfTests() -> Never {
            == "unknown", "R3-table-unreadable")
     expect(vaultLabelState(verdict: "closed", containerExists: false) == "none", "R4-no-container")
     expect(vaultLabelState(verdict: "closed", containerExists: true) == "closed", "R4-no-container container present")
+    // --- update check: consent, staleness, one notification per new summary ---
+    expect(updateConsent(env: nil, file: nil) == "", "consent: never asked")
+    expect(updateConsent(env: nil, file: "on\n") == "on", "consent: saved yes")
+    expect(updateConsent(env: nil, file: "maybe") == "", "consent: junk is not a yes")
+    expect(updateConsent(env: "0", file: "on") == "off", "consent: env 0 beats the file")
+    expect(updateConsent(env: "1", file: "off") == "on", "consent: env 1 beats the file")
+    let tU = Date(timeIntervalSince1970: 1_800_000_000)
+    expect(updateCacheStale(mtime: nil, now: tU), "stale: no cache")
+    expect(!updateCacheStale(mtime: tU.addingTimeInterval(-3600), now: tU), "stale: an hour old is fresh")
+    expect(updateCacheStale(mtime: tU.addingTimeInterval(-86400), now: tU), "stale: a day old")
+    expect(!shouldAnnounceUpdate(summary: "", lastAnnounced: ""), "announce: nothing new")
+    expect(shouldAnnounceUpdate(summary: "panic 0.1.19→0.1.20", lastAnnounced: ""), "announce: first")
+    expect(!shouldAnnounceUpdate(summary: "panic 0.1.19→0.1.20", lastAnnounced: "panic 0.1.19→0.1.20"), "announce: once")
+    expect(shouldAnnounceUpdate(summary: "panic 0.1.19→0.1.21", lastAnnounced: "panic 0.1.19→0.1.20"), "announce: newer")
+    expect(cliSearchDirs(path: "/usr/bin", home: "/Users/x").contains("/Users/x/.local/bin"), "cli dirs: ~/.local/bin")
     // R5-attached-not-usable: this adapter cannot see a locked or plaintext attachment, and the
     // rule only forbids calling such a thing open. A mount point absent from the table is not open.
     expect(vaultVerdict(mountedVolumes: ["/Volumes/Other"], mountPoint: "/Volumes/SecretVault")

@@ -438,18 +438,19 @@ the first command you ever run. `--json` gives the same rows as data.
 paranoid exposure          # macOS and Windows
 ```
 
-**Opt-in update check.** Off by default — nothing on the dashboard touches the network
-unless you ask. Set `PARANOID_UPDATE_CHECK=1` and the dashboard adds an *"update
-available"* line when an installed tool has a newer signed release. It's the only
-network call the launcher makes: one fetch of the repository's public `releases.atom`
-feed covering all five tools (no API key, no telemetry), cached for 24h. Enable it for a session
-with `PARANOID_UPDATE_CHECK=1 paranoid`, or export it in your shell rc to keep it on.
-On Windows the launcher asks once, on its first start (Enter alone means no), and item 7 of
-the menu turns the check on or off later; `PARANOID_UPDATE_CHECK=1`/`0` still overrides it.
-The tray asks the same question in its first-run window and keeps the switch in its menu; with
-the check on it shows one notification per new release and an *"Update available"* item that
-runs the update. The tray never goes online itself: it starts the launcher's check in the
-background and reads its result.
+**Opt-in update check.** Off until you say yes. On its first start the launcher asks once
+whether to check for updates once a day (Enter alone means no), and item 7 of the menu turns
+the check on or off later. With it on, the dashboard adds an *"update available"* line when an
+installed tool has a newer signed release. It's the only network call the launcher makes: one
+fetch of the repository's public `releases.atom` feed covering all five tools (no API key, no
+telemetry), cached for 24h. GitHub sees your IP address, as with any visit. The answer is kept
+in `~/.cache/paranoid-tools/update-consent` (`%LOCALAPPDATA%\paranoid-tools` on Windows), and
+`PARANOID_UPDATE_CHECK=1`/`0` in the environment overrides it.
+
+The menu-bar app and the Windows tray ask the same question in their first-run window and keep
+the switch in their menu. With the check on they show one notification per new release and an
+*"Update available"* item that runs `paranoid update`. They never go online themselves: they
+start the launcher's check in the background and read its result.
 
 ## How it fits together
 
