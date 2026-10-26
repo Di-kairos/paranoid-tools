@@ -444,6 +444,8 @@ available"* line when an installed tool has a newer signed release. It's the onl
 network call the launcher makes: one fetch of the repository's public `releases.atom`
 feed covering all five tools (no API key, no telemetry), cached for 24h. Enable it for a session
 with `PARANOID_UPDATE_CHECK=1 paranoid`, or export it in your shell rc to keep it on.
+On Windows the launcher asks once, on its first start (Enter alone means no), and item 7 of
+the menu turns the check on or off later; `PARANOID_UPDATE_CHECK=1`/`0` still overrides it.
 
 ## How it fits together
 

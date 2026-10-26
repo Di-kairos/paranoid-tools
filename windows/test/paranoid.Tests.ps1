@@ -102,6 +102,9 @@ Describe 'Get-PnDashboard — read-only status text' {
 
 Describe 'Get-PnUpdateSummary — opt-in update check' {
     BeforeEach {
+        # A saved answer on the dev machine must not leak into these verdicts.
+        $script:OldLad = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_lad_" + [Guid]::NewGuid().ToString('N'))
         Mock Test-PnTool { $true }
         Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
         Remove-Item Env:\PARANOID_UPDATE_FEED  -ErrorAction SilentlyContinue
@@ -109,6 +112,8 @@ Describe 'Get-PnUpdateSummary — opt-in update check' {
     AfterEach {
         Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
         Remove-Item Env:\PARANOID_UPDATE_FEED  -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $env:LOCALAPPDATA -Recurse -Force -ErrorAction SilentlyContinue
+        $env:LOCALAPPDATA = $script:OldLad
     }
     It 'stays silent when PARANOID_UPDATE_CHECK is unset (privacy default)' {
         Mock Get-PnToolVersion { '0.1.0' }
@@ -143,6 +148,80 @@ Describe 'Get-PnUpdateSummary — opt-in update check' {
         Mock Get-PnToolVersion { '0.2.0' }
         Get-PnUpdateSummary | Should -BeNullOrEmpty
         Remove-Item -LiteralPath $feed -ErrorAction SilentlyContinue
+    }
+}
+
+Describe 'update check consent — asked once, saved, toggled with item 7' {
+    BeforeEach {
+        $script:PN_LOCALE = 'en'
+        $script:OldLad = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_lad_" + [Guid]::NewGuid().ToString('N'))
+        Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
+        Mock Invoke-PnPause { }
+    }
+    AfterEach {
+        Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $env:LOCALAPPDATA -Recurse -Force -ErrorAction SilentlyContinue
+        $env:LOCALAPPDATA = $script:OldLad
+    }
+    It 'is unanswered on a fresh install, and the check stays off' {
+        Get-PnUpdateConsent | Should -Be ''
+        Get-PnUpdateSummary | Should -BeNullOrEmpty
+    }
+    It 'a yes on the first start turns the check on and is not asked again' {
+        Mock Read-PnLine { 'y' }
+        Get-PnScreen { Request-PnUpdateConsent } | Should -Match 'github\.com'
+        Get-PnUpdateConsent | Should -Be 'on'
+        Get-PnScreen { Request-PnUpdateConsent } | Out-Null
+        Should -Invoke Read-PnLine -Times 1 -Exactly
+    }
+    It 'Russian "да" counts as yes' {
+        Mock Read-PnLine { 'Да' }
+        Get-PnScreen { Request-PnUpdateConsent } | Out-Null
+        Get-PnUpdateConsent | Should -Be 'on'
+    }
+    It 'Enter alone is a no, and the no is saved' {
+        Mock Read-PnLine { '' }
+        Get-PnScreen { Request-PnUpdateConsent } | Out-Null
+        Get-PnUpdateConsent | Should -Be 'off'
+    }
+    It 'EOF saves nothing, so the question comes back next start' {
+        Mock Read-PnLine { $null }
+        Get-PnScreen { Request-PnUpdateConsent } | Out-Null
+        Get-PnUpdateConsent | Should -Be ''
+    }
+    It 'PARANOID_UPDATE_CHECK overrides the saved answer both ways' {
+        Set-PnUpdateConsent 'on'
+        $env:PARANOID_UPDATE_CHECK = '0'
+        Get-PnUpdateConsent | Should -Be 'off'
+        Set-PnUpdateConsent 'off'
+        $env:PARANOID_UPDATE_CHECK = '1'
+        Get-PnUpdateConsent | Should -Be 'on'
+    }
+    It 'item 7 flips the saved answer and the dashboard shows it' {
+        Mock Get-PnVaultState { 'closed' }
+        Mock Get-PnBitLockerState { 'unknown' }
+        Mock Get-PnVaultwatchState { 'idle' }
+        Mock Test-PnTool { $true }
+        Mock Get-PnUpdateSummary { '' }
+        (Get-PnDashboard) | Should -Match '7\) Update check   off'
+        Invoke-PnDispatch '7' | Should -BeFalse
+        Get-PnUpdateConsent | Should -Be 'on'
+        (Get-PnDashboard) | Should -Match '7\) Update check   on'
+        Invoke-PnDispatch '7' | Out-Null
+        Get-PnUpdateConsent | Should -Be 'off'
+    }
+    It 'item 7 under an environment override changes nothing and says why' {
+        $env:PARANOID_UPDATE_CHECK = '1'
+        Get-PnScreen { Invoke-PnDispatch '7' } | Should -Match 'PARANOID_UPDATE_CHECK=1'
+        Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'paranoid-tools\update-consent') | Should -BeFalse
+    }
+    It 'changing the answer drops the cached summary' {
+        $dir = Join-Path $env:LOCALAPPDATA 'paranoid-tools'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'update-check') -Value 'ghostdraft 0.1.7'
+        Set-PnUpdateConsent 'off'
+        Test-Path -LiteralPath (Join-Path $dir 'update-check') | Should -BeFalse
     }
 }
 

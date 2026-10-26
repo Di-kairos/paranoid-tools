@@ -87,8 +87,19 @@ function T {
         # Shown under the "update available" banner. The Update menu item does the same thing;
         # this line is for someone who wants to run it themselves. (Homebrew is macOS-only, and
         # this used to advertise `brew upgrade` on Windows.)
-        'en:update_how'   { return 'to update: git pull in the clone, then windows\install.cmd' }
-        'ru:update_how'   { return 'обновить: git pull в клоне, затем windows\install.cmd' }
+        'en:update_how'   { return 'to update: pick 6) Update' }
+        'ru:update_how'   { return 'обновить: пункт 6) Обновить' }
+        # --- consent to the update check (asked once, toggled with item 7) ---
+        'en:consent_q'    { return 'Check for updates once a day? That is one request to github.com for the list of releases. GitHub sees your IP address, as with any visit; nothing else is sent. You can change this later with item 7 of the menu.' }
+        'ru:consent_q'    { return 'Проверять обновления раз в сутки? Это один запрос к github.com за списком релизов. GitHub видит твой IP-адрес, как при любом заходе на сайт; больше ничего не отправляется. Поменять можно потом — пункт 7 меню.' }
+        'en:consent_ask'  { return 'Check for updates? [y/N]' }
+        'ru:consent_ask'  { return 'Проверять обновления? [y/N]' }
+        'en:m_updchk_on'  { return 'Update check   on: once a day, one request to github.com' }
+        'ru:m_updchk_on'  { return 'Автопроверка   вкл: раз в сутки, один запрос к github.com' }
+        'en:m_updchk_off' { return 'Update check   off' }
+        'ru:m_updchk_off' { return 'Автопроверка   выкл' }
+        'en:updchk_env'   { return "PARANOID_UPDATE_CHECK=$A is set in the environment and overrides this switch - change or remove it there." }
+        'ru:updchk_env'   { return "В окружении задано PARANOID_UPDATE_CHECK=$A, и оно сильнее этого переключателя — поменяй или убери его там." }
         'en:m_status'     { return 'Status — full read-only check' }
         'ru:m_status'     { return 'Статус — полная проверка (только чтение)' }
         'en:m_panic'      { return 'PANIC NOW — hide & lock everything, hard mode (instant, no confirm)' }
@@ -162,8 +173,8 @@ function T {
         'en:m_empty'     { return 'Reset — new empty vault, new password (crypto-shred)' }
         'ru:m_empty'     { return 'Сбросить — новый пустой сейф, новый пароль (crypto-shred)' }
         'en:empty_na'    { return 'no vault' }        'ru:empty_na'    { return 'нет сейфа' }
-        'en:empty_none'  { return 'No vault to empty — create one first.' }
-        'ru:empty_none'  { return 'Очищать нечего — сначала создай сейф.' }
+        'en:empty_none'  { return 'No vault to reset — create one first.' }
+        'ru:empty_none'  { return 'Сбрасывать нечего — сначала создай сейф.' }
         'en:empty_hint'  { return 'Reset destroys the vault with everything inside and creates a NEW empty one in its place: you set a new password, and the vault stays closed until you open it. Files are not deleted one by one: on an SSD the old key would still decrypt their leftovers, a new key kills them for good. securetrash will ask you to confirm with "yes".' }
         'ru:empty_hint'  { return 'Сброс уничтожает сейф со всем содержимым и создаёт на его месте НОВЫЙ пустой: ты задаёшь новый пароль, сейф остаётся закрытым, пока ты его не откроешь. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, а новый ключ убивает их насовсем. securetrash попросит подтвердить «yes».' }
         # --- size choice (Windows: MB for diskpart; a cap, not a reserve) ---
@@ -469,6 +480,61 @@ function Get-PnToolVersion {
     return ''
 }
 
+# Where the launcher keeps its own small state: the consent answer and the update cache.
+function Get-PnStateDir {
+    if ($env:LOCALAPPDATA) { return (Join-Path $env:LOCALAPPDATA 'paranoid-tools') }
+    if ($env:HOME) { return (Join-Path $env:HOME '.cache/paranoid-tools') }
+    return $null
+}
+
+# Consent to the update check: 'on' | 'off' | '' (never asked). PARANOID_UPDATE_CHECK=1/0
+# overrides the saved answer both ways, so a managed setup can pin it without the file.
+function Get-PnUpdateConsent {
+    switch ($env:PARANOID_UPDATE_CHECK) { '1' { return 'on' } '0' { return 'off' } }
+    $dir = Get-PnStateDir
+    if ($dir) {
+        $f = Join-Path $dir 'update-consent'
+        if (Test-Path -LiteralPath $f) {
+            $v = ([string](Get-Content -LiteralPath $f -TotalCount 1 -ErrorAction SilentlyContinue)).Trim()
+            if ($v -in 'on', 'off') { return $v }
+        }
+    }
+    return ''
+}
+
+function Set-PnUpdateConsent {
+    param([ValidateSet('on', 'off')][string]$Value)
+    $dir = Get-PnStateDir
+    if (-not $dir) { return }
+    try {
+        New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'update-consent') -Value $Value -NoNewline -ErrorAction Stop
+        # The cached summary was computed under the previous answer.
+        Remove-Item -LiteralPath (Join-Path $dir 'update-check') -Force -ErrorAction SilentlyContinue
+    } catch { }
+}
+
+# Asked once, on the first interactive start. Anything but an explicit yes is a no: the network
+# stays off unless the person turns it on. EOF records nothing, so the question comes back.
+function Request-PnUpdateConsent {
+    if ((Get-PnUpdateConsent) -ne '') { return }
+    Write-PnScreen ''
+    Write-PnScreen "  $(T 'consent_q')"
+    $a = Read-PnLine "  $(T 'consent_ask')"
+    if ($null -eq $a) { return }
+    $on = ([string]$a).Trim().ToLower() -in 'y', 'yes', 'д', 'да'
+    Set-PnUpdateConsent $(if ($on) { 'on' } else { 'off' })
+}
+
+# Item 7: flips the saved answer. An environment override would silently win, so we say so.
+function Invoke-PnActUpdateCheck {
+    if ($env:PARANOID_UPDATE_CHECK -in '1', '0') {
+        Write-PnScreen "  $(T 'updchk_env' $env:PARANOID_UPDATE_CHECK)"
+        Invoke-PnPause; return
+    }
+    Set-PnUpdateConsent $(if ((Get-PnUpdateConsent) -eq 'on') { 'off' } else { 'on' })
+}
+
 # The monorepo release feed, fetched at most once per process (one request
 # covers all five tools; entries are newest-first). Short timeout: the render
 # waits across all tools, the 24h cache makes the slow path rare.
@@ -510,11 +576,10 @@ function Test-PnVerGt {
 }
 
 # A "tool inst→latest, …" summary over installed tools with a newer release. Empty if the check
-# is disabled, everything is fresh, or the network is unavailable. The result is cached for 24h.
+# is not consented to, everything is fresh, or the network is unavailable. The result is cached for 24h.
 function Get-PnUpdateSummary {
-    if ($env:PARANOID_UPDATE_CHECK -ne '1') { return '' }
-    $cacheDir = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'paranoid-tools' }
-                elseif ($env:HOME) { Join-Path $env:HOME '.cache/paranoid-tools' } else { $null }
+    if ((Get-PnUpdateConsent) -ne 'on') { return '' }
+    $cacheDir = Get-PnStateDir
     $cache = if ($cacheDir) { Join-Path $cacheDir 'update-check' } else { $null }
     # A fresh cache (<24h) is returned as is; feed mode (tests) never touches the cache — always recomputes.
     if (-not $env:PARANOID_UPDATE_FEED -and $cache -and (Test-Path -LiteralPath $cache)) {
@@ -598,7 +663,7 @@ function Get-PnDashboard {
         'idle' { $lines += "  $(T 'vw') $(T 'vw_idle')" }
         default { }  # absent → do not show the line
     }
-    # Optional updates line (only if PARANOID_UPDATE_CHECK=1 and something newer exists).
+    # Optional updates line (only with consent and when something newer exists).
     $upd = Get-PnUpdateSummary
     if ($upd) {
         $lines += "  $([char]0x2B06) $(T 'update_avail') $upd"
@@ -618,6 +683,7 @@ function Get-PnDashboard {
     $lines += "  4) $(T 'm_t_notepad')"
     $lines += "  5) $(T 'm_t_secrets')"
     $lines += "  6) $(T 'm_update')"
+    $lines += "  7) $(T $(if ((Get-PnUpdateConsent) -eq 'on') { 'm_updchk_on' } else { 'm_updchk_off' }))"
     $lines += "  0) $(T 'm_quit')"
     $lines += ''
     # PARANOID_TIMING=1: what the four state probes cost on THIS machine, in milliseconds.
@@ -1103,6 +1169,7 @@ function Invoke-PnDispatch {
         '4' { Invoke-PnMenuNotepad }
         '5' { Invoke-PnMenuSecrets }
         '6' { Invoke-PnActUpdate }
+        '7' { Invoke-PnActUpdateCheck }
         { $_ -in '0', 'q', 'Q' } { return $true }
         default { }   # invalid input → redraw the menu
     }
@@ -1473,6 +1540,7 @@ function Invoke-PnMain {
     # _elevated re-entry above, which would otherwise bring up a tray with administrator rights
     # nobody chose to give it.
     Start-PnTray
+    Request-PnUpdateConsent
     while ($true) {
         Clear-Host
         Write-PnScreen (Get-PnDashboard)

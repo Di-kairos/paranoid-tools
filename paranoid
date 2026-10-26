@@ -138,8 +138,8 @@ t() {
     en:m_empty)      echo 'Reset — new empty vault, new password (crypto-shred)' ;;
     ru:m_empty)      echo 'Сбросить — новый пустой сейф, новый пароль (crypto-shred)' ;;
     en:empty_na)     echo 'no vault' ;;        ru:empty_na)     echo 'нет сейфа' ;;
-    en:empty_none)   echo 'No vault to empty — create one first.' ;;
-    ru:empty_none)   echo 'Очищать нечего — сначала создай сейф.' ;;
+    en:empty_none)   echo 'No vault to reset — create one first.' ;;
+    ru:empty_none)   echo 'Сбрасывать нечего — сначала создай сейф.' ;;
     en:empty_hint)   echo 'Reset destroys the vault with everything inside and creates a NEW empty one in its place: you set a new password, and the vault stays closed until you open it. Files are not deleted one by one: on an SSD the old key would still decrypt their leftovers, a new key kills them for good. securetrash will ask you to confirm with "yes".' ;;
     ru:empty_hint)   echo 'Сброс уничтожает сейф со всем содержимым и создаёт на его месте НОВЫЙ пустой: ты задаёшь новый пароль, сейф остаётся закрытым, пока ты его не откроешь. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, а новый ключ убивает их насовсем. securetrash попросит подтвердить «yes».' ;;
     # --- vault size choice (a cap, not a reservation — sparsebundle is thin) ---
