@@ -225,6 +225,40 @@ Describe 'update check consent — asked once, saved, toggled with item 7' {
     }
 }
 
+Describe 'CLI: update и _update-check (для трея)' {
+    BeforeEach {
+        $script:OldLad = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = Join-Path ([System.IO.Path]::GetTempPath()) ("pn_lad_" + [Guid]::NewGuid().ToString('N'))
+        Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
+    }
+    AfterEach {
+        Remove-Item -LiteralPath $env:LOCALAPPDATA -Recurse -Force -ErrorAction SilentlyContinue
+        $env:LOCALAPPDATA = $script:OldLad
+    }
+    It 'paranoid update runs item 6 and does not start the tray or the menu' {
+        Mock Invoke-PnActUpdate { }
+        Mock Start-PnTray { }
+        Mock Read-PnLine { $null }
+        Invoke-PnMain -Argv @('update')
+        Should -Invoke Invoke-PnActUpdate -Times 1 -Exactly
+        Should -Invoke Start-PnTray -Times 0
+    }
+    It '_update-check without consent touches nothing' {
+        Mock Get-PnLatestTag { 'v9.9.9' }
+        Invoke-PnMain -Argv @('_update-check')
+        Should -Invoke Get-PnLatestTag -Times 0
+        Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'paranoid-tools\update-check') | Should -BeFalse
+    }
+    It '_update-check with consent writes the cache the tray reads' {
+        Set-PnUpdateConsent 'on'
+        Mock Test-PnTool { $true }
+        Mock Get-PnToolVersion { '0.1.0' }
+        Mock Get-PnLatestTag { 'v0.2.0' }
+        Invoke-PnMain -Argv @('_update-check')
+        (Get-Content -LiteralPath (Join-Path $env:LOCALAPPDATA 'paranoid-tools\update-check') -Raw) | Should -Match '0\.1\.0'
+    }
+}
+
 Describe 'Get-PnDashboard — opt-in update line' {
     BeforeEach {
         $script:PN_LOCALE = 'en'

@@ -167,6 +167,7 @@ Describe 'окно инструмента из трея (s48)' {
     }
     It 'лаунчеру паузы не надо — у него свой выход' {
         Get-PtToolScript -Command 'paranoid' | Should -Not -Match 'Read-Host'
+        Get-PtToolScript -Command 'paranoid update' | Should -Not -Match 'Read-Host'
     }
     It 'окно стартует без профиля пользователя и без -NoExit' {
         Mock Start-Process { }; Mock Test-PtAdmin { $true }
@@ -850,7 +851,9 @@ Describe 'Cross-platform l10n parity' {
                      'vw_start', 'vw_stop', 'vw_needs_open', 'ttl_30m', 'ttl_1h', 'ttl_2h', 'ttl_4h', 'ttl_none',
                      'notepad_menu', 'ghost_note', 'ghost_pipe', 'secrets_menu', 'split_item', 'combine_item',
                      'press_enter_close', 'hint_combine', 'hint_pipe', 'hint_split', 'notif_hotkey_moved',
-                     'ob_icon_line', 'ob_show_btn', 'ob_howto', 'set_vol_auto')
+                     'ob_icon_line', 'ob_show_btn', 'ob_howto', 'set_vol_auto',
+                     # The update check ships on Windows first; ParanoidBar mirrors these in the macOS pack.
+                     'upd_item', 'upd_check_item', 'notif_update', 'ob_update_line')
         foreach ($k in $winOnly) { $swiftKeys | Should -Not -Contain $k }
         $psKeys = $PtStrings.en.Keys | Where-Object { $_ -notin $winOnly } | Sort-Object -Unique
         ($psKeys -join ',') | Should -Be ($swiftKeys -join ',')
@@ -995,5 +998,68 @@ Describe 'readiness и путь сейфа — паритет с CLI (P2-9)' {
         foreach ($t in @('securetrash', 'vaultwatch', 'panic', 'ghostdraft', 'seedsplit', 'paranoid')) {
             $script:PtEcosystemClis | Should -Contain $t
         }
+    }
+}
+
+Describe 'проверка обновлений в трее' {
+    BeforeEach {
+        $script:OldLad = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = Join-Path ([System.IO.Path]::GetTempPath()) ("pt_lad_" + [Guid]::NewGuid().ToString('N'))
+        $script:Dir = Join-Path $env:LOCALAPPDATA 'paranoid-tools'
+        Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
+    }
+    AfterEach {
+        Remove-Item Env:\PARANOID_UPDATE_CHECK -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $env:LOCALAPPDATA -Recurse -Force -ErrorAction SilentlyContinue
+        $env:LOCALAPPDATA = $script:OldLad
+    }
+    It 'читает тот же ответ, что пишет лаунчер, и переменная окружения сильнее' {
+        Get-PtUpdateConsent | Should -Be ''
+        New-Item -ItemType Directory -Force -Path $script:Dir | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Dir 'update-consent') -Value 'on' -NoNewline
+        Get-PtUpdateConsent | Should -Be 'on'
+        $env:PARANOID_UPDATE_CHECK = '0'
+        Get-PtUpdateConsent | Should -Be 'off'
+    }
+    It 'переключатель пишет ответ и сбрасывает кэш' {
+        New-Item -ItemType Directory -Force -Path $script:Dir | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Dir 'update-check') -Value 'x'
+        Set-PtUpdateConsent 'on'
+        Get-PtUpdateConsent | Should -Be 'on'
+        Test-Path -LiteralPath (Join-Path $script:Dir 'update-check') | Should -BeFalse
+    }
+    It 'без кэша проверка устарела; свежий кэш отдаёт сводку' {
+        (Get-PtUpdateInfo).Stale | Should -BeTrue
+        New-Item -ItemType Directory -Force -Path $script:Dir | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Dir 'update-check') -Value 'panic 0.1.19->0.1.20' -NoNewline
+        $i = Get-PtUpdateInfo
+        $i.Stale | Should -BeFalse
+        $i.Summary | Should -Be 'panic 0.1.19->0.1.20'
+        (Get-Item -LiteralPath (Join-Path $script:Dir 'update-check')).LastWriteTime = (Get-Date).AddDays(-2)
+        (Get-PtUpdateInfo).Stale | Should -BeTrue
+    }
+    It 'одно уведомление на одну сводку, новое — на новую' {
+        Test-PtUpdateNotify -Summary '' | Should -BeFalse
+        Test-PtUpdateNotify -Summary 'panic 0.1.19->0.1.20' | Should -BeTrue
+        Set-PtUpdateNotified -Summary 'panic 0.1.19->0.1.20'
+        Test-PtUpdateNotify -Summary 'panic 0.1.19->0.1.20' | Should -BeFalse
+        Test-PtUpdateNotify -Summary 'panic 0.1.19->0.1.21' | Should -BeTrue
+    }
+    It 'пункт «Доступно обновление» есть только со сводкой и запускает paranoid update' {
+        $none = Get-PtMenuSpec -VaultState 'closed' -Lang 'en' -Elevated $true -FvOn $true -Mount ''
+        @($none | Where-Object { $_.Command -eq 'paranoid update' }).Count | Should -Be 0
+        $spec = Get-PtMenuSpec -VaultState 'closed' -Lang 'en' -Elevated $true -FvOn $true -Mount '' -UpdateSummary 'panic 0.1.19->0.1.20'
+        $it = @($spec | Where-Object { $_.Command -eq 'paranoid update' })
+        $it.Count | Should -Be 1
+        $it[0].Label | Should -Be 'Update available: panic 0.1.19->0.1.20'
+    }
+    It 'переключатель проверки всегда в меню' {
+        $spec = Get-PtMenuSpec -VaultState 'none' -Lang 'ru' -Elevated $true -FvOn $true -Mount ''
+        @($spec | Where-Object { $_.Command -eq '__updatecheck__' }).Count | Should -Be 1
+    }
+    It 'фоновая проверка — скрытый pwsh с paranoid _update-check' {
+        Mock Start-Process { }
+        Start-PtUpdateCheck
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $FilePath -eq 'pwsh' -and $WindowStyle -eq 'Hidden' -and ($ArgumentList -join ' ') -match 'paranoid _update-check' }
     }
 }

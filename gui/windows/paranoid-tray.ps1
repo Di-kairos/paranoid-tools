@@ -145,6 +145,9 @@ $script:PtStrings = @{
         ob_icon_line='Icon on the taskbar (Windows hides new icons under ^)'; ob_show_btn='Show it'
         ob_howto='Click the padlock icon, left or right button, for the menu.'
         set_vol_auto='automatic - leave empty'
+        upd_item='Update available: {0}'; upd_check_item='Check for updates once a day'
+        notif_update='Update available: {0}. Install it from the tray menu: "Update available".'
+        ob_update_line='Check for updates once a day (one request to github.com)'
     }
     ru = @{
         vault_label='Сейф:'; vault_open_risk='ОТКРЫТ — под риском'; vault_closed='закрыт'; vault_not_setup='не создан'
@@ -190,6 +193,9 @@ $script:PtStrings = @{
         ob_icon_line='Иконка на панели задач (новые Windows прячет под ^)'; ob_show_btn='Показать'
         ob_howto='Меню — по клику на иконку-замок, левой или правой кнопкой.'
         set_vol_auto='автоматически — оставь пустым'
+        upd_item='Доступно обновление: {0}'; upd_check_item='Проверять обновления раз в сутки'
+        notif_update='Доступно обновление: {0}. Установить — в меню трея: «Доступно обновление».'
+        ob_update_line='Проверять обновления раз в сутки (один запрос к github.com)'
     }
 }
 # Note: fv_label on Windows = BitLocker (platform honesty), on macOS = FileVault.
@@ -220,7 +226,9 @@ function Get-PtMenuSpec {
           [bool]$Elevated = (Test-PtAdmin),
           # vaultwatch is already guarding THIS vault (a session file for its mount exists).
           [bool]$Watching = $false,
-          [string]$Mount = (Get-PtVaultMount))
+          [string]$Mount = (Get-PtVaultMount),
+          # Newer releases as the launcher summarised them ('' = none or the check is off).
+          [string]$UpdateSummary = '')
     # On 'unknown' the item promises no action: opening/closing/creating blindly is guessing,
     # so we call the read-only `vault status` and label it exactly that.
     $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } 'unknown' { 'securetrash vault status' } default { 'securetrash vault create' } }
@@ -277,12 +285,16 @@ function Get-PtMenuSpec {
         ) }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'launcher_item' -Lang $Lang); Command = 'paranoid';       Enabled = $true }
+        if ($UpdateSummary) {
+            [pscustomobject]@{ Label = ((Get-PtL 'upd_item' -Lang $Lang) -replace '\{0\}', $UpdateSummary); Command = 'paranoid update'; Enabled = $true }
+        }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'login_item' -Lang $Lang);    Command = '__autostart__';     Enabled = $true }
         # Deliberately a second, separate item rather than a third state of the first one: this
         # one changes the security posture of the machine, and a switch like that should be
         # picked, not cycled into by clicking the same line twice.
         [pscustomobject]@{ Label = (Get-PtL 'login_admin_item' -Lang $Lang); Command = '__autostart_admin__'; Enabled = $true }
+        [pscustomobject]@{ Label = (Get-PtL 'upd_check_item' -Lang $Lang); Command = '__updatecheck__'; Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'settings_item' -Lang $Lang); Command = '__settings__';      Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'setup_item' -Lang $Lang);    Command = '__setup__';         Enabled = $true }
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
@@ -778,6 +790,71 @@ function Update-PtHotkeyDefault {
     return $true
 }
 
+# --- update check: the tray shares the launcher's consent and cache, and never fetches itself.
+# The launcher owns the network call (`paranoid _update-check`, run hidden once the cache is a day
+# old); the tray only reads what it wrote, so there is still exactly one place that goes online.
+function Get-PtStateDir {
+    if ($env:LOCALAPPDATA) { return (Join-Path $env:LOCALAPPDATA 'paranoid-tools') }
+    if ($env:HOME) { return (Join-Path $env:HOME '.cache/paranoid-tools') }
+    return $null
+}
+# 'on' | 'off' | '' (never asked) — same file and the same PARANOID_UPDATE_CHECK=1/0 override as
+# Get-PnUpdateConsent in windows/paranoid.ps1.
+function Get-PtUpdateConsent {
+    switch ($env:PARANOID_UPDATE_CHECK) { '1' { return 'on' } '0' { return 'off' } }
+    $dir = Get-PtStateDir
+    if ($dir) {
+        $f = Join-Path $dir 'update-consent'
+        if (Test-Path -LiteralPath $f) {
+            $v = ([string](Get-Content -LiteralPath $f -TotalCount 1 -ErrorAction SilentlyContinue)).Trim()
+            if ($v -in 'on', 'off') { return $v }
+        }
+    }
+    return ''
+}
+function Set-PtUpdateConsent {
+    param([ValidateSet('on', 'off')][string]$Value)
+    $dir = Get-PtStateDir
+    if (-not $dir) { return }
+    try {
+        New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'update-consent') -Value $Value -NoNewline -ErrorAction Stop
+        Remove-Item -LiteralPath (Join-Path $dir 'update-check') -Force -ErrorAction SilentlyContinue
+    } catch { }
+}
+# What the launcher's last check found. Stale = no check yet, or the last one is a day old.
+function Get-PtUpdateInfo {
+    $dir = Get-PtStateDir
+    $f = if ($dir) { Join-Path $dir 'update-check' } else { $null }
+    if (-not $f -or -not (Test-Path -LiteralPath $f)) { return [pscustomobject]@{ Summary = ''; Stale = $true } }
+    $age = (Get-Date) - (Get-Item -LiteralPath $f).LastWriteTime
+    $sum = [string](Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue)
+    return [pscustomobject]@{ Summary = $sum.Trim(); Stale = ($age.TotalSeconds -ge 86400) }
+}
+# One balloon per new set of versions, across tray restarts: the last one announced is kept on disk.
+function Test-PtUpdateNotify {
+    param([string]$Summary)
+    if (-not $Summary) { return $false }
+    $dir = Get-PtStateDir
+    if (-not $dir) { return $true }
+    $f = Join-Path $dir 'update-notified'
+    $last = if (Test-Path -LiteralPath $f) { [string](Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue) } else { '' }
+    return ($last.Trim() -ne $Summary)
+}
+function Set-PtUpdateNotified {
+    param([string]$Summary)
+    $dir = Get-PtStateDir
+    if (-not $dir) { return }
+    try {
+        New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'update-notified') -Value $Summary -NoNewline -ErrorAction Stop
+    } catch { }
+}
+# The launcher's own check, in the background: no window, and the tray does not wait for it.
+function Start-PtUpdateCheck {
+    try { Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-Command', 'paranoid _update-check') -WindowStyle Hidden -ErrorAction Stop | Out-Null } catch { }
+}
+
 # Wall-clock milliseconds for panic's --trigger-ms. Wall clock, because the number is read in
 # another process, which has no access to a stopwatch of ours.
 function Get-PtTriggerMs {
@@ -822,7 +899,7 @@ function Get-PtToolScript {
     $hint = switch -Regex ($Command) { '^seedsplit\s+split\b' { 'hint_split' } '^seedsplit\s+combine\b' { 'hint_combine' } '^ghostdraft\s+pipe\b' { 'hint_pipe' } default { $null } }
     if ($hint) { $script += "Write-Host $(& $q (Get-PtL -Key $hint)); " }
     $script += $Command
-    if ($Command -ne 'paranoid') {
+    if ($Command -notmatch '^paranoid\b') {
         $script += "; [Console]::WriteLine(); [void](Read-Host $(& $q (Get-PtL 'press_enter_close')))"
     }
     return $script
@@ -834,7 +911,7 @@ function Get-PtToolScript {
 # process could not start) — in which case NOTHING was done, and the caller says so.
 function Invoke-PtTool {
     param([string]$Command)
-    if (-not $Command -or $Command -eq '__quit__' -or $Command -eq '__autostart__' -or $Command -eq '__autostart_admin__' -or $Command -eq '__settings__' -or $Command -eq '__setup__') { return $true }
+    if (-not $Command -or $Command -match '^__\w+__$') { return $true }
     # The moment of the click/press goes with the command, so panic can report the whole path -
     # this tray, the new console and the UAC prompt included - and not just its own tail
     # (audit 2026-09-07, §16.4). Added here rather than in the menu spec: the spec is a pure
@@ -948,7 +1025,7 @@ function Show-PtWelcomeForm {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = (Get-PtL ob_title -Lang $lang)
     $form.FormBorderStyle = 'FixedDialog'; $form.MaximizeBox = $false; $form.MinimizeBox = $false
-    $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(480, 336)
+    $form.StartPosition = 'CenterScreen'; $form.ClientSize = New-Object System.Drawing.Size(480, 364)
 
     $y = 14
     function Add-PtObLabel {
@@ -1037,12 +1114,21 @@ function Show-PtWelcomeForm {
     if (-not $iconOn) {
         Add-PtObButton $form (Get-PtL ob_show_btn -Lang $lang) $iconY { [void](Sync-PtIconPromotion -Force); $form.Close(); Show-PtWelcomeForm }
     }
+    # The first-run question about the update check, for people who only ever see the tray. Off
+    # until someone presses Enable - the same default the launcher's question has.
+    $updOn = ((Get-PtUpdateConsent) -eq 'on')
+    $mark = if ($updOn) { [char]0x2705 } else { [char]0x2B1C }
+    $updY = $y
+    Add-PtObLabel $form ("$mark " + (Get-PtL ob_update_line -Lang $lang)) ([ref]$y)
+    if (-not $updOn) {
+        Add-PtObButton $form (Get-PtL ob_enable_btn -Lang $lang) $updY { Set-PtUpdateConsent 'on'; $form.Close(); Show-PtWelcomeForm }
+    }
     Add-PtObLabel $form (Get-PtL ob_howto -Lang $lang) ([ref]$y) -Width 448
     Add-PtObLabel $form ([char]0x26A0 + ' ' + (Get-PtL ob_risk -Lang $lang)) ([ref]$y) 8 ([System.Drawing.Color]::DarkOrange) -Width 448
 
     $done = New-Object System.Windows.Forms.Button
     $done.Text = (Get-PtL ob_done -Lang $lang); $done.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $done.SetBounds(384, 294, 80, 28)
+    $done.SetBounds(384, 322, 80, 28)
     $form.Controls.Add($done); $form.AcceptButton = $done
     [void]$form.ShowDialog()
 }
@@ -1157,7 +1243,8 @@ public class PtHotkeyWindow : NativeWindow {
     # a Mandatory parameter - so the rebuild threw instead of drawing (live Windows run, s46).
     $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false; Rebuilding = $false
                                    TaskOn = $false; TaskCheckedAt = $null
-                                   PollMs = [math]::Max(5, $settings.PollSeconds) * 1000; FastUntil = $null; Pending = $false }
+                                   PollMs = [math]::Max(5, $settings.PollSeconds) * 1000; FastUntil = $null; Pending = $false
+                                   UpdSpawnedAt = $null }
     $script:notifyState = $trayState.Notify
 
     # The UAC shield next to every item that will ask for rights - the mark Windows itself puts
@@ -1220,6 +1307,9 @@ public class PtHotkeyWindow : NativeWindow {
                     } else { $hkWin.Unregister(); $trayState.HotkeyRegistered = $false; $script:hotkeyRegistered = $false }
                 }
                 # Language change included: the rebuild re-reads the settings by itself.
+                & $rebuild
+            } elseif ($cmd -eq '__updatecheck__') {
+                Set-PtUpdateConsent $(if ((Get-PtUpdateConsent) -eq 'on') { 'off' } else { 'on' })
                 & $rebuild
             } elseif ($cmd -eq '__setup__') {
                 Show-PtWelcomeForm
@@ -1297,15 +1387,28 @@ public class PtHotkeyWindow : NativeWindow {
         # up and added its own full set on top: every item twice (live Windows run, s47). From
         # Clear() to the last Add below nothing may wait on anything.
         $elevated = [bool](Test-PtAdmin)
+        # Update check: only with consent. A day-old cache starts the launcher's check in the
+        # background (at most once an hour, so a failing network is not retried every poll);
+        # its result shows up on a later rebuild.
+        $updOn = ((Get-PtUpdateConsent) -eq 'on')
+        $updSummary = ''
+        if ($updOn) {
+            $upd = Get-PtUpdateInfo
+            $updSummary = $upd.Summary
+            if ($upd.Stale -and ($null -eq $trayState.UpdSpawnedAt -or ((Get-Date) - $trayState.UpdSpawnedAt).TotalMinutes -ge 60)) {
+                $trayState.UpdSpawnedAt = Get-Date
+                Start-PtUpdateCheck
+            }
+        }
         $spec = @(Get-PtMenuSpec -VaultState $state -Lang $lang -Elevated $elevated -Mount $vol `
-                    -Watching ($vaultSessions.Count -gt 0))
+                    -Watching ($vaultSessions.Count -gt 0) -UpdateSummary $updSummary)
         # The scheduled-task probe costs ~300 ms of this UI thread (live VM, s48), and the task only
         # changes when someone toggles it - here, where the cache is dropped, or in Task Scheduler.
         # ponytail: 60 s cache; a task deleted by hand shows its old checkmark for up to a minute.
         if ($null -eq $trayState.TaskCheckedAt -or ((Get-Date) - $trayState.TaskCheckedAt).TotalSeconds -gt 60) {
             $trayState.TaskOn = [bool](Test-PtAutostartTask); $trayState.TaskCheckedAt = Get-Date
         }
-        $checked = @{ '__autostart__' = [bool](Test-PtAutostart); '__autostart_admin__' = $trayState.TaskOn }
+        $checked = @{ '__autostart__' = [bool](Test-PtAutostart); '__autostart_admin__' = $trayState.TaskOn; '__updatecheck__' = $updOn }
         $menu.Items.Clear()
         # vaultwatch sessions — disabled headers at the top of the menu (mount point + TTL countdown).
         foreach ($s in $sessions) {
@@ -1328,6 +1431,10 @@ public class PtHotkeyWindow : NativeWindow {
                 'long_open'   { Get-PtL notif_long_open -Lang $lang }
             }
             if ($text) { $notify.ShowBalloonTip(10000, 'Paranoid Tools', $text, [System.Windows.Forms.ToolTipIcon]::Warning) }
+        }
+        if (Test-PtUpdateNotify -Summary $updSummary) {
+            Set-PtUpdateNotified -Summary $updSummary
+            $notify.ShowBalloonTip(10000, 'Paranoid Tools', ((Get-PtL notif_update -Lang $lang) -replace '\{0\}', $updSummary), [System.Windows.Forms.ToolTipIcon]::Info)
         }
     }
     # Nothing the rebuild reads is guaranteed: settings can be unreadable, a tool can be missing,

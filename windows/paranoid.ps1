@@ -1499,6 +1499,7 @@ paranoid $PARANOID_VERSION — interactive launcher for the Paranoid Tools ecosy
 Usage: paranoid            launch the interactive dashboard
        paranoid exposure   report where a copy of a secret may already be on this PC
                            (read-only; --json for the same report as data)
+       paranoid update     re-run the installer from your clone (same as item 6)
        paranoid version    print the version
        paranoid help       show this help
 
@@ -1533,6 +1534,11 @@ function Invoke-PnMain {
             Read-PnLine "  $(T 'elev_close')" | Out-Null
             return
         }
+        # The tray's "Update available" item opens a console on exactly this.
+        'update' { Invoke-PnActUpdate; return }
+        # Internal: the tray's background check. Respects the consent like the dashboard does,
+        # prints nothing; the result lands in the cache the tray reads.
+        '_update-check' { Get-PnUpdateSummary | Out-Null; return }
         '' { }
         default { [Console]::Error.WriteLine("Unknown command: $cmd"); [Console]::Error.WriteLine((Get-PnUsage)); exit 1 }
     }

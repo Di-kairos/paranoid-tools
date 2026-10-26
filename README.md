@@ -446,6 +446,10 @@ feed covering all five tools (no API key, no telemetry), cached for 24h. Enable 
 with `PARANOID_UPDATE_CHECK=1 paranoid`, or export it in your shell rc to keep it on.
 On Windows the launcher asks once, on its first start (Enter alone means no), and item 7 of
 the menu turns the check on or off later; `PARANOID_UPDATE_CHECK=1`/`0` still overrides it.
+The tray asks the same question in its first-run window and keeps the switch in its menu; with
+the check on it shows one notification per new release and an *"Update available"* item that
+runs the update. The tray never goes online itself: it starts the launcher's check in the
+background and reads its result.
 
 ## How it fits together
 
