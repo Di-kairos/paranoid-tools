@@ -641,7 +641,7 @@ _make_fake_clone() {
   run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$TMP" ST_LOCALE=en PARANOID_UPDATE_CHECK=0 \
     bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Cannot find the installer"* ]]
+  [[ "$output" == *"Cannot find your copy of the repository"* ]]
 }
 
 @test "PARANOID_SRC overrides the recorded source dir" {
@@ -674,7 +674,7 @@ _make_fake_clone() {
     bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
   [ "$status" -eq 0 ]
   ! grep -q "STRANGER RAN" "$LOG"
-  [[ "$output" == *"Cannot find the installer"* ]]
+  [[ "$output" == *"Cannot find your copy of the repository"* ]]
 }
 
 @test "update pulls first when the source really is a git clone" {
@@ -736,7 +736,7 @@ _make_fake_clone() {
     bash -c "printf '%s' \"\$0\" | bash '$TMP/paranoid-standalone'" $'6\n\n0\n'
   [ "$status" -eq 0 ]
   ! grep -q "EVIL RAN" "$LOG"
-  [[ "$output" == *"Cannot find the installer"* ]]
+  [[ "$output" == *"Cannot find your copy of the repository"* ]]
 }
 
 @test "a trailing space in the state file is not silently trimmed into another dir" {

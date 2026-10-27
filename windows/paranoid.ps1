@@ -126,8 +126,8 @@ function T {
         'en:m_quit'       { return 'Quit' }         'ru:m_quit'       { return 'Выход' }
         'en:m_update'     { return 'Update         re-run the installer from your clone' }
         'ru:m_update'     { return 'Обновить       перезапустить установщик из твоего клона' }
-        'en:upd_src_none' { return 'Cannot find the installer. Run it once from your clone of the repo (windows\install.cmd) - after that this menu item will work. Or point PARANOID_SRC at the clone.' }
-        'ru:upd_src_none' { return 'Не нахожу установщик. Запусти его один раз из клона репозитория (windows\install.cmd) — после этого пункт меню заработает. Или укажи путь к клону в PARANOID_SRC.' }
+        'en:upd_src_none' { return 'Cannot find your copy of the repository, and updating runs the installer from it. Get one and install from it once - after that this item works by itself:  git clone https://github.com/Di-kairos/paranoid-tools  then  paranoid-tools\windows\install.cmd  (already have a clone elsewhere? run windows\install.cmd from it, or set PARANOID_SRC to its path).' }
+        'ru:upd_src_none' { return 'Не нахожу твою копию репозитория, а обновление запускает установщик именно из неё. Скачай её и один раз поставь оттуда — дальше этот пункт будет работать сам:  git clone https://github.com/Di-kairos/paranoid-tools  затем  paranoid-tools\windows\install.cmd  (клон уже лежит в другом месте? запусти windows\install.cmd из него или укажи путь в PARANOID_SRC).' }
         'en:upd_src'      { return "Installer: $A" }
         'ru:upd_src'      { return "Установщик: $A" }
         'en:upd_confirm'  { return 'Pull the latest sources and reinstall all tools?' }

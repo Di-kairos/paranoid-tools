@@ -108,8 +108,8 @@ t() {
     ru:m_t_notepad)  echo 'Блокнот ▸      ghostdraft: эфемерная заметка / буфер' ;;
     en:m_update)     echo 'Update         re-run the installer from your clone' ;;
     ru:m_update)     echo 'Обновить       перезапустить установщик из твоего клона' ;;
-    en:upd_src_none) echo 'Cannot find the installer. Run it from your clone of the repo once (bash install.sh) — after that this menu item will work. Or set PARANOID_SRC to the clone path.' ;;
-    ru:upd_src_none) echo 'Не нахожу установщик. Запусти его один раз из клона репозитория (bash install.sh) — после этого пункт меню заработает. Или укажи путь к клону в PARANOID_SRC.' ;;
+    en:upd_src_none) echo 'Cannot find your copy of the repository, and updating runs the installer from it. Get one and install from it once — after that this item works by itself:  git clone https://github.com/Di-kairos/paranoid-tools && bash paranoid-tools/install.sh  (already have a clone elsewhere? run install.sh from it, or set PARANOID_SRC to its path).' ;;
+    ru:upd_src_none) echo 'Не нахожу твою копию репозитория, а обновление запускает установщик именно из неё. Скачай её и один раз поставь оттуда — дальше этот пункт будет работать сам:  git clone https://github.com/Di-kairos/paranoid-tools && bash paranoid-tools/install.sh  (клон уже лежит в другом месте? запусти install.sh из него или укажи путь в PARANOID_SRC).' ;;
     en:upd_src)      printf 'Installer: %s' "$2" ;;
     ru:upd_src)      printf 'Установщик: %s' "$2" ;;
     en:upd_confirm)  echo 'Pull the latest sources and reinstall all tools?' ;;
