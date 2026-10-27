@@ -68,7 +68,7 @@ moving branch) and verifies the checksum **before** installing — it fails clos
 mismatch. Quick form:
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.9/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.10/install.sh | bash
 ```
 
 ### Verify-then-run (don't trust, verify)
@@ -77,7 +77,7 @@ Piping any script into a shell means running code you haven't read. Prefer this 
 check the checksum, read it, then run:
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.9
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.10
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -96,7 +96,7 @@ bash install.sh
 > this repo, and the installer fails closed when it can't (see `SECURITY.md`). Another
 > channel is **Homebrew**, whose expected hash lives in the tap's git history rather than
 > alongside the download. Residual risk: one project key signs all five tools — see the
-> ecosystem [threat model](../THREAT-MODEL.md). Pin a specific version with `ST_VERSION=0.5.9` instead of
+> ecosystem [threat model](../THREAT-MODEL.md). Pin a specific version with `ST_VERSION=0.5.10` instead of
 > `latest` for reproducibility.
 
 ### Windows (beta)
@@ -111,7 +111,7 @@ automated one. The installer verifies `securetrash.ps1` against `SHA256SUMS` fro
 release tag before installing.
 
 ```powershell
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.9/install.ps1 | iex
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.10/install.ps1 | iex
 ```
 
 > **Beta:** the Windows port is logic-tested (Pester on CI, under both PowerShell 7 and Windows

@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.5.10] — 2026-10-27
+
 ### Changed
 - **`vault reset` больше не печатает «Контейнер удалён» посреди сброса.** Строка про старый
   контейнер читалась как «сейф удалён», и человек решал, что сейфа больше нет. Итоговое
@@ -556,7 +558,8 @@
 - На SSD перезапись (`rm -P`) гарантий НЕ даёт (wear leveling, COW, TRIM) — для секретов
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
-[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.9...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.10...HEAD
+[0.5.10]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.9...securetrash-v0.5.10
 [0.5.9]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.8...securetrash-v0.5.9
 [0.5.8]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.7...securetrash-v0.5.8
 [0.5.7]: https://github.com/Di-kairos/paranoid-tools/releases/tag/securetrash-v0.5.7
