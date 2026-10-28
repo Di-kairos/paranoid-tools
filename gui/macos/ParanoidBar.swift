@@ -94,8 +94,7 @@ private let strings: [String: (en: String, ru: String)] = [
     "vault_close":      ("Close the vault", "Закрыть сейф"),
     "vault_open":       ("Open the vault", "Открыть сейф"),
     "vault_create":     ("Create a vault", "Создать сейф"),
-    "vault_empty":      ("Reset — new empty vault, new password", "Сбросить — новый пустой сейф, новый пароль"),
-    "vault_destroy":    ("Destroy the vault (irreversible)", "Уничтожить сейф (необратимо)"),
+    "vault_delete":     ("Delete the vault…", "Удалить сейф…"),
     "launcher_item":    ("Open the full launcher (paranoid)", "Открыть полный лаунчер (paranoid)"),
     "settings_item":    ("Settings…", "Настройки…"),
     "login_item":       ("Start at login", "Запускать при входе"),
@@ -488,15 +487,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else if mountState == "unknown" { toggleLabel = L("vault_ask") }
         else { toggleLabel = vaultExists() ? L("vault_open") : L("vault_create") }
         vault.addItem(item(toggleLabel, #selector(doVaultToggle)))
-        // Empty/Destroy only make sense with an existing container AND a known state —
+        // Delete only makes sense with an existing container AND a known state —
         // otherwise grey-out, so that a destructive action is not live "into the void" (P2-7)
-        // and does not run on top of a state we do not know.
-        let emptyItem = item(L("vault_empty"), #selector(doVaultEmpty))
-        emptyItem.isEnabled = hasVault
-        vault.addItem(emptyItem)
-        let destroyItem = item(L("vault_destroy"), #selector(doVaultDestroy))
-        destroyItem.isEnabled = hasVault
-        vault.addItem(destroyItem)
+        // and does not run on top of a state we do not know. One item, not Reset + Destroy:
+        // those led to the same place; the launcher asks whether a new vault takes its place.
+        let deleteItem = item(L("vault_delete"), #selector(doVaultDelete))
+        deleteItem.isEnabled = hasVault
+        vault.addItem(deleteItem)
         let vaultItem = NSMenuItem(title: L("vault_menu") + " ▸", action: nil, keyEquivalent: "")
         vaultItem.submenu = vault
         menu.addItem(vaultItem)
@@ -545,8 +542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { verb = vaultExists() ? "open" : "create" }
         runInTerminal("securetrash vault " + verb)
     }
-    @objc private func doVaultEmpty()    { runInTerminal("securetrash vault reset") }
-    @objc private func doVaultDestroy()  { runInTerminal("securetrash vault destroy") }
+    @objc private func doVaultDelete()   { runInTerminal("paranoid delete-vault") }
     @objc private func doLauncher()      { runInTerminal("paranoid") }
     @objc private func doUpdate()        { runInTerminal("paranoid update") }
     @objc private func doToggleUpdateCheck() {

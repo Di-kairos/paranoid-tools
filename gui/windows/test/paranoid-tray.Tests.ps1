@@ -10,12 +10,14 @@ BeforeAll {
 AfterAll { Remove-Item Env:\ST_NO_MAIN -ErrorAction SilentlyContinue }
 
 Describe 'Get-PtMenuSpec — структура меню' {
-    It 'содержит ключевые действия (status / panic / empty / destroy / launcher / quit)' {
+    It 'содержит ключевые действия (status / panic / delete / launcher / quit)' {
         $labels = (Get-PtMenuSpec -VaultState 'closed' -Lang 'en').Label -join '|'
         $labels | Should -Match 'Status'
         $labels | Should -Match 'PANIC'
-        $labels | Should -Match 'Empty'
-        $labels | Should -Match 'Destroy'
+        $labels | Should -Match 'Delete the vault'
+        # Reset и Destroy вели в одно место (Destroy, затем Create) — остался один пункт.
+        $labels | Should -Not -Match 'Reset'
+        $labels | Should -Not -Match 'Destroy'
         $labels | Should -Match 'launcher'
         $labels | Should -Match 'Quit'
     }
@@ -39,24 +41,22 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $spec[6].Label   | Should -Be (Get-PtL -Key 'vault_ask' -Lang 'en')
         $spec[6].Command | Should -Be 'securetrash vault status'   # read-only, changes nothing
         # No irreversible actions are offered on top of an unknown state.
-        ($spec | Where-Object { $_.Label -match 'Empty' }).Enabled   | Should -BeFalse
-        ($spec | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeFalse
+        ($spec | Where-Object { $_.Label -match 'Delete' }).Enabled | Should -BeFalse
         # And the header calls the state by its name, not "closed".
         $spec[0].Label | Should -Match 'unknown'
     }
-    It 'empty = securetrash vault reset (crypto-shred)' {
-        $empty = (Get-PtMenuSpec -VaultState 'open' -Lang 'en') | Where-Object { $_.Label -match 'Empty' }
-        $empty.Command | Should -Be 'securetrash vault reset'
+    It 'delete = paranoid delete-vault (лаунчер спросит, нужен ли новый сейф)' {
+        $del = (Get-PtMenuSpec -VaultState 'open' -Lang 'en') | Where-Object { $_.Label -match 'Delete' }
+        $del.Command | Should -Be 'paranoid delete-vault'
+        Test-PtNeedsAdmin $del.Command | Should -BeTrue
     }
-    It 'Empty/Destroy enabled когда сейф есть (open|closed), disabled при none (P2-7)' {
+    It 'Delete enabled когда сейф есть (open|closed), disabled при none (P2-7)' {
         foreach ($st in 'open', 'closed') {
             $spec = Get-PtMenuSpec -VaultState $st -Lang 'en'
-            ($spec | Where-Object { $_.Label -match 'Empty'   }).Enabled | Should -BeTrue
-            ($spec | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeTrue
+            ($spec | Where-Object { $_.Label -match 'Delete' }).Enabled | Should -BeTrue
         }
         $none = Get-PtMenuSpec -VaultState 'none' -Lang 'en'
-        ($none | Where-Object { $_.Label -match 'Empty'   }).Enabled | Should -BeFalse
-        ($none | Where-Object { $_.Label -match 'Destroy' }).Enabled | Should -BeFalse
+        ($none | Where-Object { $_.Label -match 'Delete' }).Enabled | Should -BeFalse
     }
     It 'содержит пункт автостарта (Start at login / __autostart__)' {
         # Пунктов автостарта теперь два — обычный и с правами; матчим по команде, а не по слову
@@ -110,13 +110,13 @@ Describe 'Get-PtMenuSpec — инструменты в трее (s48)' {
     }
     It 'охрана сейфа видна и на закрытом сейфе, но disabled и говорит, что нужно' {
         foreach ($st in 'closed', 'none', 'unknown') {
-            $vw = (Get-PtMenuSpec -VaultState $st -Lang 'en')[9]
+            $vw = (Get-PtMenuSpec -VaultState $st -Lang 'en')[8]
             $vw.Label   | Should -Be (Get-PtL -Key 'vw_needs_open' -Lang 'en')
             $vw.Enabled | Should -BeFalse
         }
     }
     It 'открытый сейф без охраны: подменю TTL, том в команде, кавычка экранирована' {
-        $vw = (Get-PtMenuSpec -VaultState 'open' -Lang 'en' -Mount "E:\it's" -Watching $false)[9]
+        $vw = (Get-PtMenuSpec -VaultState 'open' -Lang 'en' -Mount "E:\it's" -Watching $false)[8]
         $vw.Label | Should -Be (Get-PtL -Key 'vw_start' -Lang 'en')
         $vw.Children.Command | Should -Be @(
             "vaultwatch start --ttl 30m 'E:\it''s'", "vaultwatch start --ttl 1h 'E:\it''s'",
@@ -124,7 +124,7 @@ Describe 'Get-PtMenuSpec — инструменты в трее (s48)' {
             "vaultwatch start 'E:\it''s'")
     }
     It 'открытый сейф под охраной: один пункт снять охрану' {
-        $vw = (Get-PtMenuSpec -VaultState 'open' -Lang 'en' -Mount 'E:\' -Watching $true)[9]
+        $vw = (Get-PtMenuSpec -VaultState 'open' -Lang 'en' -Mount 'E:\' -Watching $true)[8]
         $vw.Command | Should -Be "vaultwatch stop 'E:\'"
     }
     It 'vaultwatch start/stop идут через UAC, как в лаунчере; status — нет' {

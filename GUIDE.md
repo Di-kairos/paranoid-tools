@@ -74,7 +74,7 @@ Below it — the menu (pick by number):
 ```
 1) Status        — full read-only check (what actually protects you on your hardware)
 2) 🔒 PANIC NOW  — hide & lock everything, hard mode (instant, no confirmation)
-3) Vault ▸       — open / close / create, empty, destroy, watch
+3) Vault ▸       — open / close / create, delete, watch
 4) Notepad ▸     — ghostdraft: note (write/edit/copy, vanishes) / show clipboard
 5) Secrets ▸     — seedsplit: split / combine
 6) Update        — pull the latest signed releases and reinstall
@@ -87,10 +87,10 @@ away. Each submenu has its own `0) Back`.
 **3) Vault ▸**
 ```
 1) Open / Close / Create  — label follows the current state
-2) Empty                  — crypto-shred everything, keep a fresh empty vault
-                            (this is `vault reset` — NOT `securetrash empty`, see below)
-3) Destroy                — remove the vault and its contents (irreversible)
-4) Watch                  — guard / stop the open vault (vaultwatch)
+2) Delete the vault       — crypto-shred it with everything inside, then asks:
+                            a new empty vault in its place? Y = `vault reset`,
+                            n = `vault destroy` (NOT `securetrash empty`, see below)
+3) Watch                  — guard / stop the open vault (vaultwatch)
 0) Back
 ```
 Watch lives here because vaultwatch's whole job is guarding the *open* vault.
@@ -305,7 +305,7 @@ first place. That's why the rule at the top of this section is "create inside", 
 and it's also why snapshots don't threaten what's already in the vault: a snapshot captures the
 container as ciphertext.
 
-**Empty the vault for sure.** `securetrash vault reset` (Vault ▸ → 2, Empty) crypto-shreds the
+**Empty the vault for sure.** `securetrash vault reset` (Vault ▸ → 2, answer Y) crypto-shreds the
 current container — it throws the key away — and recreates a fresh, **empty** vault in its place.
 Why not just delete the files inside? Wiping files in place inside a live vault on an SSD is only
 best-effort: the same key still decrypts whatever blocks are left behind. The one real
@@ -314,7 +314,7 @@ irreversibility guarantee is destroying the container's key, so "empty" literall
 the everyday workflow: accumulate files → wipe everything for certain → keep working.
 securetrash asks you to type `yes` and set a password for the fresh vault.
 
-**Two different things are called "empty".** The launcher's `Vault ▸ → 2, Empty` is
+**Two different things are called "empty".** The launcher's `Vault ▸ → 2` with a new vault is
 `securetrash vault reset` — it crypto-shreds the encrypted **container**. The command
 `securetrash empty` is something else entirely: it clears `~/SecureTrash`, the plain drop
 folder, by overwriting files in place — best-effort, and on an SSD no guarantee at all. If you
@@ -341,7 +341,7 @@ Only once it is unmounted, `securetrash vault destroy-old` crypto-shreds it. Whi
 mounted the command refuses — deleting the backing store of a live, decrypted volume is exactly
 the kind of damage the tool exists to prevent.
 
-**Delete the vault entirely.** `securetrash vault destroy` removes the container
+**Delete the vault entirely.** `securetrash vault destroy` (Vault ▸ → 2, answer n) removes the container
 (`~/SecureVault.sparsebundle`) and crypto-shreds it — the key is gone, the icon disappears
 from the sidebar and desktop. **Irreversible: everything inside is gone for good.** Copy out
 anything you need first, and close any Finder windows or apps holding the volume open — if it

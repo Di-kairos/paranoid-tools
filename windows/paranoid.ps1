@@ -106,13 +106,6 @@ function T {
         'ru:m_panic'      { return 'ПАНИКА — спрятать и запереть всё, жёсткий режим (мгновенно, без подтверждения)' }
         'en:m_vault'      { return 'Vault — create / open / close' }
         'ru:m_vault'      { return 'Сейф — создать / открыть / закрыть' }
-        'en:m_destroy'    { return 'Destroy the vault (irreversible)' }
-        'ru:m_destroy'    { return 'Уничтожить сейф (необратимо)' }
-        'en:destroy_na'   { return 'no vault' }       'ru:destroy_na'   { return 'нет сейфа' }
-        'en:destroy_hint' { return 'This permanently destroys the vault and everything inside it. securetrash will ask you to confirm with "yes".' }
-        'ru:destroy_hint' { return 'Это безвозвратно уничтожит сейф и всё, что внутри. securetrash попросит подтвердить словом «yes».' }
-        'en:destroy_none' { return 'No vault to destroy — create one first (menu item 3).' }
-        'ru:destroy_none' { return 'Уничтожать нечего — сначала создай сейф (пункт 3).' }
         'en:m_split'      { return 'Split a secret (seedsplit)' }
         'ru:m_split'      { return 'Разбить секрет (seedsplit)' }
         'en:m_combine'    { return 'Combine shares (seedsplit)' }
@@ -149,8 +142,8 @@ function T {
         'en:upd_fail'     { return 'The installer exited with an error - nothing was silently half-done, see the output above.' }
         'ru:upd_fail'     { return 'Установщик завершился с ошибкой — молчаливой полуустановки нет, смотри вывод выше.' }
         # --- top-level group items (open submenus) ---
-        'en:m_t_vault'   { return 'Vault >        open / reset / destroy / watch' }
-        'ru:m_t_vault'   { return 'Сейф >         открыть / сбросить / уничтожить / сторожить' }
+        'en:m_t_vault'   { return 'Vault >        open / delete / watch' }
+        'ru:m_t_vault'   { return 'Сейф >         открыть / удалить / сторожить' }
         'en:m_t_notepad' { return 'Notepad >      ghostdraft: ephemeral note / clipboard' }
         'ru:m_t_notepad' { return 'Блокнот >      ghostdraft: эфемерная заметка / буфер' }
         'en:m_t_secrets' { return 'Secrets >      seedsplit: split / combine' }
@@ -170,13 +163,15 @@ function T {
         'en:m_v_unknown' { return 'Vault state unknown — ask securetrash' }
         'ru:m_v_unknown' { return 'Состояние сейфа неизвестно — спросить securetrash' }
         # --- empty (= securetrash vault reset) ---
-        'en:m_empty'     { return 'Reset — new empty vault, new password (crypto-shred)' }
-        'ru:m_empty'     { return 'Сбросить — новый пустой сейф, новый пароль (crypto-shred)' }
-        'en:empty_na'    { return 'no vault' }        'ru:empty_na'    { return 'нет сейфа' }
-        'en:empty_none'  { return 'No vault to reset — create one first.' }
-        'ru:empty_none'  { return 'Сбрасывать нечего — сначала создай сейф.' }
-        'en:empty_hint'  { return 'Reset destroys the vault with everything inside and creates a NEW empty one in its place: you set a new password, and the vault stays closed until you open it. Files are not deleted one by one: on an SSD the old key would still decrypt their leftovers, a new key kills them for good. securetrash will ask you to confirm with "yes".' }
-        'ru:empty_hint'  { return 'Сброс уничтожает сейф со всем содержимым и создаёт на его месте НОВЫЙ пустой: ты задаёшь новый пароль, сейф остаётся закрытым, пока ты его не откроешь. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, а новый ключ убивает их насовсем. securetrash попросит подтвердить «yes».' }
+        'en:m_delete'     { return 'Delete the vault' }
+        'ru:m_delete'     { return 'Удалить сейф' }
+        'en:delete_na'    { return 'no vault' }       'ru:delete_na'    { return 'нет сейфа' }
+        'en:delete_none'  { return 'No vault to delete — create one first.' }
+        'ru:delete_none'  { return 'Удалять нечего — сначала создай сейф.' }
+        'en:delete_hint'  { return 'Deleting destroys the vault with everything inside. Files are not wiped one by one: on an SSD the old key would still decrypt their leftovers, so the whole container goes, key and all. securetrash will ask you to confirm with "yes".' }
+        'ru:delete_hint'  { return 'Удаление уничтожает сейф со всем содержимым. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, поэтому уходит весь контейнер вместе с ключом. securetrash попросит подтвердить словом «yes».' }
+        'en:delete_renew' { return 'Create a new empty vault in its place, with a new password? [Y/n]' }
+        'ru:delete_renew' { return 'Создать на его месте новый пустой сейф с новым паролем? [Y/n]' }
         # --- size choice (Windows: MB for diskpart; a cap, not a reserve) ---
         'en:size_prompt' { return 'Vault size cap in MB (e.g. 1024 = 1 GB; empty = default 1024 MB). A ceiling, not reserved space — the VHDX grows as you add files:' }
         'ru:size_prompt' { return 'Потолок размера сейфа в МБ (напр. 1024 = 1 ГБ; пусто = по умолчанию 1024 МБ). Это лимит, не резерв — VHDX растёт по мере добавления файлов:' }
@@ -697,7 +692,7 @@ function Get-PnDashboard {
     return ($lines -join "`n")
 }
 
-# Text of the "Vault" submenu (Pester checks the dynamic item 1, empty/destroy gating, toggle).
+# Text of the "Vault" submenu (Pester checks the dynamic item 1, delete gating, toggle).
 function Get-PnVaultMenu {
     $script:VAULT_VOLUME = Get-PnVaultMount
     $v  = Get-PnVaultState
@@ -715,31 +710,22 @@ function Get-PnVaultMenu {
         # but it promises not an action, only an honest refusal to guess.
         'unknown' { $lines += (Format-PnMenuItem 1 (T 'm_v_unknown') 'securetrash') }
     }
-    # 2 Empty (reset) — greyed out when securetrash / the vault is missing / state is unknown
+    # 2 Delete — greyed out when securetrash / the vault is missing / state is unknown
     if (-not (Test-PnTool 'securetrash')) {
-        $lines += "  2) $(T 'm_empty') ($(T 'not_installed'))"
+        $lines += "  2) $(T 'm_delete') ($(T 'not_installed'))"
     } elseif ($v -eq 'none') {
-        $lines += "  2) $(T 'm_empty') ($(T 'empty_na'))"
+        $lines += "  2) $(T 'm_delete') ($(T 'delete_na'))"
     } elseif ($v -eq 'unknown') {
-        $lines += "  2) $(T 'm_empty') ($(T 'vault_state_na'))"
+        $lines += "  2) $(T 'm_delete') ($(T 'vault_state_na'))"
     } else {
-        $lines += "  2) $(T 'm_empty')"
+        $lines += "  2) $(T 'm_delete')"
     }
-    # 3 Destroy — greyed out when securetrash / the vault is missing / state is unknown
-    if (-not (Test-PnTool 'securetrash')) {
-        $lines += "  3) $(T 'm_destroy') ($(T 'not_installed'))"
-    } elseif ($v -eq 'none') {
-        $lines += "  3) $(T 'm_destroy') ($(T 'destroy_na'))"
-    } elseif ($v -eq 'unknown') {
-        $lines += "  3) $(T 'm_destroy') ($(T 'vault_state_na'))"
-    } else {
-        $lines += "  3) $(T 'm_destroy')"
-    }
+    # 3 Watch — toggle
     # 4 Watch — toggle
     if ($vw -eq 'active') {
-        $lines += (Format-PnMenuItem 4 (T 'm_unwatch') 'vaultwatch')
+        $lines += (Format-PnMenuItem 3 (T 'm_unwatch') 'vaultwatch')
     } else {
-        $lines += (Format-PnMenuItem 4 (T 'm_watch')   'vaultwatch')
+        $lines += (Format-PnMenuItem 3 (T 'm_watch')   'vaultwatch')
     }
     $lines += "  0) $(T 'back')"
     $lines += ''
@@ -865,45 +851,35 @@ function Invoke-PnActVault {
     }
     Invoke-PnPause
 }
-# Destroying the vault is irreversible. The launcher warns, but the actual confirmation (yes)
-# and the refusal on a mounted volume with open files are on the securetrash side.
-function Invoke-PnActDestroy {
+# Deleting the vault, in one item. By default a new empty vault takes its place = securetrash
+# vault reset (the old container is set aside, the new one created, only then the old one is
+# crypto-shredded — no moment without a vault). "n" = securetrash vault destroy, nothing left.
+# Two separate items used to lead to the same result (Destroy, then Create), which read as a
+# broken menu. The real yes-confirm and the password prompt are on the securetrash side.
+function Invoke-PnActDelete {
     if (-not (Test-PnTool 'securetrash')) {
         [Console]::Error.WriteLine((T 'install_hint' 'securetrash' (Get-PnToolRepo 'securetrash')))
         Invoke-PnPause; return
     }
     $v = Get-PnVaultState
     if ($v -eq 'none') {
-        Write-PnScreen "  $(T 'destroy_none')"; Invoke-PnPause; return
+        Write-PnScreen "  $(T 'delete_none')"; Invoke-PnPause; return
     }
     # An irreversible operation on top of a state we do not know is not our choice.
     if ($v -eq 'unknown') {
         Write-PnScreen "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
-    Write-PnScreen "  $(T 'destroy_hint')"
-    Invoke-PnToolAdmin 'securetrash' @('vault', 'destroy')
-    Invoke-PnPause
-}
-# Emptying the vault = securetrash vault reset (crypto-shred + recreate empty). An honest
-# irreversibility guarantee (in-place overwrite on an SSD is best-effort: same key). Asks for
-# the new vault's size; the actual yes-confirm and password are on the securetrash side.
-function Invoke-PnActEmpty {
-    if (-not (Test-PnTool 'securetrash')) {
-        [Console]::Error.WriteLine((T 'install_hint' 'securetrash' (Get-PnToolRepo 'securetrash')))
-        Invoke-PnPause; return
-    }
-    $v = Get-PnVaultState
-    if ($v -eq 'none') {
-        Write-PnScreen "  $(T 'empty_none')"; Invoke-PnPause; return
-    }
-    if ($v -eq 'unknown') {
-        Write-PnScreen "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
-    }
-    Write-PnScreen "  $(T 'empty_hint')"
-    $sz = Read-PnVaultSize
-    if ($null -ne $sz) {
-        $a = @('vault', 'reset'); if ($sz) { $a += $sz }
-        Invoke-PnToolAdmin 'securetrash' $a
+    Write-PnScreen "  $(T 'delete_hint')"
+    $renew = Read-PnLine "  $(T 'delete_renew')"
+    if ($null -eq $renew) { Invoke-PnPause; return }
+    if ($renew.Trim() -in @('n', 'no', 'н', 'нет')) {
+        Invoke-PnToolAdmin 'securetrash' @('vault', 'destroy')
+    } else {
+        $sz = Read-PnVaultSize
+        if ($null -ne $sz) {
+            $a = @('vault', 'reset'); if ($sz) { $a += $sz }
+            Invoke-PnToolAdmin 'securetrash' $a
+        }
     }
     Invoke-PnPause
 }
@@ -1099,9 +1075,8 @@ function Invoke-PnVaultDispatch {
     param([string]$Choice)
     switch ($Choice) {
         '1' { Invoke-PnActVault }
-        '2' { Invoke-PnActEmpty }
-        '3' { Invoke-PnActDestroy }
-        '4' { Invoke-PnActWatch }
+        '2' { Invoke-PnActDelete }
+        '3' { Invoke-PnActWatch }
         { $_ -in '0', 'q', 'Q' } { return $true }
         default { }
     }
@@ -1500,6 +1475,7 @@ Usage: paranoid            launch the interactive dashboard
        paranoid exposure   report where a copy of a secret may already be on this PC
                            (read-only; --json for the same report as data)
        paranoid update     re-run the installer from your clone (same as item 6)
+       paranoid delete-vault delete the vault (same as Vault → 2)
        paranoid version    print the version
        paranoid help       show this help
 
@@ -1536,6 +1512,8 @@ function Invoke-PnMain {
         }
         # The tray's "Update available" item opens a console on exactly this.
         'update' { Invoke-PnActUpdate; return }
+        # The tray's "Delete the vault…" item, for the same reason: the question lives here.
+        'delete-vault' { Invoke-PnActDelete; return }
         # Internal: the tray's background check. Respects the consent like the dashboard does,
         # prints nothing; the result lands in the cache the tray reads.
         '_update-check' { Get-PnUpdateSummary | Out-Null; return }

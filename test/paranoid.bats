@@ -208,49 +208,63 @@ run_paranoid() {
   ! grep -q "vault create" "$LOG"
 }
 
-# --- vault: empty = vault reset (submenu 3 → 2) ---
+# --- vault: delete (submenu 3 → 2): reset by default, destroy on "n" ---
 
-@test "vault submenu 2 dispatches 'securetrash vault reset' when a vault exists" {
+@test "vault delete with a new vault (default answer) dispatches 'securetrash vault reset'" {
   touch "$TMP/container.sparsebundle"
-  # after '2': empty size (default) + empty pause
-  run_paranoid $'3\n2\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  # after '2': empty answer (= Y) + empty size (default) + empty pause
+  run_paranoid $'3\n2\n\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault reset" "$LOG"
+  ! grep -q "vault destroy" "$LOG"
 }
 
-@test "vault empty warns it crypto-shreds and recreates" {
+@test "vault delete without a new vault ('n') dispatches 'securetrash vault destroy'" {
   touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n2\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\nn\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"crypto-shred"* ]]
-}
-
-@test "vault empty is a no-op when there is no vault (no dead-end)" {
-  run_paranoid $'3\n2\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/no-container-$RANDOM"
-  [ "$status" -eq 0 ]
+  grep -qx "securetrash vault destroy" "$LOG"
   ! grep -q "vault reset" "$LOG"
 }
 
-# --- vault: destroy (submenu 3 → 3) ---
-
-@test "vault submenu 3 dispatches 'securetrash vault destroy' when a vault exists" {
+@test "vault delete takes the Russian no (net) as no" {
   touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n3\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\nнет\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault destroy" "$LOG"
 }
 
-@test "vault destroy warns before destroy (irreversible)" {
+@test "vault delete warns before it acts (irreversible)" {
   touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n3\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\nn\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"permanently"* ]]
+  [[ "$output" == *"destroys the vault with everything inside"* ]]
 }
 
-@test "vault destroy is a no-op when there is no vault (no dead-end)" {
-  run_paranoid $'3\n3\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/no-container-$RANDOM"
+@test "vault delete is a no-op when there is no vault (no dead-end)" {
+  run_paranoid $'3\n2\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/no-container-$RANDOM"
   [ "$status" -eq 0 ]
+  ! grep -q "vault reset" "$LOG"
   ! grep -q "vault destroy" "$LOG"
+}
+
+# Reset and Destroy were two items leading to the same place (Destroy, then Create).
+@test "vault submenu has one delete item, no separate reset/destroy" {
+  touch "$TMP/container.sparsebundle"
+  run_paranoid $'3\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2) Delete the vault"* ]]
+  [[ "$output" != *"Reset"* ]]
+  [[ "$output" != *"Destroy the vault"* ]]
+}
+
+@test "'paranoid delete-vault' runs the same delete flow" {
+  touch "$TMP/container.sparsebundle"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$HOME" LC_ALL=C ST_LOCALE=en PARANOID_UPDATE_CHECK=0 \
+    ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle" \
+    bash -c "printf 'n\n\n' | bash '$SCRIPT' delete-vault"
+  [ "$status" -eq 0 ]
+  grep -qx "securetrash vault destroy" "$LOG"
 }
 
 # --- secrets: submenu (item 5 → ...) ---
@@ -296,16 +310,16 @@ run_paranoid() {
   ! grep -q "^ghostdraft" "$LOG"
 }
 
-# --- vault: vaultwatch start (submenu 3 → 4) ---
+# --- vault: vaultwatch start (submenu 3 → 3) ---
 
 @test "watch with TTL dispatches 'vaultwatch start --ttl <X> <vault>'" {
-  run_paranoid $'3\n4\n30m\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
+  run_paranoid $'3\n3\n30m\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
   [ "$status" -eq 0 ]
   grep -qx "vaultwatch start --ttl 30m $TMP/vault" "$LOG"
 }
 
 @test "watch without TTL dispatches 'vaultwatch start <vault>'" {
-  run_paranoid $'3\n4\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
+  run_paranoid $'3\n3\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
   [ "$status" -eq 0 ]
   grep -qx "vaultwatch start $TMP/vault" "$LOG"
 }
@@ -439,13 +453,13 @@ STUB
 }
 
 @test "invalid TTL is rejected and does not start vaultwatch" {
-  run_paranoid $'3\n4\n30min\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
+  run_paranoid $'3\n3\n30min\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Invalid format"* ]]
   ! grep -q "vaultwatch start" "$LOG"
 }
 
-@test "vault submenu 4 stops the watch when a session is active" {
+@test "vault submenu 3 stops the watch when a session is active" {
   cat >"$STUBS/vaultwatch" <<EOF
 #!/usr/bin/env bash
 printf 'vaultwatch %s\n' "\$*" >>"$LOG"
@@ -453,7 +467,7 @@ printf 'vaultwatch %s\n' "\$*" >>"$LOG"
 exit 0
 EOF
   chmod +x "$STUBS/vaultwatch"
-  run_paranoid $'3\n4\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
+  run_paranoid $'3\n3\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault"
   [ "$status" -eq 0 ]
   grep -qx "vaultwatch stop $TMP/vault" "$LOG"
 }
@@ -809,14 +823,12 @@ _make_fake_clone() {
 }
 
 # Codex review: unknown must not leak into the IRREVERSIBLE submenu actions.
-@test "empty and destroy refuse to run while the vault state is unknown" {
+@test "delete refuses to run while the vault state is unknown" {
   _break_mount
   mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n2\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\nn\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   ! grep -q "vault reset" "$LOG"
-  run_paranoid $'3\n3\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
-  [ "$status" -eq 0 ]
   ! grep -q "vault destroy" "$LOG"
 }
 
@@ -824,7 +836,7 @@ _make_fake_clone() {
 @test "watch refuses to start while the vault state is unknown" {
   _break_mount
   mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n4\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  run_paranoid $'3\n3\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   ! grep -q "vaultwatch start" "$LOG"
 }

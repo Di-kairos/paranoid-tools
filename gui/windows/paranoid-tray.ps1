@@ -107,7 +107,7 @@ $script:PtStrings = @{
         fv_label='BitLocker:'; fv_on='ON'; fv_off='off / unknown'
         status_item='Status — full read-only check'; panic_item='PANIC NOW — hide & lock'
         vault_menu='Vault'; vault_close='Close the vault'; vault_open='Open the vault'; vault_create='Create a vault'
-        vault_empty='Reset — new empty vault, new password'; vault_destroy='Destroy the vault (irreversible)'
+        vault_delete='Delete the vault…'
         launcher_item='Open the full launcher (paranoid)'; settings_item='Settings…'; login_item='Start at login'
         login_admin_item='Start at login WITH admin rights (no UAC for vault and PANIC)'
         login_admin_on='Autostart now runs the tray as administrator: the panic hotkey fires with no prompt. The tray also holds administrator rights for the whole session - anything that compromises it is compromised with them.'
@@ -155,7 +155,7 @@ $script:PtStrings = @{
         fv_label='BitLocker:'; fv_on='включён'; fv_off='выкл / неизвестно'
         status_item='Статус — полная проверка (только чтение)'; panic_item='ПАНИКА — спрятать и заблокировать'
         vault_menu='Сейф'; vault_close='Закрыть сейф'; vault_open='Открыть сейф'; vault_create='Создать сейф'
-        vault_empty='Сбросить — новый пустой сейф, новый пароль'; vault_destroy='Уничтожить сейф (необратимо)'
+        vault_delete='Удалить сейф…'
         launcher_item='Открыть полный лаунчер (paranoid)'; settings_item='Настройки…'; login_item='Запускать при входе'
         login_admin_item='Запускать при входе С ПРАВАМИ администратора (без UAC для сейфа и ПАНИКИ)'
         login_admin_on='Автозапуск теперь поднимает трей администратором: хоткей паники срабатывает без диалога. Всю сессию трей держит права администратора — что скомпрометирует его, скомпрометирует с правами.'
@@ -271,8 +271,9 @@ function Get-PtMenuSpec {
         # at launch time in Invoke-PtTool, not baked into the label here.
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = $vaultLabel;                      Command = $vaultToggle;        Enabled = $true }
-        [pscustomobject]@{ Label = (Get-PtL 'vault_empty' -Lang $Lang);   Command = 'securetrash vault reset';   Enabled = $hasVault }
-        [pscustomobject]@{ Label = (Get-PtL 'vault_destroy' -Lang $Lang); Command = 'securetrash vault destroy'; Enabled = $hasVault }
+        # One item, not Reset + Destroy: those led to the same place. The launcher asks whether a
+        # new empty vault takes the old one's place, and runs reset or destroy accordingly.
+        [pscustomobject]@{ Label = (Get-PtL 'vault_delete' -Lang $Lang); Command = 'paranoid delete-vault'; Enabled = $hasVault }
         $vwItem
         [pscustomobject]@{ Label = '-';                              Command = '';                  Enabled = $true }
         [pscustomobject]@{ Label = (Get-PtL 'notepad_menu' -Lang $Lang); Command = $null; Enabled = $true; Children = @(
@@ -879,8 +880,10 @@ function Test-PtNeedsAdmin {
     param([string]$Command)
     # vaultwatch start/stop too: the guard closes the vault, and closing is diskpart + BitLocker
     # (the launcher routes them through Invoke-PnToolAdmin for the same reason).
+    # paranoid delete-vault: elevating the launcher's own window keeps the question, the yes and
+    # the new password in one window - unelevated, the launcher would open a second one for them.
     return ($Command -match '^securetrash\s+vault\b' -or $Command -match '^panic\s+now\b' -or
-            $Command -match '^vaultwatch\s+(start|stop)\b')
+            $Command -match '^vaultwatch\s+(start|stop)\b' -or $Command -match '^paranoid\s+delete-vault\b')
 }
 
 # What the new console window runs around the command. It used to be `-NoExit -Command <cmd>`:

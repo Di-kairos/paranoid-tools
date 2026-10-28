@@ -83,13 +83,6 @@ t() {
     ru:m_panic)      echo 'ПАНИКА — спрятать и запереть всё, жёсткий режим (мгновенно, без подтверждения)' ;;
     en:m_vault)      echo 'Vault — create / open / close' ;;
     ru:m_vault)      echo 'Сейф — создать / открыть / закрыть' ;;
-    en:m_destroy)    echo 'Destroy the vault (irreversible)' ;;
-    ru:m_destroy)    echo 'Уничтожить сейф (необратимо)' ;;
-    en:destroy_na)   echo 'no vault' ;;       ru:destroy_na)   echo 'нет сейфа' ;;
-    en:destroy_hint) echo 'This permanently destroys the vault and everything inside it. securetrash will ask you to confirm with "yes".' ;;
-    ru:destroy_hint) echo 'Это безвозвратно уничтожит сейф и всё, что внутри. securetrash попросит подтвердить словом «yes».' ;;
-    en:destroy_none) echo 'No vault to destroy — create one first (menu item 3).' ;;
-    ru:destroy_none) echo 'Уничтожать нечего — сначала создай сейф (пункт 3).' ;;
     en:m_split)      echo 'Split a secret (seedsplit)' ;;
     ru:m_split)      echo 'Разбить секрет (seedsplit)' ;;
     en:m_combine)    echo 'Combine shares (seedsplit)' ;;
@@ -102,8 +95,8 @@ t() {
     ru:m_unwatch)    echo 'Снять охрану сейфа (vaultwatch)' ;;
     en:m_quit)       echo 'Quit' ;;          ru:m_quit)       echo 'Выход' ;;
     # --- top-level group items (each opens a submenu) ---
-    en:m_t_vault)    echo 'Vault ▸        open · reset · destroy · watch' ;;
-    ru:m_t_vault)    echo 'Сейф ▸         открыть · сбросить · уничтожить · сторожить' ;;
+    en:m_t_vault)    echo 'Vault ▸        open · delete · watch' ;;
+    ru:m_t_vault)    echo 'Сейф ▸         открыть · удалить · сторожить' ;;
     en:m_t_notepad)  echo 'Notepad ▸      ghostdraft: ephemeral note / clipboard' ;;
     ru:m_t_notepad)  echo 'Блокнот ▸      ghostdraft: эфемерная заметка / буфер' ;;
     en:m_update)     echo 'Update         re-run the installer from your clone' ;;
@@ -144,14 +137,16 @@ t() {
     en:m_v_close)    echo 'Close the vault' ;;  ru:m_v_close)    echo 'Закрыть сейф' ;;
     en:m_v_unknown)  echo 'Vault state unknown — ask securetrash' ;;
     ru:m_v_unknown)  echo 'Состояние сейфа неизвестно — спросить securetrash' ;;
-    # --- empty (= securetrash vault reset) ---
-    en:m_empty)      echo 'Reset — new empty vault, new password (crypto-shred)' ;;
-    ru:m_empty)      echo 'Сбросить — новый пустой сейф, новый пароль (crypto-shred)' ;;
-    en:empty_na)     echo 'no vault' ;;        ru:empty_na)     echo 'нет сейфа' ;;
-    en:empty_none)   echo 'No vault to reset — create one first.' ;;
-    ru:empty_none)   echo 'Сбрасывать нечего — сначала создай сейф.' ;;
-    en:empty_hint)   echo 'Reset destroys the vault with everything inside and creates a NEW empty one in its place: you set a new password, and the vault stays closed until you open it. Files are not deleted one by one: on an SSD the old key would still decrypt their leftovers, a new key kills them for good. securetrash will ask you to confirm with "yes".' ;;
-    ru:empty_hint)   echo 'Сброс уничтожает сейф со всем содержимым и создаёт на его месте НОВЫЙ пустой: ты задаёшь новый пароль, сейф остаётся закрытым, пока ты его не откроешь. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, а новый ключ убивает их насовсем. securetrash попросит подтвердить «yes».' ;;
+    # --- delete (= securetrash vault reset, or vault destroy when no new vault is wanted) ---
+    en:m_delete)     echo 'Delete the vault' ;;
+    ru:m_delete)     echo 'Удалить сейф' ;;
+    en:delete_na)    echo 'no vault' ;;        ru:delete_na)    echo 'нет сейфа' ;;
+    en:delete_none)  echo 'No vault to delete — create one first.' ;;
+    ru:delete_none)  echo 'Удалять нечего — сначала создай сейф.' ;;
+    en:delete_hint)  echo 'Deleting destroys the vault with everything inside. Files are not wiped one by one: on an SSD the old key would still decrypt their leftovers, so the whole container goes, key and all. securetrash will ask you to confirm with "yes".' ;;
+    ru:delete_hint)  echo 'Удаление уничтожает сейф со всем содержимым. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, поэтому уходит весь контейнер вместе с ключом. securetrash попросит подтвердить словом «yes».' ;;
+    en:delete_renew) echo 'Create a new empty vault in its place, with a new password? [Y/n]' ;;
+    ru:delete_renew) echo 'Создать на его месте новый пустой сейф с новым паролем? [Y/n]' ;;
     # --- vault size choice (a cap, not a reservation — sparsebundle is thin) ---
     en:size_free)    printf 'Free space on this disk: ~%s GB.' "$2" ;;
     ru:size_free)    printf 'Свободно на диске: ~%s ГБ.' "$2" ;;
@@ -610,47 +605,37 @@ _act_vault() {
   esac
   _pause
 }
-# Destroying the vault is irreversible. The launcher warns, but the real confirmation (yes)
-# and the refusal on a mounted volume with open files are on the securetrash side.
-_act_destroy() {
+# Deleting the vault, in one item. By default a new empty vault takes its place = securetrash
+# vault reset (the old container is set aside, the new one created, only then the old one is
+# crypto-shredded — no moment without a vault). "n" = securetrash vault destroy, nothing left.
+# Two separate items used to lead to the same result (Destroy, then Create), which read as a
+# broken menu. The real yes-confirm and the password prompt are on the securetrash side.
+_act_delete() {
   if ! _tool_installed securetrash; then
     echo "${C_YEL}$(t install_hint securetrash "$(_tool_repo securetrash)")${C_RST}" >&2
     _pause; return
   fi
   local v; v="$(_status_vault)"
   if [[ "$v" == none ]]; then
-    echo "  $(t destroy_none)"; _pause; return
+    echo "  $(t delete_none)"; _pause; return
   fi
   # An irreversible operation on top of a state we do not know is not our call to make.
   if [[ "$v" == unknown ]]; then
     echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}"; _pause; return
   fi
-  echo "  ${C_YEL}$(t destroy_hint)${C_RST}"
-  _run_tool securetrash vault destroy
-  _pause
-}
-# Emptying the vault = securetrash vault reset (crypto-shred the container + recreate it empty).
-# An honest irreversibility guarantee: in-place overwriting on an SSD is best-effort (the same key
-# keeps decrypting residual blocks), while reset throws the key away. The real yes-confirm
-# and the new vault's password prompt are on the securetrash side; the launcher only warns.
-_act_empty() {
-  if ! _tool_installed securetrash; then
-    echo "${C_YEL}$(t install_hint securetrash "$(_tool_repo securetrash)")${C_RST}" >&2
-    _pause; return
-  fi
-  local v; v="$(_status_vault)"
-  if [[ "$v" == none ]]; then
-    echo "  $(t empty_none)"; _pause; return
-  fi
-  if [[ "$v" == unknown ]]; then
-    echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}"; _pause; return
-  fi
-  echo "  ${C_YEL}$(t empty_hint)${C_RST}"
-  local sz
-  if sz="$(_ask_vault_size)"; then
-    # shellcheck disable=SC2086  # empty → the tool's default size
-    _run_tool securetrash vault reset $sz
-  fi
+  echo "  ${C_YEL}$(t delete_hint)${C_RST}"
+  local renew
+  read -r -p "  $(t delete_renew) " renew <&0 || { echo; _pause; return; }
+  case "$renew" in
+    n|N|no|No|NO|н|Н|нет|Нет)
+      _run_tool securetrash vault destroy ;;
+    *)
+      local sz
+      if sz="$(_ask_vault_size)"; then
+        # shellcheck disable=SC2086  # empty → the tool's default size
+        _run_tool securetrash vault reset $sz
+      fi ;;
+  esac
   _pause
 }
 # A hint on exiting the editor (otherwise a novice gets stuck — especially in vim). We show
@@ -751,7 +736,7 @@ _act_watch() {
 # The "Vault" submenu: all container operations in one place (at Mr.Di's request — otherwise the flat
 # menu was a "shovel"). vaultwatch guards PRECISELY the open vault → it also lives here, not as a separate
 # block. Item 1 is dynamic by state (none → create; closed → open; open → close),
-# reusing the three-state _act_vault. The destructive items (empty/destroy) are greyed out when
+# reusing the three-state _act_vault. The destructive item (delete) is greyed out when
 # securetrash or the vault is absent; the real confirms are inside securetrash.
 _menu_vault() {
   while true; do
@@ -767,39 +752,29 @@ _menu_vault() {
       # but it promises not an action but an honest refusal to guess.
       unknown) _menu_item 1 "$(t m_v_unknown)" securetrash ;;
     esac
-    # 2 Empty (reset) — greyed out when securetrash / the vault is absent
+    # 2 Delete — greyed out when securetrash / the vault is absent
     if ! _tool_installed securetrash; then
-      printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_empty)" "$(t not_installed)" "$C_RST"
+      printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_delete)" "$(t not_installed)" "$C_RST"
     elif [[ "$v" == none ]]; then
-      printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_empty)" "$(t empty_na)" "$C_RST"
+      printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_delete)" "$(t delete_na)" "$C_RST"
     elif [[ "$v" == unknown ]]; then
-      printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_empty)" "$(t vault_state_na)" "$C_RST"
+      printf '  %s2) %s (%s)%s\n' "$C_DIM" "$(t m_delete)" "$(t vault_state_na)" "$C_RST"
     else
-      printf '  2) %s\n' "$(t m_empty)"
+      printf '  2) %s\n' "$(t m_delete)"
     fi
-    # 3 Destroy — greyed out when securetrash / the vault is absent
-    if ! _tool_installed securetrash; then
-      printf '  %s3) 💣 %s (%s)%s\n' "$C_DIM" "$(t m_destroy)" "$(t not_installed)" "$C_RST"
-    elif [[ "$v" == none ]]; then
-      printf '  %s3) 💣 %s (%s)%s\n' "$C_DIM" "$(t m_destroy)" "$(t destroy_na)" "$C_RST"
-    elif [[ "$v" == unknown ]]; then
-      printf '  %s3) 💣 %s (%s)%s\n' "$C_DIM" "$(t m_destroy)" "$(t vault_state_na)" "$C_RST"
-    else
-      printf '  3) 💣 %s\n' "$(t m_destroy)"
-    fi
+    # 3 Watch — toggle (active → stop, otherwise → watch)
     # 4 Watch — toggle (active → stop, otherwise → watch)
     if [[ "$vw" == active ]]; then
-      _menu_item 4 "$(t m_unwatch)" vaultwatch
+      _menu_item 3 "$(t m_unwatch)" vaultwatch
     else
-      _menu_item 4 "$(t m_watch)"   vaultwatch
+      _menu_item 3 "$(t m_watch)"   vaultwatch
     fi
     printf '  0) %s\n\n' "$(t back)"
     local c; read -r -p "  $(t choose): " c <&0 || return 0
     case "$c" in
       1) _act_vault ;;
-      2) _act_empty ;;
-      3) _act_destroy ;;
-      4) _act_watch ;;
+      2) _act_delete ;;
+      3) _act_watch ;;
       0|q|Q) return 0 ;;
       *) : ;;
     esac
@@ -1139,6 +1114,7 @@ Usage: paranoid            launch the interactive dashboard
        paranoid exposure   report where a copy of a secret may already be on this Mac
                            (read-only; --json for the same report as data)
        paranoid update     re-run the installer from your clone (same as item 6)
+       paranoid delete-vault delete the vault (same as Vault → 2)
        paranoid version    print the version
        paranoid help       show this help
 
@@ -1156,6 +1132,8 @@ main() {
     exposure)             shift; _act_exposure "$@"; return $? ;;
     # ParanoidBar's "Update available" item opens Terminal on exactly this.
     update)               _act_update; return 0 ;;
+    # ParanoidBar's "Delete the vault…" item, for the same reason: the question lives here.
+    delete-vault)         _act_delete; return 0 ;;
     # Internal: ParanoidBar's background check. Respects the consent like the dashboard does,
     # prints nothing; the result lands in the cache ParanoidBar reads.
     _update-check)        _update_summary >/dev/null; return 0 ;;
