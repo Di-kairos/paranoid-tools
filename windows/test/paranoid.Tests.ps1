@@ -1285,3 +1285,34 @@ Describe 'paranoid exposure' {
         $lines | ForEach-Object { $_.Length | Should -BeLessOrEqual 34 }
     }
 }
+
+# Live Windows run, s53: after Update the menu kept drawing the old version - the running process
+# holds the code it loaded. The loop now notices its own file changed and starts it afresh.
+Describe 'Invoke-PnMain - restarts itself when its own file changes' {
+    BeforeEach {
+        Mock Start-PnTray { }
+        Mock Request-PnUpdateConsent { }
+        Mock Clear-Host { }
+        Mock Get-PnDashboard { 'dash' }
+        Mock Invoke-PnDispatch { $false }
+        Mock Restart-PnLauncher { }
+        $global:PnTestStamps = [System.Collections.Queue]::new()
+    }
+    AfterEach { Remove-Variable -Name PnTestStamps -Scope Global -ErrorAction SilentlyContinue }
+
+    It 'restarts once the stamp moves, and stops reading the old menu' {
+        foreach ($t in 1, 1, 2) { $global:PnTestStamps.Enqueue([datetime]::FromFileTimeUtc($t)) }
+        Mock Get-PnFileStamp { $global:PnTestStamps.Dequeue() }
+        Mock Read-PnLine { '6' }
+        Get-PnScreen { Invoke-PnMain -Argv @() } | Should -Match 'restarting it with the new version'
+        Should -Invoke Restart-PnLauncher -Times 1 -Exactly
+        Should -Invoke Invoke-PnDispatch -Times 2 -Exactly
+    }
+    It 'does not restart while the file is unchanged' {
+        Mock Get-PnFileStamp { [datetime]::FromFileTimeUtc(1) }
+        $global:PnTestStamps.Enqueue('1'); $global:PnTestStamps.Enqueue($null)
+        Mock Read-PnLine { $global:PnTestStamps.Dequeue() }
+        Invoke-PnMain -Argv @()
+        Should -Invoke Restart-PnLauncher -Times 0 -Exactly
+    }
+}

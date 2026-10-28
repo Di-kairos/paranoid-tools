@@ -1003,3 +1003,27 @@ exit 0'
   [[ "$output" == *"где на этом Mac уже может лежать копия секрета"* ]]
   [[ "$output" == *"Локальные снапшоты APFS"* ]]
 }
+
+# Live run, s53: after Update the menu kept drawing the old version — a running bash keeps the
+# functions it parsed. The loop now notices its own file was replaced and execs it afresh.
+@test "the launcher restarts itself when its own file is replaced" {
+  cp "$SCRIPT" "$TMP/paranoid"
+  # The status item's tool replaces the launcher the way install does (a new file, new inode).
+  cat >"$STUBS/securetrash" <<STUB
+#!/usr/bin/env bash
+printf 'securetrash %s\n' "\$*" >>"$LOG"
+cp "$TMP/paranoid" "$TMP/paranoid.new" && mv "$TMP/paranoid.new" "$TMP/paranoid"
+exit 0
+STUB
+  chmod +x "$STUBS/securetrash"
+  run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$HOME" LC_ALL=C ST_LOCALE=en PARANOID_UPDATE_CHECK=0 \
+    bash -c "printf '1\n\n0\n' | bash '$TMP/paranoid'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"restarting it with the new version"* ]]
+}
+
+@test "the launcher does not restart while its file is unchanged" {
+  run_paranoid $'1\n\n0\n'
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"restarting"* ]]
+}

@@ -1061,3 +1061,29 @@ Describe 'проверка обновлений в трее' {
         Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $FilePath -eq 'pwsh' -and $WindowStyle -eq 'Hidden' -and ($ArgumentList -join ' ') -match 'paranoid _update-check' }
     }
 }
+
+# Живой прогон, s53: после Update трей продолжал рисовать старое меню — процесс держит
+# загруженный код. Теперь трей замечает, что его файл заменили, и уступает место новой копии.
+Describe 'Test-PtScriptReplaced — трей перезапускается после обновления' {
+    BeforeEach {
+        $script:f = Join-Path ([IO.Path]::GetTempPath()) "pt-tray-$([guid]::NewGuid()).ps1"
+        Set-Content -LiteralPath $script:f -Value 'v1'
+        $script:st = [pscustomobject]@{ ScriptPath = $script:f; ScriptStamp = (Get-PtFileStamp $script:f); SeenStamp = $null }
+    }
+    AfterEach { Remove-Item -LiteralPath $script:f -ErrorAction SilentlyContinue }
+
+    It 'файл не менялся — перезапуска нет' {
+        Test-PtScriptReplaced $script:st | Should -BeFalse
+        Test-PtScriptReplaced $script:st | Should -BeFalse
+    }
+    It 'файл заменён — перезапуск со второго тика, когда запись устоялась' {
+        (Get-Item -LiteralPath $script:f).LastWriteTimeUtc = $script:st.ScriptStamp.AddMinutes(1)
+        Test-PtScriptReplaced $script:st | Should -BeFalse
+        Test-PtScriptReplaced $script:st | Should -BeTrue
+    }
+    It 'файл пропал посреди установки — не перезапускаемся на пустое место' {
+        Remove-Item -LiteralPath $script:f
+        Test-PtScriptReplaced $script:st | Should -BeFalse
+        Test-PtScriptReplaced $script:st | Should -BeFalse
+    }
+}

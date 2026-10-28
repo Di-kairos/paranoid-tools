@@ -1247,7 +1247,9 @@ public class PtHotkeyWindow : NativeWindow {
     $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false; Rebuilding = $false
                                    TaskOn = $false; TaskCheckedAt = $null
                                    PollMs = [math]::Max(5, $settings.PollSeconds) * 1000; FastUntil = $null; Pending = $false
-                                   UpdSpawnedAt = $null }
+                                   UpdSpawnedAt = $null
+                                   ScriptPath = $PSCommandPath; ScriptStamp = (Get-PtFileStamp $PSCommandPath); SeenStamp = $null
+                                   Restart = $false }
     $script:notifyState = $trayState.Notify
 
     # The UAC shield next to every item that will ask for rights - the mark Windows itself puts
@@ -1452,6 +1454,14 @@ public class PtHotkeyWindow : NativeWindow {
         # emptying the strip the user is pointing at pulls items out from under the cursor. The
         # refresh waits for the menu to close (review, s48 - the 2 s fast poll made it likely).
         if ($menu.Visible) { $trayState.Pending = $true; return }
+        # Updated on disk: this process would go on showing the old menu (live Windows run,
+        # s53), so it steps aside for a fresh copy - see Restart-PtTray after the loop.
+        if (Test-PtScriptReplaced $trayState) {
+            $trayState.Restart = $true
+            $notify.Visible = $false
+            [System.Windows.Forms.Application]::Exit()
+            return
+        }
         $trayState.Pending = $false
         $trayState.Rebuilding = $true
         try { & $rebuildCore }
@@ -1525,6 +1535,31 @@ public class PtHotkeyWindow : NativeWindow {
 
     [System.Windows.Forms.Application]::Run()
     $timer.Stop()
+    if ($trayState.Restart) { Restart-PtTray -Path $trayState.ScriptPath }
+}
+
+# The tray's own file was replaced (Update, or an install from any window). Changed AND the same
+# on two ticks in a row: a copy caught halfway would start a new tray on half a script.
+# ponytail: a write-time check per poll tick, not a FileSystemWatcher - the poll already runs.
+function Get-PtFileStamp {
+    param([string]$Path)
+    try { return (Get-Item -LiteralPath $Path -ErrorAction Stop).LastWriteTimeUtc } catch { return $null }
+}
+function Test-PtScriptReplaced {
+    param($State)
+    $now = Get-PtFileStamp $State.ScriptPath
+    if (-not $now -or -not $State.ScriptStamp -or $now -eq $State.ScriptStamp) { return $false }
+    if ($now -eq $State.SeenStamp) { return $true }
+    $State.SeenStamp = $now
+    return $false
+}
+# The mutex goes first: the new copy would otherwise find it held and step aside. Started from
+# this process, the new copy inherits its rights - an elevated tray stays elevated.
+function Restart-PtTray {
+    param([string]$Path)
+    try { $script:trayMutex.ReleaseMutex(); $script:trayMutex.Dispose() } catch { }
+    Start-Process -FilePath (Get-Process -Id $PID).Path -WindowStyle Hidden `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Path) | Out-Null
 }
 
 if (-not $env:ST_NO_MAIN) {

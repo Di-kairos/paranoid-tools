@@ -117,8 +117,10 @@ t() {
     ru:upd_nogit)    echo 'Это не git-клон — переустанавливаю из локальной копии как есть.' ;;
     en:upd_run)      echo 'Running the installer from that directory. Downloaded releases are signature-verified; anything already present in the clone is installed as-is.' ;;
     ru:upd_run)      echo 'Запускаю установщик из этого каталога. Скачанные релизы проверяются по подписи; то, что уже лежит в клоне, ставится как есть.' ;;
-    en:upd_done)     echo 'Update finished. This launcher process still runs the old code — quit and start it again; an already-open vault also keeps the old binary until you close and reopen it.' ;;
-    ru:upd_done)     echo 'Обновление завершено. Этот процесс лаунчера всё ещё на старом коде — выйди и запусти заново; уже открытый сейф тоже держит старый бинарь, пока не закроешь и не откроешь его.' ;;
+    en:upd_done)     echo 'Update finished. An already-open vault keeps the old binary until you close and reopen it.' ;;
+    ru:upd_done)     echo 'Обновление завершено. Уже открытый сейф держит старый бинарь, пока не закроешь и не откроешь его.' ;;
+    en:upd_restart)  echo 'The launcher itself was updated — restarting it with the new version.' ;;
+    ru:upd_restart)  echo 'Сам лаунчер обновился — перезапускаю его в новой версии.' ;;
     en:upd_fail)     echo 'The installer exited with an error — nothing was silently half-done, see the output above.' ;;
     ru:upd_fail)     echo 'Установщик завершился с ошибкой — молчаливой полуустановки нет, смотри вывод выше.' ;;
     en:m_t_secrets)  echo 'Secrets ▸      seedsplit: split / combine' ;;
@@ -1144,7 +1146,12 @@ main() {
   # Ctrl-C in a sub-item → back to the menu (not exit). On the dashboard — a clean exit.
   trap 'echo' INT
   _ask_update_consent
-  local choice
+  # A running bash keeps the functions it parsed. After Update (or an install from another
+  # window) the menu used to go on drawing the old version, so the update looked like it had
+  # not happened (live run, s53). When our own file changes, start it afresh. The inode is in
+  # the stamp too: install replaces the file within the same second.
+  local choice self="${BASH_SOURCE[0]}" stamp now
+  stamp="$(_file_stamp "$self")"
   while true; do
     _render
     read -r -p "  $(t choose): " choice <&0 || { echo; return 0; }
@@ -1159,8 +1166,16 @@ main() {
       0|q|Q) echo; return 0 ;;
       *) : ;;   # invalid input → redraw the menu
     esac
+    now="$(_file_stamp "$self")"
+    if [[ -n "$stamp" && -n "$now" && "$now" != "$stamp" ]]; then
+      echo "  $(t upd_restart)"
+      exec bash "$self"
+    fi
   done
 }
+
+# Inode + write time of a file (BSD stat, then GNU); empty if it cannot be read.
+_file_stamp() { stat -f '%i %m' "$1" 2>/dev/null || stat -c '%i %Y' "$1" 2>/dev/null || true; }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   main "$@"

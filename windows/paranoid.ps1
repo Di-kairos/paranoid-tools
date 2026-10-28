@@ -137,8 +137,10 @@ function T {
         'ru:upd_run'      { return 'Запускаю установщик из этого каталога. Скачанные релизы проверяются по подписи; то, что уже лежит в клоне, ставится как есть.' }
         'en:upd_stale_src' { return 'Note: the clone itself was not updated - what got installed came from its current state.' }
         'ru:upd_stale_src' { return 'Учти: сам клон обновить не удалось — установилось то, что в нём сейчас.' }
-        'en:upd_done'     { return 'Update finished. This launcher process still runs the old code - quit and start it again; an already-open vault also keeps the old script until you close and reopen it.' }
-        'ru:upd_done'     { return 'Обновление завершено. Этот процесс лаунчера всё ещё на старом коде — выйди и запусти заново; уже открытый сейф тоже держит старый скрипт, пока не закроешь и не откроешь его.' }
+        'en:upd_done'     { return 'Update finished. An already-open vault keeps the old script until you close and reopen it.' }
+        'ru:upd_done'     { return 'Обновление завершено. Уже открытый сейф держит старый скрипт, пока не закроешь и не откроешь его.' }
+        'en:upd_restart'  { return 'The launcher itself was updated - restarting it with the new version.' }
+        'ru:upd_restart'  { return 'Сам лаунчер обновился — перезапускаю его в новой версии.' }
         'en:upd_fail'     { return 'The installer exited with an error - nothing was silently half-done, see the output above.' }
         'ru:upd_fail'     { return 'Установщик завершился с ошибкой — молчаливой полуустановки нет, смотри вывод выше.' }
         # --- top-level group items (open submenus) ---
@@ -1525,13 +1527,33 @@ function Invoke-PnMain {
     # nobody chose to give it.
     Start-PnTray
     Request-PnUpdateConsent
+    # A running PowerShell process keeps the code it loaded. After Update (or an install from
+    # another window) the menu used to go on drawing the old version, so the update looked like
+    # it had not happened (live Windows run, s53). When our own file changes, start it afresh.
+    $stamp = Get-PnFileStamp $PSCommandPath
     while ($true) {
         Clear-Host
         Write-PnScreen (Get-PnDashboard)
         $choice = Read-PnLine "  $(T 'choose')"
         if ($null -eq $choice) { break }   # EOF/closed stdin → clean exit, do not spin
         if (Invoke-PnDispatch $choice) { break }
+        $now = Get-PnFileStamp $PSCommandPath
+        if ($stamp -and $now -and $now -ne $stamp) {
+            Write-PnScreen "  $(T 'upd_restart')"
+            Restart-PnLauncher
+            return
+        }
     }
+}
+
+# Wrappers for Mock: the file's write time, and re-running this script in the same console.
+function Get-PnFileStamp {
+    param([string]$Path)
+    try { return (Get-Item -LiteralPath $Path -ErrorAction Stop).LastWriteTimeUtc } catch { return $null }
+}
+function Restart-PnLauncher {
+    & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath
+    exit $LASTEXITCODE
 }
 
 # Dot-source guard: under `. paranoid.ps1` (Pester) main does NOT run; ST_NO_MAIN=1 also mutes it.
