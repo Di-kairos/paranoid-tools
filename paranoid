@@ -1174,8 +1174,10 @@ main() {
   done
 }
 
-# Inode + write time of a file (BSD stat, then GNU); empty if it cannot be read.
-_file_stamp() { stat -f '%i %m' "$1" 2>/dev/null || stat -c '%i %Y' "$1" 2>/dev/null || true; }
+# Inode + write time of a file (GNU stat, then BSD); empty if it cannot be read. GNU first: its
+# `stat -f` is filesystem status and prints a changing free-block count before it fails, while
+# BSD stat rejects `-c` without printing anything.
+_file_stamp() { stat -c '%i %Y' "$1" 2>/dev/null || stat -f '%i %m' "$1" 2>/dev/null || true; }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   main "$@"
