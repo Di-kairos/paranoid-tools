@@ -220,6 +220,28 @@ if ($env:PT_SKIP_PATH -ne '1') {
     }
 }
 
+# A copy that comes EARLIER on PATH wins over the one just installed: every update then lands
+# on disk and the old version keeps answering. That is how a live machine sat on securetrash
+# 0.5.8 through several updates (s53: a dev shim directory ahead of ours). Machine PATH first,
+# then user PATH - the order Windows builds a new terminal's PATH in.
+$searchPath = @(([Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                 [Environment]::GetEnvironmentVariable('Path', 'User')).Split(';') | Where-Object { $_ -ne '' })
+$shadowed = @()
+foreach ($name in @($Tools.Name) + 'paranoid') {
+    foreach ($dir in $searchPath) {
+        $hit = @('.cmd', '.ps1', '.bat', '.exe') | Where-Object { Test-Path -LiteralPath (Join-Path $dir "$name$_") } | Select-Object -First 1
+        if (-not $hit) { continue }
+        if ($dir.TrimEnd('\') -ne $InstallDir.TrimEnd('\')) { $shadowed += "  $name -> $(Join-Path $dir "$name$hit")" }
+        break
+    }
+}
+if ($shadowed.Count -gt 0) {
+    Write-Host ''
+    Write-Warning "Another copy comes before $InstallDir on PATH, so a new terminal runs IT, not what was just installed:"
+    $shadowed | ForEach-Object { Write-Host $_ }
+    Write-Host '  Remove that directory from PATH (Settings -> System -> About -> Advanced system settings -> Environment Variables) or delete it.'
+}
+
 Write-Host ''
 Write-Host "Tools installed: $installed/$($Tools.Count) (+ the paranoid launcher)."
 Write-Host 'NEXT STEPS:'
