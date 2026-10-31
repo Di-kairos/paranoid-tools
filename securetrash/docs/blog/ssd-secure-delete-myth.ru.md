@@ -140,6 +140,7 @@ keybag контейнера, всё ещё лежащего в устаревш�
   секреты, — чтобы они вообще не попадали в незашифрованный флеш.
 
 ```bash
+brew trust di-kairos/tap        # один раз: без этого свежий Homebrew не грузит сторонний tap
 brew install Di-kairos/tap/securetrash
 ```
 

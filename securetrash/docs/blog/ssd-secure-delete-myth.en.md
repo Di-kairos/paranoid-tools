@@ -140,6 +140,7 @@ CLI built around this honesty:
   protect, so they never touch unencrypted flash in the first place.
 
 ```bash
+brew trust di-kairos/tap        # once: current Homebrew refuses third-party taps without it
 brew install Di-kairos/tap/securetrash
 ```
 

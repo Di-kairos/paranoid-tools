@@ -55,6 +55,7 @@ Vault **превентивен**: он защищает только то, чт�
 **Рекомендуется — Homebrew** (формула пиннит релизный тег и проверяет его SHA256):
 
 ```bash
+brew trust di-kairos/tap        # один раз: без этого свежий Homebrew не грузит сторонний tap
 brew install Di-kairos/tap/securetrash
 ```
 

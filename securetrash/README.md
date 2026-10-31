@@ -58,6 +58,7 @@ unencrypted — that's what FileVault is for.
 **Recommended — Homebrew** (the formula pins a release tag and verifies its SHA256):
 
 ```bash
+brew trust di-kairos/tap        # once: current Homebrew refuses third-party taps without it
 brew install Di-kairos/tap/securetrash
 ```
 
