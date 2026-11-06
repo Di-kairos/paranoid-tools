@@ -775,7 +775,22 @@ function Format-PnMenuItem {
 # from there is swallowed instead of shown — which is exactly what happened: the submenus
 # rendered into nothing, and only Read-Host's prompt (which goes to the host directly) was
 # visible. Console output bypasses the pipeline, so it reaches the user no matter who called.
-function Write-PnScreen { param([string]$Text = '') [Console]::Out.WriteLine($Text) }
+function Write-PnScreen { param([string]$Text = '') [Console]::Out.WriteLine((ConvertTo-PnConsoleText $Text)) }
+
+# Windows PowerShell 5.1 writes [Console]::Out in the OEM codepage (437/866), which has no
+# arrows: the update banner printed "? ... 0.1.7?0.1.9". A glyph the console encoding cannot
+# round-trip is swapped for ASCII here, at the one place every screen line passes through;
+# pwsh 7 (UTF-8) keeps the glyphs. Cyrillic is not in the table: a Russian OEM codepage holds it.
+function ConvertTo-PnConsoleText {
+    param([string]$Text, [System.Text.Encoding]$Encoding = [Console]::Out.Encoding)
+    foreach ($g in @(@([char]0x2192, '->'), @([char]0x2B06, '^'))) {
+        $c = [string]$g[0]
+        if ($Text.Contains($c) -and $Encoding.GetString($Encoding.GetBytes($c)) -ne $c) {
+            $Text = $Text.Replace($c, $g[1])
+        }
+    }
+    return $Text
+}
 
 # --- input (mocked in Pester) ---
 function Read-PnLine { param([string]$Prompt) return (Read-Host -Prompt $Prompt) }

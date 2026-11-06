@@ -259,6 +259,25 @@ Describe 'CLI: update и _update-check (для трея)' {
     }
 }
 
+Describe 'ConvertTo-PnConsoleText — glyphs the console cannot encode' {
+    # Windows PowerShell 5.1 writes [Console]::Out in the OEM codepage (437/866): no arrows
+    # there, and the update banner came out as "? update available: ghostdraft 0.1.7?0.1.9".
+    # ASCII stands in for the OEM codepage here: it lacks the arrows the same way.
+    It 'replaces the arrows with ASCII when the encoding cannot hold them' {
+        $t = "$([char]0x2B06) update available: ghostdraft 0.1.7$([char]0x2192)0.1.9"
+        ConvertTo-PnConsoleText $t ([System.Text.Encoding]::ASCII) |
+            Should -BeExactly '^ update available: ghostdraft 0.1.7->0.1.9'
+    }
+    It 'keeps the arrows when the encoding holds them' {
+        $t = "$([char]0x2B06) ghostdraft 0.1.7$([char]0x2192)0.1.9"
+        ConvertTo-PnConsoleText $t ([System.Text.Encoding]::UTF8) | Should -BeExactly $t
+    }
+    It 'leaves Cyrillic alone (the OEM codepage of a Russian Windows holds it)' {
+        ConvertTo-PnConsoleText 'доступно обновление' ([System.Text.Encoding]::UTF8) |
+            Should -BeExactly 'доступно обновление'
+    }
+}
+
 Describe 'Get-PnDashboard — opt-in update line' {
     BeforeEach {
         $script:PN_LOCALE = 'en'
