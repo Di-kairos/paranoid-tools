@@ -656,7 +656,7 @@ Describe 'vault submenu dispatch — open/close/create smart (item 1) + size' {
     }
 }
 
-Describe 'vault submenu dispatch — delete (item 2): reset by default, destroy on "n"' {
+Describe 'vault submenu dispatch — delete (item 2): 1 = new vault, 2 = for good, else cancel' {
     BeforeEach {
         Mock Invoke-PnTool { }
         Mock Get-PnAdminState { 'yes' }   # elevated console: the action runs in-process
@@ -666,35 +666,50 @@ Describe 'vault submenu dispatch — delete (item 2): reset by default, destroy 
         $script:PN_LOCALE = 'en'
     }
 
-    It 'an empty answer means a new vault: securetrash vault reset (default size)' {
-        Mock Read-PnLine { '' }
+    It '1 means a new vault: securetrash vault reset (default size)' {
+        Mock Read-PnLine { '1' } -ParameterFilter { $Prompt -match 'Choose' }
+        Mock Read-PnLine { '' }  -ParameterFilter { $Prompt -notmatch 'Choose' }
         Invoke-PnVaultDispatch '2' | Out-Null
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'securetrash' -and (($ToolArgs -join ' ') -eq 'vault reset')
         }
     }
     It 'passes a chosen size to reset' {
-        Mock Read-PnLine { 'y' }   -ParameterFilter { $Prompt -match 'new empty vault' }
-        Mock Read-PnLine { '2048' } -ParameterFilter { $Prompt -notmatch 'new empty vault' }
+        Mock Read-PnLine { '1' }    -ParameterFilter { $Prompt -match 'Choose' }
+        Mock Read-PnLine { '2048' } -ParameterFilter { $Prompt -notmatch 'Choose' }
         Invoke-PnVaultDispatch '2' | Out-Null
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
             $Tool -eq 'securetrash' -and ($ToolArgs -contains 'reset') -and ($ToolArgs -contains '2048')
         }
     }
-    It '"n" (any case) and the Russian "нет" mean destroy, no new vault' {
-        foreach ($ans in 'n', 'N', 'no', 'нет') {
+    It '2 means destroy, no new vault' {
+        Mock Read-PnLine { '2' }
+        Invoke-PnVaultDispatch '2' | Out-Null
+        Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
+            $Tool -eq 'securetrash' -and (($ToolArgs -join ' ') -eq 'vault destroy')
+        }
+        Should -Invoke Invoke-PnTool -Times 0 -Exactly -ParameterFilter { $ToolArgs -contains 'reset' }
+    }
+    # A live user read "n" on the old [Y/n] as "cancel" and it deleted for good.
+    It 'Enter, 0 and n delete nothing' {
+        foreach ($ans in '', '0', 'n') {
             $global:PnTestAnswer = $ans
             Mock Read-PnLine { $global:PnTestAnswer }
             Invoke-PnVaultDispatch '2' | Out-Null
         }
         Remove-Variable -Name PnTestAnswer -Scope Global
-        Should -Invoke Invoke-PnTool -Times 4 -Exactly -ParameterFilter {
-            $Tool -eq 'securetrash' -and (($ToolArgs -join ' ') -eq 'vault destroy')
-        }
-        Should -Invoke Invoke-PnTool -Times 0 -Exactly -ParameterFilter { $ToolArgs -contains 'reset' }
+        Should -Invoke Invoke-PnTool -Times 0 -Exactly
+    }
+    It 'names all three outcomes and that "y" cancels the confirm' {
+        Mock Read-PnLine { '0' }
+        $out = Get-PnScreen { Invoke-PnVaultDispatch '2' | Out-Null }
+        $out | Should -Match '1\) A new empty vault'
+        $out | Should -Match '2\) Nothing — delete the vault for good'
+        $out | Should -Match '0\) Cancel — keep the vault'
+        $out | Should -Match '"y" cancels'
     }
     It 'warns before it asks' {
-        Mock Read-PnLine { 'n' }
+        Mock Read-PnLine { '2' }
         $out = Get-PnScreen { Invoke-PnVaultDispatch '2' | Out-Null }
         $out | Should -Match 'destroys the vault with everything inside'
     }
@@ -709,7 +724,7 @@ Describe 'vault submenu dispatch — delete (item 2): reset by default, destroy 
         Should -Invoke Invoke-PnTool -Times 0 -Exactly
     }
     It '`paranoid delete-vault` runs the same flow' {
-        Mock Read-PnLine { 'n' }
+        Mock Read-PnLine { '2' }
         Invoke-PnMain -Argv @('delete-vault')
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter { $ToolArgs -contains 'destroy' }
     }
@@ -931,6 +946,7 @@ Describe 'admin-only actions ask Windows for rights instead of sending the user 
     It 'delete, watch and panic take the same path' {
         Mock Get-PnAdminState { 'no' }
         Mock Read-PnVaultSize { '' }
+        Mock Read-PnLine { '1' } -ParameterFilter { $Prompt -match 'Choose' }   # delete: a new vault
         foreach ($act in 'Invoke-PnActDelete', 'Invoke-PnActWatch', 'Invoke-PnActPanic') {
             Get-PnScreen { & $act } | Out-Null
         }

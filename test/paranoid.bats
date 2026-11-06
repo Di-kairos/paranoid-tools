@@ -208,35 +208,50 @@ run_paranoid() {
   ! grep -q "vault create" "$LOG"
 }
 
-# --- vault: delete (submenu 3 → 2): reset by default, destroy on "n" ---
+# --- vault: delete (submenu 3 → 2): 1 = new vault (reset), 2 = for good (destroy), else cancel ---
 
-@test "vault delete with a new vault (default answer) dispatches 'securetrash vault reset'" {
+@test "vault delete '1' (a new vault) dispatches 'securetrash vault reset'" {
   touch "$TMP/container.sparsebundle"
-  # after '2': empty answer (= Y) + empty size (default) + empty pause
-  run_paranoid $'3\n2\n\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  # after '2': pick 1 + empty size (default) + empty pause
+  run_paranoid $'3\n2\n1\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault reset" "$LOG"
   ! grep -q "vault destroy" "$LOG"
 }
 
-@test "vault delete without a new vault ('n') dispatches 'securetrash vault destroy'" {
+@test "vault delete '2' (for good) dispatches 'securetrash vault destroy'" {
   touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n2\nn\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\n2\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault destroy" "$LOG"
   ! grep -q "vault reset" "$LOG"
 }
 
-@test "vault delete takes the Russian no (net) as no" {
+# A live user read "n" on the old [Y/n] as "cancel" and it deleted for good: anything that is
+# not an explicit 1 or 2 — Enter, 0, n — must delete nothing.
+@test "vault delete cancels on Enter, 0 or n" {
   touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n2\nнет\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  for ans in '' 0 n; do
+    run_paranoid "3"$'\n'"2"$'\n'"$ans"$'\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+    [ "$status" -eq 0 ] || return 1
+  done
+  ! grep -q "vault reset" "$LOG"
+  ! grep -q "vault destroy" "$LOG"
+}
+
+@test "vault delete names all three outcomes" {
+  touch "$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\n0\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
-  grep -qx "securetrash vault destroy" "$LOG"
+  [[ "$output" == *"1) A new empty vault"* ]] || return 1
+  [[ "$output" == *"2) Nothing — delete the vault for good"* ]] || return 1
+  [[ "$output" == *"0) Cancel — keep the vault"* ]] || return 1
+  [[ "$output" == *'"y" cancels'* ]]
 }
 
 @test "vault delete warns before it acts (irreversible)" {
   touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n2\nn\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\n0\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   [[ "$output" == *"destroys the vault with everything inside"* ]]
 }
@@ -262,7 +277,7 @@ run_paranoid() {
   touch "$TMP/container.sparsebundle"
   run env -i PATH="$STUBS:$_ESSENTIAL_PATH" HOME="$HOME" LC_ALL=C ST_LOCALE=en PARANOID_UPDATE_CHECK=0 \
     ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/container.sparsebundle" \
-    bash -c "printf 'n\n\n' | bash '$SCRIPT' delete-vault"
+    bash -c "printf '2\n\n' | bash '$SCRIPT' delete-vault"
   [ "$status" -eq 0 ]
   grep -qx "securetrash vault destroy" "$LOG"
 }
@@ -826,7 +841,7 @@ _make_fake_clone() {
 @test "delete refuses to run while the vault state is unknown" {
   _break_mount
   mkdir -p "$TMP/vault"; touch "$TMP/container.sparsebundle"
-  run_paranoid $'3\n2\nn\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
+  run_paranoid $'3\n2\n2\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/vault" ST_VAULT_PATH="$TMP/container.sparsebundle"
   [ "$status" -eq 0 ]
   ! grep -q "vault reset" "$LOG"
   ! grep -q "vault destroy" "$LOG"

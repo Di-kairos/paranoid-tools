@@ -170,10 +170,16 @@ function T {
         'en:delete_na'    { return 'no vault' }       'ru:delete_na'    { return 'нет сейфа' }
         'en:delete_none'  { return 'No vault to delete — create one first.' }
         'ru:delete_none'  { return 'Удалять нечего — сначала создай сейф.' }
-        'en:delete_hint'  { return 'Deleting destroys the vault with everything inside. Files are not wiped one by one: on an SSD the old key would still decrypt their leftovers, so the whole container goes, key and all. securetrash will ask you to confirm with "yes".' }
-        'ru:delete_hint'  { return 'Удаление уничтожает сейф со всем содержимым. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, поэтому уходит весь контейнер вместе с ключом. securetrash попросит подтвердить словом «yes».' }
-        'en:delete_renew' { return 'Create a new empty vault in its place, with a new password? [Y/n]' }
-        'ru:delete_renew' { return 'Создать на его месте новый пустой сейф с новым паролем? [Y/n]' }
+        'en:delete_hint'  { return 'Deleting destroys the vault with everything inside. Files are not wiped one by one: on an SSD the old key would still decrypt their leftovers, so the whole container goes, key and all. securetrash will then ask you to type the whole word "yes" — "y" cancels.' }
+        'ru:delete_hint'  { return 'Удаление уничтожает сейф со всем содержимым. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, поэтому уходит весь контейнер вместе с ключом. затем securetrash попросит набрать слово «yes» целиком — «y» отменяет.' }
+        'en:delete_q'     { return 'What takes its place?' }
+        'ru:delete_q'     { return 'Что останется на его месте?' }
+        'en:delete_new'   { return '1) A new empty vault, with a new password' }
+        'ru:delete_new'   { return '1) Новый пустой сейф с новым паролем' }
+        'en:delete_gone'  { return '2) Nothing — delete the vault for good' }
+        'ru:delete_gone'  { return '2) Ничего — удалить сейф насовсем' }
+        'en:delete_keep'  { return '0) Cancel — keep the vault' }
+        'ru:delete_keep'  { return '0) Отмена — сейф остаётся' }
         # --- size choice (Windows: MB for diskpart; a cap, not a reserve) ---
         'en:size_prompt' { return 'Vault size cap in MB (e.g. 1024 = 1 GB; empty = default 1024 MB). A ceiling, not reserved space — the VHDX grows as you add files:' }
         'ru:size_prompt' { return 'Потолок размера сейфа в МБ (напр. 1024 = 1 ГБ; пусто = по умолчанию 1024 МБ). Это лимит, не резерв — VHDX растёт по мере добавления файлов:' }
@@ -868,9 +874,11 @@ function Invoke-PnActVault {
     }
     Invoke-PnPause
 }
-# Deleting the vault, in one item. By default a new empty vault takes its place = securetrash
-# vault reset (the old container is set aside, the new one created, only then the old one is
-# crypto-shredded — no moment without a vault). "n" = securetrash vault destroy, nothing left.
+# Deleting the vault, in one item, with an explicit choice of what stays. 1 = securetrash vault
+# reset (the old container is set aside, the new one created, only then the old one is
+# crypto-shredded — no moment without a vault). 2 = securetrash vault destroy, nothing left.
+# Anything else cancels. This was a [Y/n] question on "a new vault?", and a live user read "n"
+# as "cancel" and Y as "delete" — the answer that deleted for good was the one that sounded safe.
 # Two separate items used to lead to the same result (Destroy, then Create), which read as a
 # broken menu. The real yes-confirm and the password prompt are on the securetrash side.
 function Invoke-PnActDelete {
@@ -887,16 +895,22 @@ function Invoke-PnActDelete {
         Write-PnScreen "  $(T 'vault_unknown_act')"; Invoke-PnPause; return
     }
     Write-PnScreen "  $(T 'delete_hint')"
-    $renew = Read-PnLine "  $(T 'delete_renew')"
-    if ($null -eq $renew) { Invoke-PnPause; return }
-    if ($renew.Trim() -in @('n', 'no', 'н', 'нет')) {
-        Invoke-PnToolAdmin 'securetrash' @('vault', 'destroy')
-    } else {
-        $sz = Read-PnVaultSize
-        if ($null -ne $sz) {
-            $a = @('vault', 'reset'); if ($sz) { $a += $sz }
-            Invoke-PnToolAdmin 'securetrash' $a
+    Write-PnScreen "  $(T 'delete_q')"
+    Write-PnScreen "    $(T 'delete_new')"
+    Write-PnScreen "    $(T 'delete_gone')"
+    Write-PnScreen "    $(T 'delete_keep')"
+    $pick = Read-PnLine "  $(T 'choose')"
+    if ($null -eq $pick) { Invoke-PnPause; return }
+    switch ($pick.Trim()) {
+        '1' {
+            $sz = Read-PnVaultSize
+            if ($null -ne $sz) {
+                $a = @('vault', 'reset'); if ($sz) { $a += $sz }
+                Invoke-PnToolAdmin 'securetrash' $a
+            }
         }
+        '2' { Invoke-PnToolAdmin 'securetrash' @('vault', 'destroy') }
+        default { }   # 0, Enter, anything else: nothing is deleted
     }
     Invoke-PnPause
 }

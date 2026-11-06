@@ -145,10 +145,16 @@ t() {
     en:delete_na)    echo 'no vault' ;;        ru:delete_na)    echo 'нет сейфа' ;;
     en:delete_none)  echo 'No vault to delete — create one first.' ;;
     ru:delete_none)  echo 'Удалять нечего — сначала создай сейф.' ;;
-    en:delete_hint)  echo 'Deleting destroys the vault with everything inside. Files are not wiped one by one: on an SSD the old key would still decrypt their leftovers, so the whole container goes, key and all. securetrash will ask you to confirm with "yes".' ;;
-    ru:delete_hint)  echo 'Удаление уничтожает сейф со всем содержимым. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, поэтому уходит весь контейнер вместе с ключом. securetrash попросит подтвердить словом «yes».' ;;
-    en:delete_renew) echo 'Create a new empty vault in its place, with a new password? [Y/n]' ;;
-    ru:delete_renew) echo 'Создать на его месте новый пустой сейф с новым паролем? [Y/n]' ;;
+    en:delete_hint)  echo 'Deleting destroys the vault with everything inside. Files are not wiped one by one: on an SSD the old key would still decrypt their leftovers, so the whole container goes, key and all. securetrash will then ask you to type the whole word "yes" — "y" cancels.' ;;
+    ru:delete_hint)  echo 'Удаление уничтожает сейф со всем содержимым. Файлы не стираются по одному: на SSD старый ключ всё ещё расшифрует их остатки, поэтому уходит весь контейнер вместе с ключом. затем securetrash попросит набрать слово «yes» целиком — «y» отменяет.' ;;
+    en:delete_q)     echo 'What takes its place?' ;;
+    ru:delete_q)     echo 'Что останется на его месте?' ;;
+    en:delete_new)   echo '1) A new empty vault, with a new password' ;;
+    ru:delete_new)   echo '1) Новый пустой сейф с новым паролем' ;;
+    en:delete_gone)  echo '2) Nothing — delete the vault for good' ;;
+    ru:delete_gone)  echo '2) Ничего — удалить сейф насовсем' ;;
+    en:delete_keep)  echo '0) Cancel — keep the vault' ;;
+    ru:delete_keep)  echo '0) Отмена — сейф остаётся' ;;
     # --- vault size choice (a cap, not a reservation — sparsebundle is thin) ---
     en:size_free)    printf 'Free space on this disk: ~%s GB.' "$2" ;;
     ru:size_free)    printf 'Свободно на диске: ~%s ГБ.' "$2" ;;
@@ -607,9 +613,11 @@ _act_vault() {
   esac
   _pause
 }
-# Deleting the vault, in one item. By default a new empty vault takes its place = securetrash
-# vault reset (the old container is set aside, the new one created, only then the old one is
-# crypto-shredded — no moment without a vault). "n" = securetrash vault destroy, nothing left.
+# Deleting the vault, in one item, with an explicit choice of what stays. 1 = securetrash vault
+# reset (the old container is set aside, the new one created, only then the old one is
+# crypto-shredded — no moment without a vault). 2 = securetrash vault destroy, nothing left.
+# Anything else cancels. This was a [Y/n] question on "a new vault?", and a live user read "n"
+# as "cancel" and Y as "delete" — the answer that deleted for good was the one that sounded safe.
 # Two separate items used to lead to the same result (Destroy, then Create), which read as a
 # broken menu. The real yes-confirm and the password prompt are on the securetrash side.
 _act_delete() {
@@ -626,17 +634,21 @@ _act_delete() {
     echo "  ${C_YEL}$(t vault_unknown_act)${C_RST}"; _pause; return
   fi
   echo "  ${C_YEL}$(t delete_hint)${C_RST}"
-  local renew
-  read -r -p "  $(t delete_renew) " renew <&0 || { echo; _pause; return; }
-  case "$renew" in
-    n|N|no|No|NO|н|Н|нет|Нет)
-      _run_tool securetrash vault destroy ;;
-    *)
+  echo "  $(t delete_q)"
+  echo "    $(t delete_new)"
+  echo "    $(t delete_gone)"
+  echo "    $(t delete_keep)"
+  local pick
+  read -r -p "  $(t choose): " pick <&0 || { echo; _pause; return; }
+  case "$pick" in
+    1)
       local sz
       if sz="$(_ask_vault_size)"; then
         # shellcheck disable=SC2086  # empty → the tool's default size
         _run_tool securetrash vault reset $sz
       fi ;;
+    2) _run_tool securetrash vault destroy ;;
+    *) ;;   # 0, Enter, anything else: nothing is deleted
   esac
   _pause
 }

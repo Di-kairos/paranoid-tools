@@ -87,9 +87,10 @@ away. Each submenu has its own `0) Back`.
 **3) Vault ▸**
 ```
 1) Open / Close / Create  — label follows the current state
-2) Delete the vault       — crypto-shred it with everything inside, then asks:
-                            a new empty vault in its place? Y = `vault reset`,
-                            n = `vault destroy` (NOT `securetrash empty`, see below)
+2) Delete the vault       — crypto-shred it with everything inside; asks what stays:
+                            1 = a new empty vault (`vault reset`),
+                            2 = nothing (`vault destroy`), 0/Enter = cancel
+                            (NOT `securetrash empty`, see below)
 3) Watch                  — guard / stop the open vault (vaultwatch)
 0) Back
 ```
