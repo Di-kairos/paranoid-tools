@@ -107,14 +107,14 @@ t() {
     ru:upd_src)      printf 'Установщик: %s' "$2" ;;
     en:upd_confirm)  echo 'Pull the latest sources and reinstall all tools?' ;;
     ru:upd_confirm)  echo 'Подтянуть свежие исходники и переустановить все тулы?' ;;
-    en:upd_stale_src) echo 'Note: the clone itself was not updated — what got installed came from its current state.' ;;
-    ru:upd_stale_src) echo 'Учти: сам клон обновить не удалось — установилось то, что в нём сейчас.' ;;
+    en:upd_stale_src) echo 'The installer ran, but nothing new arrived: the source was not updated, so the versions are the same as before.' ;;
+    ru:upd_stale_src) echo 'Установщик отработал, но нового ничего не приехало: источник не обновился, версии те же, что были.' ;;
     en:upd_pull)     echo 'Updating the clone…' ;;
     ru:upd_pull)     echo 'Обновляю клон…' ;;
     en:upd_pull_fail) echo 'git pull did not succeed — see the message above. Continuing with the clone in its current state.' ;;
     ru:upd_pull_fail) echo 'git pull не прошёл — причина выше. Продолжаю с клоном в текущем состоянии.' ;;
-    en:upd_nogit)    echo 'Not a git clone — reinstalling from the local copy as it is.' ;;
-    ru:upd_nogit)    echo 'Это не git-клон — переустанавливаю из локальной копии как есть.' ;;
+    en:upd_nogit)    echo 'This copy is not a git clone, so there is nothing to pull — only what is already in it can be installed. For this item to bring new versions, clone the repository and install from it once, or point PARANOID_SRC at a clone you already have.' ;;
+    ru:upd_nogit)    echo 'Эта копия — не git-клон, тянуть неоткуда: поставится только то, что в ней уже лежит. Чтобы пункт приносил новые версии, склонируй репозиторий и один раз поставь из него, или укажи путь к существующему клону в PARANOID_SRC.' ;;
     en:upd_run)      echo 'Running the installer from that directory. Downloaded releases are signature-verified; anything already present in the clone is installed as-is.' ;;
     ru:upd_run)      echo 'Запускаю установщик из этого каталога. Скачанные релизы проверяются по подписи; то, что уже лежит в клоне, ставится как есть.' ;;
     en:upd_done)     echo 'Update finished. An already-open vault keeps the old binary until you close and reopen it.' ;;
@@ -539,6 +539,10 @@ _act_update() {
     # --ff-only: silently overwriting the user's local edits is not allowed.
     git -C "$src" pull --ff-only || { pulled=0; echo "  ${C_YEL}$(t upd_pull_fail)${C_RST}" >&2; }
   else
+    # A plain copy is not a lesser kind of clone: nothing can arrive through it, so this
+    # run must not end like a successful update (live Windows run, s55 — the VM updated
+    # from a static copy for weeks and reported success every time).
+    pulled=0
     echo "  ${C_YEL}$(t upd_nogit)${C_RST}" >&2
   fi
 
@@ -546,10 +550,14 @@ _act_update() {
   if bash "$src/install.sh"; then
     # The "update available" banner is cached for a day — after the install it would lie.
     rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/paranoid-tools/update-check" 2>/dev/null || true
-    # We do not claim "all fresh" if the sources could not be pulled: the installer may
-    # have run fine while the clone stayed as it was.
-    (( pulled )) || echo "  ${C_YEL}$(t upd_stale_src)${C_RST}" >&2
-    echo "  ${C_GRN}$(t upd_done)${C_RST}"
+    # Either/or, not a green "finished" with a yellow footnote above it: the installer
+    # running is not the same event as a new version arriving, and the line people read is
+    # the last one.
+    if (( pulled )); then
+      echo "  ${C_GRN}$(t upd_done)${C_RST}"
+    else
+      echo "  ${C_YEL}$(t upd_stale_src)${C_RST}" >&2
+    fi
   else
     echo "  ${C_YEL}$(t upd_fail)${C_RST}" >&2
   fi

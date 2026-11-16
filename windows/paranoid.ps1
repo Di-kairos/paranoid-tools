@@ -131,12 +131,12 @@ function T {
         'ru:upd_pull'     { return 'Обновляю клон…' }
         'en:upd_pull_fail' { return 'git pull did not succeed - see the message above. Continuing with the clone in its current state.' }
         'ru:upd_pull_fail' { return 'git pull не прошёл — причина выше. Продолжаю с клоном в текущем состоянии.' }
-        'en:upd_nogit'    { return 'Not a git clone (or git is not on PATH) - reinstalling from the local copy as it is.' }
-        'ru:upd_nogit'    { return 'Это не git-клон (или git не в PATH) — переустанавливаю из локальной копии как есть.' }
+        'en:upd_nogit'    { return 'This copy is not a git clone (or git is not on PATH), so there is nothing to pull - only what is already in it can be installed. For this item to bring new versions, clone the repository and install from it once, or point PARANOID_SRC at a clone you already have.' }
+        'ru:upd_nogit'    { return 'Эта копия — не git-клон (или git не в PATH), тянуть неоткуда: поставится только то, что в ней уже лежит. Чтобы пункт приносил новые версии, склонируй репозиторий и один раз поставь из него, или укажи путь к существующему клону в PARANOID_SRC.' }
         'en:upd_run'      { return 'Running the installer from that directory. Downloaded releases are signature-verified; anything already present in the clone is installed as-is.' }
         'ru:upd_run'      { return 'Запускаю установщик из этого каталога. Скачанные релизы проверяются по подписи; то, что уже лежит в клоне, ставится как есть.' }
-        'en:upd_stale_src' { return 'Note: the clone itself was not updated - what got installed came from its current state.' }
-        'ru:upd_stale_src' { return 'Учти: сам клон обновить не удалось — установилось то, что в нём сейчас.' }
+        'en:upd_stale_src' { return 'The installer ran, but nothing new arrived: the source was not updated, so the versions are the same as before.' }
+        'ru:upd_stale_src' { return 'Установщик отработал, но нового ничего не приехало: источник не обновился, версии те же, что были.' }
         'en:upd_done'     { return 'Update finished. An already-open vault keeps the old script until you close and reopen it.' }
         'ru:upd_done'     { return 'Обновление завершено. Уже открытый сейф держит старый скрипт, пока не закроешь и не откроешь его.' }
         'en:upd_restart'  { return 'The launcher itself was updated - restarting it with the new version.' }
@@ -1092,10 +1092,11 @@ function Invoke-PnActUpdate {
             Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'paranoid-tools\update-check') `
                 -Force -ErrorAction SilentlyContinue
         }
-        # No "all fresh" claim when the sources could not be pulled: the installer may have run
-        # perfectly while the clone stayed exactly as it was.
-        if (-not $pulled) { [Console]::Error.WriteLine("  $(T 'upd_stale_src')") }
-        Write-PnScreen "  $(T 'upd_done')"
+        # Either/or, not a "finished" with a footnote above it: the installer running is not
+        # the same event as a new version arriving, and the line people read is the last one.
+        # The VM spent weeks updating from a static copy and reporting success (live run, s55).
+        if ($pulled) { Write-PnScreen "  $(T 'upd_done')" }
+        else { [Console]::Error.WriteLine("  $(T 'upd_stale_src')") }
     } else {
         [Console]::Error.WriteLine("  $(T 'upd_fail')")
     }

@@ -17,6 +17,18 @@ BeforeAll {
         try { & $Body | Out-Null } finally { [Console]::SetOut($orig) }
         return $sw.ToString()
     }
+    # Warnings and refusals go to [Console]::Error, so a test about what the user is told
+    # has to read both streams - reading only the screen would miss exactly those lines.
+    function global:Get-PnCombinedOutput {
+        param([scriptblock]$Body)
+        $so = New-Object System.IO.StringWriter
+        $se = New-Object System.IO.StringWriter
+        $origOut = [Console]::Out
+        $origErr = [Console]::Error
+        [Console]::SetOut($so); [Console]::SetError($se)
+        try { & $Body | Out-Null } finally { [Console]::SetOut($origOut); [Console]::SetError($origErr) }
+        return ($so.ToString() + "`n" + $se.ToString())
+    }
     $env:ST_NO_MAIN = '1'
     $script:ScriptPath = Join-Path $PSScriptRoot '..\paranoid.ps1'
     . $script:ScriptPath
@@ -1039,20 +1051,26 @@ Describe 'Update (menu item 6) — parity with the macOS launcher' {
         $out | Should -Match 'Update finished'
     }
 
-    It 'still installs when the pull fails, but does not claim the sources are fresh' {
+    It 'still installs when the pull fails, and says nothing new arrived' {
         $env:PARANOID_SRC = $script:Work
         Mock Invoke-PnGitPull { $false }
-        $out = Get-PnScreen { Invoke-PnActUpdate }
+        $out = Get-PnCombinedOutput { Invoke-PnActUpdate }
         Should -Invoke Invoke-PnInstaller -Times 1 -Exactly
-        $out | Should -Match 'Update finished'
+        # The closing line is the one people read: a run that pulled nothing must not end
+        # like a successful update (live Windows run, s55).
+        $out | Should -Not -Match 'Update finished'
+        $out | Should -Match 'nothing new arrived'
     }
 
-    It 'installs from a plain copy when it is not a git clone' {
+    It 'installs from a plain copy when it is not a git clone, and does not call it an update' {
         $env:PARANOID_SRC = $script:Work
         Mock Test-PnGitClone { $false }
-        Get-PnScreen { Invoke-PnActUpdate } | Out-Null
+        $out = Get-PnCombinedOutput { Invoke-PnActUpdate }
         Should -Invoke Invoke-PnGitPull -Times 0 -Exactly
         Should -Invoke Invoke-PnInstaller -Times 1 -Exactly
+        $out | Should -Not -Match 'Update finished'
+        $out | Should -Match 'not a git clone'
+        $out | Should -Match 'nothing new arrived'
     }
 
     It 'does not report success when the installer failed' {

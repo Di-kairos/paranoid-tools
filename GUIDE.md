@@ -28,6 +28,11 @@ overwrites the binary in place. Releases downloaded from GitHub
 are Ed25519-verified; a tool already present in the clone is installed from there as-is, so what
 you get depends on the clone you point it at.
 
+If that directory is not a git clone — a copy of the repository, a download, a shared folder —
+there is nothing to pull, and only what is already in it gets installed. The launcher says so
+and ends the run with "nothing new arrived" instead of reporting a finished update: a copy that
+cannot receive new versions must not look like one that did.
+
 It asks for a literal `yes`, prints the exact directory it is about to run, and refuses to guess:
 if it cannot find a clone it says so rather than downloading anything on its own. The launcher
 remembers the clone you last installed from; override with `PARANOID_SRC=/path`. Note the running

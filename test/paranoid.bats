@@ -789,8 +789,10 @@ _make_fake_clone() {
   run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
   [ "$status" -eq 0 ]
   grep -q "INSTALLER RAN" "$LOG"
-  # installer success must not be passed off as "everything is fresh"
-  [[ "$output" == *"clone itself was not updated"* ]]
+  # Installer success must not be passed off as a finished update: the last line is the one
+  # that gets read, so it says what actually happened instead of carrying a footnote above it.
+  [[ "$output" == *"nothing new arrived"* ]]
+  [[ "$output" != *"Update finished"* ]]
 }
 
 # Structural P3: a leftover /Volumes/… directory is NOT an open vault. The launcher used to
@@ -1041,4 +1043,22 @@ STUB
   run_paranoid $'1\n\n0\n'
   [ "$status" -eq 0 ]
   [[ "$output" != *"restarting"* ]]
+}
+
+@test "update from a copy that is not a git clone does not call itself an update" {
+  # The VM spent weeks "updating" from a static copy of the repository: git pull was skipped,
+  # the installer reinstalled the same files, and the run ended green (live Windows run, s55).
+  # Nothing can arrive through a plain copy, so the closing line must not read like success.
+  mkdir -p "$TMP/src"
+  cat >"$TMP/src/install.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "installer ran"
+STUB
+  chmod +x "$TMP/src/install.sh"
+  run_paranoid $'6\nyes\n\n0\n' PARANOID_SRC="$TMP/src"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"installer ran"* ]]
+  [[ "$output" == *"not a git clone"* ]]
+  [[ "$output" == *"nothing new arrived"* ]]
+  [[ "$output" != *"Update finished"* ]]
 }
