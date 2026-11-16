@@ -1356,7 +1356,9 @@ function Invoke-StVaultCreateNow {
     # -KeepFailedContainer: the caller owns the rollback and will clean the path itself.
     # Only `reset` passes it (Restore-StVaultAside removes the leftover before moving the
     # set-aside vault back). A plain create never sets it — see the catch block below.
-    param([string]$Size = '1024', [switch]$KeepFailedContainer)
+    # -SkipPreventive: `create --open` goes straight on to open, which prints the same warning
+    # over the mounted volume. Saying it twice in one run is how a warning stops being read.
+    param([string]$Size = '1024', [switch]$KeepFailedContainer, [switch]$SkipPreventive)
     $vaultPath = Get-StVaultPath
     Assert-StValidVaultPath -Path $vaultPath
     Assert-StValidSize -Size $Size
@@ -1401,7 +1403,7 @@ function Invoke-StVaultCreateNow {
         # volume mounted, which `status` now reports truthfully.
         try { Dismount-StVault -Path $vaultPath } catch { }
         Write-StInfo (T 'vault_created' $vaultPath $Size)
-        Write-StWarn (T 'vault_preventive')
+        if (-not $SkipPreventive) { Write-StWarn (T 'vault_preventive') }
     } elseif (Get-StVeraCryptPath) {
         # #2: automated VeraCrypt is disabled (the password would leak via argv). Use the GUI.
         Write-StWarn (T 'vault_vc_manual'); Stop-StCommand
@@ -1475,7 +1477,7 @@ function Invoke-StVault {
             $wantOpen = $rest -contains '--open'
             $sizeArgs = @($rest | Where-Object { $_ -ne '--open' })
             $size = if ($sizeArgs.Count -ge 1) { $sizeArgs[0] } else { '1024' }  # MB for diskpart
-            Invoke-StVaultCreateNow -Size $size
+            Invoke-StVaultCreateNow -Size $size -SkipPreventive:$wantOpen
             if ($wantOpen) {
                 # Reuse the password just confirmed, then walk the normal open path - attach,
                 # unlock, letter, sidecar, hook. Re-entering Invoke-StVault instead of copying
