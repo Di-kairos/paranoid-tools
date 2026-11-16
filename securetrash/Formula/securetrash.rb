@@ -1,8 +1,8 @@
 class Securetrash < Formula
   desc "Honest secure file deletion for macOS (FileVault + crypto-shred vaults)"
   homepage "https://github.com/Di-kairos/paranoid-tools"
-  url "https://github.com/Di-kairos/paranoid-tools/archive/refs/tags/securetrash-v0.5.10.tar.gz"
-  sha256 "d7300b060d080232b950c19dfef6975cc4c0fb22909d4485406aa8f51af5a709"
+  url "https://github.com/Di-kairos/paranoid-tools/archive/refs/tags/securetrash-v0.5.11.tar.gz"
+  sha256 "c32674492972fa14e9d1bd688873f08451bb77d7c88ef4453a0f77e7a9a2013b"
   license "MIT"
 
   def install
