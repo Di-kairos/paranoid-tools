@@ -1049,15 +1049,15 @@ STUB
   # The VM spent weeks "updating" from a static copy of the repository: git pull was skipped,
   # the installer reinstalled the same files, and the run ended green (live Windows run, s55).
   # Nothing can arrive through a plain copy, so the closing line must not read like success.
-  mkdir -p "$TMP/src"
-  cat >"$TMP/src/install.sh" <<'STUB'
-#!/usr/bin/env bash
-echo "installer ran"
-STUB
-  chmod +x "$TMP/src/install.sh"
-  run_paranoid $'6\nyes\n\n0\n' PARANOID_SRC="$TMP/src"
+  _make_fake_clone "$TMP/copy" "INSTALLER RAN"
+  # rev-parse fails => the directory is not a clone, whatever the test machine looks like.
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$STUBS/git"
+  chmod +x "$STUBS/git"
+  mkdir -p "$TMP/.local/share/paranoid-tools"
+  printf '%s\n' "$TMP/copy" > "$TMP/.local/share/paranoid-tools/source"
+  run_paranoid $'6\nyes\n\n0\n' HOME="$TMP"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"installer ran"* ]]
+  grep -q "INSTALLER RAN" "$LOG"
   [[ "$output" == *"not a git clone"* ]]
   [[ "$output" == *"nothing new arrived"* ]]
   [[ "$output" != *"Update finished"* ]]
