@@ -139,6 +139,7 @@ Encrypted container workflow — for secrets (a real guarantee on SSD):
 
 ```bash
 securetrash vault create   # creates ~/SecureVault.sparsebundle (AES-256), prompts for a password
+                           # (add --open to mount it right away — what the GUI menus run)
 securetrash vault open      # mounts the container at /Volumes/SecretVault
 securetrash vault status    # is the vault currently open or closed?
 # work with your secrets inside /Volumes/SecretVault

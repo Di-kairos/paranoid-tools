@@ -637,7 +637,7 @@ Describe 'vault submenu dispatch — open/close/create smart (item 1) + size' {
         Mock Read-PnLine { '' }
         Invoke-PnVaultDispatch '1' | Out-Null
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
-            $Tool -eq 'securetrash' -and (($ToolArgs -join ' ') -eq 'vault create')
+            $Tool -eq 'securetrash' -and (($ToolArgs -join ' ') -eq 'vault create --open')
         }
     }
     It 'creates the vault with a chosen MB size cap' {
@@ -645,7 +645,7 @@ Describe 'vault submenu dispatch — open/close/create smart (item 1) + size' {
         Mock Read-PnLine { '5120' }
         Invoke-PnVaultDispatch '1' | Out-Null
         Should -Invoke Invoke-PnTool -Times 1 -Exactly -ParameterFilter {
-            $Tool -eq 'securetrash' -and ($ToolArgs -contains 'create') -and ($ToolArgs -contains '5120')
+            $Tool -eq 'securetrash' -and ($ToolArgs -contains 'create') -and ($ToolArgs -contains '5120') -and ($ToolArgs -contains '--open')
         }
     }
     It 'invalid size cancels create (nothing dispatched)' {

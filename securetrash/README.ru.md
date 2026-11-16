@@ -133,6 +133,7 @@ securetrash empty          # опустошить папку (на HDD — пе�
 
 ```bash
 securetrash vault create   # создаёт ~/SecureVault.sparsebundle (AES-256), спросит пароль
+                           # (--open — сразу смонтировать; так делают меню GUI)
 securetrash vault open      # монтирует контейнер в /Volumes/SecretVault
 securetrash vault status    # открыт сейчас контейнер или закрыт?
 # работай с секретами внутри /Volumes/SecretVault

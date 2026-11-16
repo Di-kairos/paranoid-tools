@@ -168,11 +168,11 @@ run_paranoid() {
 
 # --- vault: submenu (item 3 → ...) ---
 
-@test "vault submenu: no container -> dispatches 'securetrash vault create'" {
+@test "vault submenu: no container -> dispatches 'securetrash vault create --open'" {
   # input after '1': empty size (default) + empty pause
   run_paranoid $'3\n1\n\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/no-container-$RANDOM"
   [ "$status" -eq 0 ]
-  grep -qx "securetrash vault create" "$LOG"
+  grep -qx "securetrash vault create --open" "$LOG"
   ! grep -q "vault open" "$LOG"
   ! grep -q "vault close" "$LOG"
 }
@@ -180,7 +180,7 @@ run_paranoid() {
 @test "vault create passes a chosen size cap to securetrash" {
   run_paranoid $'3\n1\n5g\n\n0\n0\n' ST_VAULT_VOLUME="$TMP/nope" ST_VAULT_PATH="$TMP/no-container-$RANDOM"
   [ "$status" -eq 0 ]
-  grep -qx "securetrash vault create 5g" "$LOG"
+  grep -qx "securetrash vault create 5g --open" "$LOG"
 }
 
 @test "vault create with an invalid size cancels (no create dispatched)" {

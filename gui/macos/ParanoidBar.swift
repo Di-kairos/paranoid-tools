@@ -95,6 +95,27 @@ private let strings: [String: (en: String, ru: String)] = [
     "vault_open":       ("Open the vault", "Открыть сейф"),
     "vault_create":     ("Create a vault", "Создать сейф"),
     "vault_delete":     ("Delete the vault…", "Удалить сейф…"),
+    // The rest of the ecosystem in the menu — same wording as the Windows tray.
+    "vw_start":         ("Guard the vault — close it automatically after…",
+                         "Сторожить сейф — закрыть сам через…"),
+    "vw_stop":          ("Stop guarding the vault (vaultwatch)", "Снять охрану сейфа (vaultwatch)"),
+    "vw_needs_open":    ("Guard the vault (vaultwatch) — open the vault first",
+                         "Сторожить сейф (vaultwatch) — сначала открой сейф"),
+    "ttl_30m":          ("30 minutes", "30 минут"),
+    "ttl_1h":           ("1 hour", "1 час"),
+    "ttl_2h":           ("2 hours", "2 часа"),
+    "ttl_4h":           ("4 hours", "4 часа"),
+    "ttl_none":         ("No timer — until I close it", "Без таймера — пока не закрою сам"),
+    "notepad_menu":     ("Notepad — text that never touches the disk (ghostdraft)",
+                         "Блокнот — текст, который не попадает на диск (ghostdraft)"),
+    "ghost_note":       ("Write a note — it vanishes when you close it",
+                         "Написать заметку — исчезнет, когда закроешь"),
+    "ghost_pipe":       ("Paste text to look at it — nothing is saved",
+                         "Вставить текст и посмотреть — ничего не сохраняется"),
+    "secrets_menu":     ("Secrets — split into shares / combine (seedsplit)",
+                         "Секреты — разбить на доли / собрать (seedsplit)"),
+    "split_item":       ("Split a secret into shares", "Разбить секрет на доли"),
+    "combine_item":     ("Combine shares back into the secret", "Собрать секрет из долей"),
     "launcher_item":    ("Open the full launcher (paranoid)", "Открыть полный лаунчер (paranoid)"),
     "settings_item":    ("Settings…", "Настройки…"),
     "login_item":       ("Start at login", "Запускать при входе"),
@@ -498,6 +519,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         vaultItem.submenu = vault
         menu.addItem(vaultItem)
 
+        // The rest of the ecosystem was invisible here: the tray knew only the vault, so the
+        // tools a person never met in a terminal did not exist for them (live run, s55). The
+        // Windows tray has carried these three entries for a while; this is the macOS half of
+        // that parity, same wording, same commands. Each item starts the CLI in Terminal —
+        // password paths stay out of the GUI on purpose.
+        let mount = shellQuote(vaultVolume)
+        if toolInstalled("vaultwatch") {
+            if !open {
+                // Visible but dead, not absent: a missing item teaches nothing, a greyed one
+                // teaches the order (open the vault first).
+                menu.addItem(header(L("vw_needs_open")))
+            } else if !sessions.isEmpty {
+                menu.addItem(toolItem(L("vw_stop"), "vaultwatch stop " + mount))
+            } else {
+                let vw = NSMenu()
+                for (key, ttl) in [("ttl_30m", "30m"), ("ttl_1h", "1h"), ("ttl_2h", "2h"), ("ttl_4h", "4h")] {
+                    vw.addItem(toolItem(L(key), "vaultwatch start --ttl \(ttl) " + mount))
+                }
+                vw.addItem(toolItem(L("ttl_none"), "vaultwatch start " + mount))
+                let vwItem = NSMenuItem(title: L("vw_start") + " ▸", action: nil, keyEquivalent: "")
+                vwItem.submenu = vw
+                menu.addItem(vwItem)
+            }
+        }
+        if toolInstalled("ghostdraft") {
+            let g = NSMenu()
+            g.addItem(toolItem(L("ghost_note"), "ghostdraft new --clipboard"))
+            g.addItem(toolItem(L("ghost_pipe"), "ghostdraft pipe"))
+            let gi = NSMenuItem(title: L("notepad_menu") + " ▸", action: nil, keyEquivalent: "")
+            gi.submenu = g
+            menu.addItem(gi)
+        }
+        if toolInstalled("seedsplit") {
+            let sec = NSMenu()
+            sec.addItem(toolItem(L("split_item"), "seedsplit split"))
+            sec.addItem(toolItem(L("combine_item"), "seedsplit combine"))
+            let si = NSMenuItem(title: L("secrets_menu") + " ▸", action: nil, keyEquivalent: "")
+            si.submenu = sec
+            menu.addItem(si)
+        }
+        menu.addItem(.separator())
+
         menu.addItem(item(L("launcher_item"), #selector(doLauncher)))
         if !update.isEmpty {
             menu.addItem(item(L("upd_item").replacingOccurrences(of: "{0}", with: update), #selector(doUpdate)))
@@ -518,9 +581,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
 
+    // A tool is listed only when it is actually installed: a menu item that ends in
+    // "command not found" teaches the person that the GUI lies. A GUI app inherits a bare
+    // PATH, so the install targets are checked explicitly on top of it.
+    private func toolInstalled(_ name: String) -> Bool {
+        let fm = FileManager.default
+        var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        dirs += [fm.homeDirectoryForCurrentUser.path + "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]
+        return dirs.contains { fm.isExecutableFile(atPath: $0 + "/" + name) }
+    }
     private func header(_ title: String) -> NSMenuItem {
         let it = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         it.isEnabled = false
+        return it
+    }
+    private func toolItem(_ title: String, _ cmd: String) -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: #selector(doTool(_:)), keyEquivalent: "")
+        it.target = self
+        it.representedObject = cmd
         return it
     }
     private func item(_ title: String, _ sel: Selector) -> NSMenuItem {
@@ -539,10 +617,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let verb: String
         if s == "open" { verb = "close" }
         else if s == "unknown" { verb = "status" }
-        else { verb = vaultExists() ? "open" : "create" }
+        // --open on create: someone who picked "Create a vault" in a menu is asking for a
+        // disk, not for a container file. The bare CLI stays create-only (s55).
+        else { verb = vaultExists() ? "open" : "create --open" }
         runInTerminal("securetrash vault " + verb)
     }
     @objc private func doVaultDelete()   { runInTerminal("paranoid delete-vault") }
+    // One action for every tool entry: the command travels on the item, so adding an entry
+    // does not mean adding a selector.
+    @objc private func doTool(_ sender: NSMenuItem) {
+        if let cmd = sender.representedObject as? String { runInTerminal(cmd) }
+    }
     @objc private func doLauncher()      { runInTerminal("paranoid") }
     @objc private func doUpdate()        { runInTerminal("paranoid update") }
     @objc private func doToggleUpdateCheck() {
@@ -712,7 +797,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         w.contentView = v
     }
 
-    @objc private func obCreateVault() { runInTerminal("securetrash vault create") }
+    @objc private func obCreateVault() { runInTerminal("securetrash vault create --open") }
     @objc private func obEnableHotkey() {
         // ASSUMPTION: Enable always turns on the default P; restoring the previous preset is Settings territory (T5)
         UserDefaults.standard.set("ctrl-opt-shift-p", forKey: "panicHotkey")

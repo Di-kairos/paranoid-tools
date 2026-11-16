@@ -31,10 +31,10 @@ Describe 'Get-PtMenuSpec — структура меню' {
         $vault.Label   | Should -Be (Get-PtL -Key 'vault_close' -Lang 'en')
         $vault.Command | Should -Be 'securetrash vault close'
     }
-    It 'пункт сейфа: none → Create a vault / securetrash vault create' {
+    It 'пункт сейфа: none → Create a vault / securetrash vault create --open' {
         $vault = (Get-PtMenuSpec -VaultState 'none' -Lang 'en')[6]
         $vault.Label   | Should -Be (Get-PtL -Key 'vault_create' -Lang 'en')
-        $vault.Command | Should -Be 'securetrash vault create'
+        $vault.Command | Should -Be 'securetrash vault create --open'
     }
     It 'пункт сейфа: unknown → спросить securetrash, а не гадать действием' {
         $spec = Get-PtMenuSpec -VaultState 'unknown' -Lang 'en'
@@ -619,6 +619,7 @@ Describe 'Invoke-PtTool — привилегированные команды и
 
     It 'команды сейфа запрашивают права' {
         foreach ($cmd in @('securetrash vault open', 'securetrash vault close', 'securetrash vault create',
+                           'securetrash vault create --open',
                            'securetrash vault reset', 'securetrash vault destroy')) {
             Test-PtNeedsAdmin $cmd | Should -BeTrue -Because "«$cmd» без прав молча деградирует"
         }
@@ -844,12 +845,10 @@ Describe 'Cross-platform l10n parity' {
         # Windows-only keys: UAC is a Windows mechanism, and macOS has no counterpart to mirror
         # (its vault is hdiutil, which needs no elevation). Mirroring them into ParanoidBar.swift
         # would add strings the macOS UI can never show. Everything else stays 1:1.
-        # The tool submenus (vaultwatch guard, ghostdraft, seedsplit) are Windows-tray-only for now:
-        # ParanoidBar leaves those tools to the terminal launcher.
+        # The tool submenus (vaultwatch guard, ghostdraft, seedsplit) used to be Windows-only;
+        # ParanoidBar carries them since s55, so they are shared keys again.
         $winOnly = @('uac_suffix', 'notif_uac_declined', 'notif_uac_declined_panic',
                      'login_admin_item', 'login_admin_on', 'login_admin_off', 'login_admin_declined',
-                     'vw_start', 'vw_stop', 'vw_needs_open', 'ttl_30m', 'ttl_1h', 'ttl_2h', 'ttl_4h', 'ttl_none',
-                     'notepad_menu', 'ghost_note', 'ghost_pipe', 'secrets_menu', 'split_item', 'combine_item',
                      'press_enter_close', 'hint_combine', 'hint_pipe', 'hint_split', 'notif_hotkey_moved',
                      'ob_icon_line', 'ob_show_btn', 'ob_howto', 'set_vol_auto')
         foreach ($k in $winOnly) { $swiftKeys | Should -Not -Contain $k }

@@ -607,7 +607,8 @@ _act_vault() {
       # invalid size format → _ask_vault_size returns 1 → we cancel creation (not a dead end).
       if sz="$(_ask_vault_size)"; then
         # shellcheck disable=SC2086  # empty → no argument = the tool's default size
-        _run_tool securetrash vault create $sz
+        # --open: the menu item promised a vault, and a vault you cannot reach is a file.
+        _run_tool securetrash vault create $sz --open
       fi
       ;;
   esac

@@ -231,7 +231,7 @@ function Get-PtMenuSpec {
           [string]$UpdateSummary = '')
     # On 'unknown' the item promises no action: opening/closing/creating blindly is guessing,
     # so we call the read-only `vault status` and label it exactly that.
-    $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } 'unknown' { 'securetrash vault status' } default { 'securetrash vault create' } }
+    $vaultToggle = switch ($VaultState) { 'open' { 'securetrash vault close' } 'closed' { 'securetrash vault open' } 'unknown' { 'securetrash vault status' } default { 'securetrash vault create --open' } }
     $vaultLabel  = switch ($VaultState) { 'open' { Get-PtL 'vault_close' -Lang $Lang } 'closed' { Get-PtL 'vault_open' -Lang $Lang } 'unknown' { Get-PtL 'vault_ask' -Lang $Lang } default { Get-PtL 'vault_create' -Lang $Lang } }
     # Empty/Destroy only make sense with an existing container (open|closed) — on 'none' we
     # grey them out so the destructive actions aren't active "into the void" (P2-7). Same on
@@ -1059,7 +1059,7 @@ function Show-PtWelcomeForm {
     $vaultY = $y
     Add-PtObLabel $form (Get-PtChecklistLine -Ok $hasVault -OkKey 'ob_vault_ok' -MissKey 'ob_vault_missing' -Lang $lang) ([ref]$y)
     if (-not $hasVault) {
-        Add-PtObButton $form (Get-PtL ob_create_btn -Lang $lang) $vaultY { Invoke-PtTool -Command 'securetrash vault create' }
+        Add-PtObButton $form (Get-PtL ob_create_btn -Lang $lang) $vaultY { Invoke-PtTool -Command 'securetrash vault create --open' }
     }
     # hotkey: label by the ACTUAL preset (P/L), readiness = preset enabled AND registration really
     # succeeded ($script:hotkeyRegistered, T9) — mirror of the macOS T4 honesty fix (don't swallow RegisterHotKey).

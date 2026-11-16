@@ -1280,6 +1280,14 @@ function Invoke-StEmpty {
 # (documented as test-only); in production the plain password never goes to argv (#2).
 function Get-StVaultPasswordSecure {
     param([string]$Prompt = (T 'vault_pass'))
+    # A password just confirmed for `create --open` is reused once, so that creating a vault
+    # from a menu asks twice (new + confirm) instead of three times. Consumed and cleared
+    # here: the next prompt in the same process must ask again.
+    if ($script:StVaultReusePassword) {
+        $reuse = $script:StVaultReusePassword
+        $script:StVaultReusePassword = $null
+        return $reuse
+    }
     # TEST-ONLY hook: ST_VAULT_PASS is used only in Pester/scripts, not in production.
     if ($env:ST_VAULT_PASS) {
         return (ConvertTo-SecureString -String $env:ST_VAULT_PASS -AsPlainText -Force)
@@ -1362,6 +1370,8 @@ function Invoke-StVaultCreateNow {
         # Native: VHDX + Enable-BitLocker. The password is SecureString end-to-end (#13).
         # New container → confirmed twice with a length floor (a typo here has no reset).
         $sec = Get-StVaultPasswordNewSecure
+        # Kept for `create --open`, which opens the fresh container without asking again.
+        $script:StVaultLastNewPassword = $sec
         $letter = Get-StFreeDriveLetter                 # #3: a free letter, not a hardcoded 'V'
         Assert-StValidDriveLetter -DriveLetter $letter
         try {
@@ -1458,12 +1468,28 @@ function Invoke-StVault {
     switch ($sub) {
         'create' {
             if (Test-Path -LiteralPath $vaultPath) { Write-StErr (T 'vault_exists' $vaultPath); Stop-StCommand }
-            $size = if ($VaultArgs.Count -ge 2) { $VaultArgs[1] } else { '1024' }  # MB for diskpart
+            # --open: create AND open in one go. The bare command stays create-only on purpose
+            # (a vault nobody asked to open must not be left mounted), but a person who picked
+            # "create" in a menu expects a disk, not a container file (live macOS run, s55).
+            $rest = @($VaultArgs | Select-Object -Skip 1)
+            $wantOpen = $rest -contains '--open'
+            $sizeArgs = @($rest | Where-Object { $_ -ne '--open' })
+            $size = if ($sizeArgs.Count -ge 1) { $sizeArgs[0] } else { '1024' }  # MB for diskpart
             Invoke-StVaultCreateNow -Size $size
-            # create detaches on purpose, so nothing is mounted yet: say where the disk comes
-            # from, or the person hunts for a drive letter no command has handed out (parity
-            # with bash; live macOS run, s55 - created from the tray, no volume).
-            Write-StInfo (T 'vault_create_next')
+            if ($wantOpen) {
+                # Reuse the password just confirmed, then walk the normal open path - attach,
+                # unlock, letter, sidecar, hook. Re-entering Invoke-StVault instead of copying
+                # that path keeps one open in the tool.
+                $script:StVaultReusePassword = $script:StVaultLastNewPassword
+                $script:StVaultLastNewPassword = $null
+                Invoke-StVault -VaultArgs @('open')
+            }
+            else {
+                # create detaches on purpose, so nothing is mounted yet: say where the disk
+                # comes from, or the person hunts for a drive letter no command has handed out
+                # (parity with bash; live macOS run, s55 - created from the tray, no volume).
+                Write-StInfo (T 'vault_create_next')
+            }
         }
         'open' {
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container_open'); Stop-StCommand }

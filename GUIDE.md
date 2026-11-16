@@ -135,6 +135,9 @@ Asks for a size and a password. The password is the whole game: it isn't stored
 anywhere, and there is no reset. The vault appears as an encrypted container
 (`~/SecureVault.sparsebundle`); opened, it mounts at `/Volumes/SecretVault`.
 
+Creating does not open: a vault nobody asked to open must not be left mounted. Add
+`--open` to get the disk in one step — that is what the tray and the launcher run.
+
 **3. Write the seed phrase down — inside the vault.**
 
 ```bash
@@ -232,6 +235,7 @@ container.
 ```bash
 securetrash check              # honest verdict: which guarantees are real on your disk
 securetrash vault create [size] # create the encrypted vault (size = ceiling, optional)
+securetrash vault create --open # the same, then open it right away (what the menus run)
 securetrash vault open         # open (mount) the vault
 securetrash vault close        # close the vault
 securetrash vault reset [size] # crypto-shred everything, recreate a fresh EMPTY vault

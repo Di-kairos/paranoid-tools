@@ -597,6 +597,10 @@ cmd_empty() {
 
 # Read the container password: from ST_VAULT_PASS (tests/scripts) or interactively.
 _vault_pass() {
+  # A password just typed for `create --open` is reused once, so that creating a vault from a
+  # menu asks for it twice (new + confirm) instead of three times. Consumed and cleared here:
+  # the next prompt in the same process must ask again.
+  if [[ -n "${_VAULT_REUSE_PASS:-}" ]]; then printf '%s' "$_VAULT_REUSE_PASS"; _VAULT_REUSE_PASS=""; return; fi
   if [[ -n "${ST_VAULT_PASS:-}" ]]; then printf '%s' "$ST_VAULT_PASS"; return; fi
   read -r -s -p "$(t vault_pass)" p; echo >&2; printf '%s' "$p"
 }
@@ -736,6 +740,8 @@ _vault_create_try() {
   # Read BEFORE the pipeline: inside it a rejected password could not stop hdiutil
   # from running. A refusal here is a create failure — reset then rolls the old vault back.
   pass="$(_vault_pass_new)" || return 2
+  # Kept for `create --open`, which opens the fresh container without asking again.
+  _VAULT_LAST_NEW_PASS="$pass"
   printf '%s' "$pass" | hdiutil create -size "$size" -type SPARSEBUNDLE -fs APFS \
     -encryption AES-256 -stdinpass -volname SecretVault "$VAULT_PATH"
 }
@@ -799,12 +805,31 @@ cmd_vault() {
   local sub="${1:-}"; shift || true
   case "$sub" in
     create)
-      _assert_valid_size "${1:-1g}"
+      # --open: create AND open in one go. The bare command stays create-only on purpose (a
+      # vault nobody asked to open must not be left mounted), but a person who picked "create"
+      # in a menu expects a disk, not a container file (live macOS run, s55).
+      local want_open=0 csize=""
+      while (( $# )); do
+        case "$1" in
+          --open) want_open=1 ;;
+          *) csize="$1" ;;
+        esac
+        shift
+      done
+      csize="${csize:-1g}"
+      _assert_valid_size "$csize"
       if [[ -e "$VAULT_PATH" ]]; then err "$(t vault_exists "$VAULT_PATH")"; exit 1; fi
-      _vault_create_now "${1:-1g}"
-      # hdiutil create does not attach: without this line the person is left looking for a disk
-      # that no command has mounted yet (live macOS run, s55 — created from the tray, no volume).
-      info "$(t vault_create_next)"
+      _vault_create_now "$csize"
+      if (( want_open )); then
+        # Reuse the password just confirmed, then walk the normal open path — attach, hook,
+        # reveal. Re-entering cmd_vault instead of copying it keeps one open in the tool.
+        _VAULT_REUSE_PASS="$_VAULT_LAST_NEW_PASS"; _VAULT_LAST_NEW_PASS=""
+        cmd_vault open
+      else
+        # hdiutil create does not attach: without this line the person is left looking for a
+        # disk that no command has mounted yet (live macOS run, s55 — created from the tray).
+        info "$(t vault_create_next)"
+      fi
       ;;
     open)
       if [[ ! -e "$VAULT_PATH" ]]; then err "$(t vault_no_container_open)"; exit 1; fi

@@ -867,7 +867,8 @@ function Invoke-PnActVault {
             Write-PnScreen "  $(T 'vault_setup_hint')"
             $sz = Read-PnVaultSize
             if ($null -ne $sz) {
-                $a = @('vault', 'create'); if ($sz) { $a += $sz }
+                # --open: the menu item promised a vault, and a vault you cannot reach is a file.
+                $a = @('vault', 'create'); if ($sz) { $a += $sz }; $a += '--open'
                 Invoke-PnToolAdmin 'securetrash' $a
             }
         }
