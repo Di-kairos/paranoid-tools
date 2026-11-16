@@ -33,7 +33,7 @@ Piping an installer straight into `iex` runs code you have not read. Download it
 signed manifest, check it, read it, and only then run it:
 
 ```powershell
-$base = "https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.10"
+$base = "https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.11"
 irm "$base/install.ps1"    -OutFile install.ps1
 irm "$base/SHA256SUMS"     -OutFile SHA256SUMS
 irm "$base/SHA256SUMS.sig" -OutFile SHA256SUMS.sig

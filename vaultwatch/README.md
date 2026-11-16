@@ -25,9 +25,9 @@ Checksum-verified install from the release tag (same approach as securetrash). P
 verify-then-run — download, check the checksum, read it, then run:
 
 ```bash
-curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.17/install.sh
-curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.17/SHA256SUMS
-curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.17/SHA256SUMS.sig
+curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.18/install.sh
+curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.18/SHA256SUMS
+curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.18/SHA256SUMS.sig
 printf '%s\n' 'releases@paranoid-tools namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I releases@paranoid-tools -n file -s SHA256SUMS.sig < SHA256SUMS &&   # authenticity: Ed25519, pinned key
 shasum -a 256 -c SHA256SUMS --ignore-missing &&   # integrity: verifies install.sh
@@ -39,7 +39,7 @@ vaultwatch install-hooks                         # wire into securetrash
 Quick form (this runs code you haven't read — choose deliberately):
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.17/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.18/install.sh | bash
 ```
 
 `install.sh` pulls the binary and `SHA256SUMS` from the immutable release tag and verifies
@@ -52,11 +52,11 @@ the hash **before** installing. Environment variables: `VW_VERSION` (pin a speci
 > over `SHA256SUMS`: the snippet above and `install.sh` both verify it against a key
 > pinned in this repo, and the installer fails closed when it can't (see `SECURITY.md`).
 > Residual risk: one project key signs all five tools — see the ecosystem
-> [threat model](../THREAT-MODEL.md). Pin a version with `VW_VERSION=0.1.17` instead of `latest`
+> [threat model](../THREAT-MODEL.md). Pin a version with `VW_VERSION=0.1.18` instead of `latest`
 > for reproducibility.
 
 > The current public release is **v0.1.14** (signed, with `install.sh` + `SHA256SUMS`).
-> Pin it for reproducibility with `VW_VERSION=0.1.17` instead of `latest`.
+> Pin it for reproducibility with `VW_VERSION=0.1.18` instead of `latest`.
 
 ## Usage
 

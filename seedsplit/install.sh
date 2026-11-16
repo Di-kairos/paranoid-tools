@@ -31,7 +31,7 @@ REPO="Di-kairos/paranoid-tools"
 # Default release of this tool; kept in lockstep with the seedsplit-vX.Y.Z tag by a
 # release.yml gate. In the monorepo `releases/latest` would be the latest release
 # of ANY tool, so nothing here ever uses `latest` — the tag is always pinned.
-SEEDSPLIT_VERSION_DEFAULT="0.5.8"
+SEEDSPLIT_VERSION_DEFAULT="0.5.9"
 # Source: explicit SEEDSPLIT_BASE_URL → SEEDSPLIT_VERSION override → the baked-in default tag.
 if [[ -n "${SEEDSPLIT_BASE_URL:-}" ]]; then
   BASE_URL="$SEEDSPLIT_BASE_URL"

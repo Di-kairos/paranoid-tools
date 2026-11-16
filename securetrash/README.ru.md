@@ -66,7 +66,7 @@ brew install Di-kairos/tap/securetrash
 Быстрая форма:
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.10/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.11/install.sh | bash
 ```
 
 ### Verify-then-run (не доверяй — проверь)
@@ -75,7 +75,7 @@ curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/securet
 сумму, прочитать, потом запустить:
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.10
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.11
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -93,7 +93,7 @@ bash install.sh
 > `install.sh` — по ключу, пришитому в этом репо; без проверки установщик отказывает
 > (см. `SECURITY.md`). Другой канал — **Homebrew**, чей ожидаемый хеш лежит в git-истории
 > tap'а, а не рядом со скачиваемым файлом. Остаточный риск — один проектный ключ на все
-> пять тулов, см. [модель угроз](../THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `ST_VERSION=0.5.10` вместо `latest`.
+> пять тулов, см. [модель угроз](../THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `ST_VERSION=0.5.11` вместо `latest`.
 
 ### Windows (beta)
 
@@ -106,7 +106,7 @@ VeraCrypt здесь ручной fallback, а не автоматический
 `securetrash.ps1` по `SHA256SUMS` с релизного тега до установки.
 
 ```powershell
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.10/install.ps1 | iex
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/securetrash-v0.5.11/install.ps1 | iex
 ```
 
 > **Beta:** Windows-порт протестирован по логике (Pester на CI, под PowerShell 7 и штатным

@@ -30,7 +30,7 @@ REPO="Di-kairos/paranoid-tools"
 # Default release of this tool; kept in lockstep with the securetrash-vX.Y.Z tag by a
 # release.yml gate. In the monorepo `releases/latest` would be the latest release
 # of ANY tool, so nothing here ever uses `latest` — the tag is always pinned.
-ST_VERSION_DEFAULT="0.5.10"
+ST_VERSION_DEFAULT="0.5.11"
 # Source: explicit ST_BASE_URL → ST_VERSION override → the baked-in default tag.
 if [[ -n "${ST_BASE_URL:-}" ]]; then
   BASE_URL="$ST_BASE_URL"

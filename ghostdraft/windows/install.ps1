@@ -34,7 +34,7 @@ $Repo = 'Di-kairos/paranoid-tools'
 # Default release of this tool; kept in lockstep with the ghostdraft-vX.Y.Z tag by a
 # release.yml gate. In the monorepo `releases/latest` is the latest release of ANY
 # tool, so nothing here uses `latest` — the tag is always pinned.
-$GHOSTDRAFT_VERSION_DEFAULT = '0.1.20'
+$GHOSTDRAFT_VERSION_DEFAULT = '0.1.21'
 # Source: explicit GHOSTDRAFT_BASE_URL → GHOSTDRAFT_VERSION override → the baked-in default tag.
 if ($env:GHOSTDRAFT_BASE_URL) {
     $BaseUrl = $env:GHOSTDRAFT_BASE_URL

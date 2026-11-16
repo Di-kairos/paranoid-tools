@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.5.9] — 2026-11-16
+
 ### Changed
 - **Парольный контейнер получил версию `SSPP2` и 600 000 итераций PBKDF2** (аудит 2026-09-07,
   §16.2 — пропуск исходного аудита, найденный при разборе). Собравший порог долей перебирает
@@ -324,6 +326,7 @@
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
 [Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.8...HEAD
+[0.5.9]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.8...seedsplit-v0.5.9
 [0.5.8]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.7...seedsplit-v0.5.8
 [0.5.7]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.6...seedsplit-v0.5.7
 [0.5.6]: https://github.com/Di-kairos/paranoid-tools/releases/tag/seedsplit-v0.5.6

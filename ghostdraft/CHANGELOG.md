@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.1.21] — 2026-11-16
+
 ### Fixed
 - **Windows: черновик в консоли заканчивается одиночной точкой на отдельной строке (живой
   прогон, s47).** Договор «Ctrl-Z на пустой строке, затем Enter» на живой машине не сработал:
@@ -348,6 +350,7 @@
   shred и detach (регрессия subshell-leak покрыта).
 
 [Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.20...HEAD
+[0.1.21]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.20...ghostdraft-v0.1.21
 [0.1.20]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.19...ghostdraft-v0.1.20
 [0.1.19]: https://github.com/Di-kairos/paranoid-tools/releases/tag/ghostdraft-v0.1.19
 [0.1.17]: https://github.com/Di-kairos/ghostdraft/compare/v0.1.16...v0.1.17

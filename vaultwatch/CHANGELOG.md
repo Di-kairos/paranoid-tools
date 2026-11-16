@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.1.18] — 2026-11-16
+
 ### Changed
 - **Windows: `vaultwatch start` сам поднимает UAC.** Лаунчер и трей запрашивают права за
   пользователя с s43, `securetrash vault ...` — со своей командной строки; прямой
@@ -344,6 +346,7 @@
   bootstrap/bootout-цикл, plist валиден (`plutil -lint`).
 
 [Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.17...HEAD
+[0.1.18]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.17...vaultwatch-v0.1.18
 [0.1.17]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.16...vaultwatch-v0.1.17
 [0.1.16]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.15...vaultwatch-v0.1.16
 [0.1.15]: https://github.com/Di-kairos/paranoid-tools/releases/tag/vaultwatch-v0.1.15

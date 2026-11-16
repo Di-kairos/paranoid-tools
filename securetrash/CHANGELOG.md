@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.5.11] — 2026-11-16
+
 ### Added
 - **`vault create --open` — создать и сразу открыть.** Человек, выбравший «Создать сейф» в
   меню трея или лаунчера, ждёт диск, а получал файл контейнера: `create` намеренно ничего
@@ -576,6 +578,7 @@
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
 [Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.10...HEAD
+[0.5.11]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.10...securetrash-v0.5.11
 [0.5.10]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.9...securetrash-v0.5.10
 [0.5.9]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.8...securetrash-v0.5.9
 [0.5.8]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.7...securetrash-v0.5.8
