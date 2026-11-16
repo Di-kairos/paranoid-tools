@@ -195,6 +195,9 @@ Flags:
     'en:vault_created'      = 'Container created: {0} (size {1}).'
     'ru:vault_created'      = 'Контейнер создан: {0} (размер {1}).'
 
+    'en:vault_create_next'  = 'The vault is closed - there is no disk yet. Open it: securetrash vault open'
+    'ru:vault_create_next'  = 'Сейф закрыт - диска ещё нет. Чтобы он появился: securetrash vault open'
+
     'en:vault_preventive'   = 'Vault protects only what is created/moved INSIDE it. Plaintext that already existed outside is not erased by this — for that you need BitLocker. While mounted, contents can still leak via Windows Search, swap/pagefile, VSS shadow copies or cloud sync.'
     'ru:vault_preventive'   = 'Vault защищает только то, что создано/перемещено ВНУТРЬ. Уже лежавший снаружи plaintext этим не стирается — для него нужен BitLocker. Пока контейнер смонтирован, содержимое может утечь через Windows Search, swap/pagefile, теневые копии VSS или облачную синхронизацию.'
 
@@ -1457,6 +1460,10 @@ function Invoke-StVault {
             if (Test-Path -LiteralPath $vaultPath) { Write-StErr (T 'vault_exists' $vaultPath); Stop-StCommand }
             $size = if ($VaultArgs.Count -ge 2) { $VaultArgs[1] } else { '1024' }  # MB for diskpart
             Invoke-StVaultCreateNow -Size $size
+            # create detaches on purpose, so nothing is mounted yet: say where the disk comes
+            # from, or the person hunts for a drive letter no command has handed out (parity
+            # with bash; live macOS run, s55 - created from the tray, no volume).
+            Write-StInfo (T 'vault_create_next')
         }
         'open' {
             if (-not (Test-Path -LiteralPath $vaultPath)) { Write-StErr (T 'vault_no_container_open'); Stop-StCommand }

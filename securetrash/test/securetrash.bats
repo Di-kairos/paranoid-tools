@@ -168,6 +168,17 @@ setup() {
   rm -rf "$tmp"
 }
 
+@test "vault create says how to get the disk" {
+  tmp="$(mktemp -d)"
+  run env HOME="$tmp" ST_VAULT_PASS=test1234 ST_LANG=en \
+    PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \
+    bash "$SCRIPT" vault create
+  [ "$status" -eq 0 ]
+  # create does not attach: without the hint the person looks for a disk nobody mounted.
+  [[ "$output" == *"vault open"* ]]
+  rm -rf "$tmp"
+}
+
 @test "vault create rejects a password below the minimum" {
   tmp="$(mktemp -d)"
   run env HOME="$tmp" PATH="${BATS_TEST_DIRNAME}/mocks:$PATH" \

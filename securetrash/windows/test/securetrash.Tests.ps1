@@ -683,6 +683,15 @@ Describe 'vault create branching' {
         Should -Invoke Write-StVaultBackend -Times 1 -Exactly -ParameterFilter { $Backend -eq 'bitlocker' }
     }
 
+    It 'says how to get the disk: create leaves the vault closed' {
+        Mock Get-StBitLockerCapable { $true }
+        Mock Get-StVeraCryptPath { $null }
+        Mock New-StBitLockerVault { }
+
+        $out = Get-StCombinedOutput { Invoke-StVault -VaultArgs @('create') }
+        $out | Should -Match 'vault open'
+    }
+
     It 'no BitLocker + VeraCrypt -> GUI-only message, NO automated create, NO password on argv' {
         Mock Get-StBitLockerCapable { $false }
         Mock Get-StVeraCryptPath { 'C:\Program Files\VeraCrypt\VeraCrypt.exe' }

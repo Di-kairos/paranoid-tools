@@ -181,6 +181,9 @@ EOF
     en:vault_created)    printf 'Container created: %s (size %s).' "$1" "$2" ;;
     ru:vault_created)    printf 'Контейнер создан: %s (размер %s).' "$1" "$2" ;;
 
+    en:vault_create_next) echo "The vault is closed — there is no disk yet. Open it: securetrash vault open" ;;
+    ru:vault_create_next) echo "Сейф закрыт — диска ещё нет. Чтобы он появился: securetrash vault open" ;;
+
     en:vault_preventive) echo "Vault protects only what is created/moved INSIDE it. Plaintext that already existed outside is not erased by this — for that you need FileVault. While mounted, contents can still leak via Spotlight, swap, Time Machine or cloud sync." ;;
     ru:vault_preventive) echo "Vault защищает только то, что создано/перемещено ВНУТРЬ. Уже лежавший снаружи plaintext этим не стирается — для него нужен FileVault. Пока контейнер смонтирован, содержимое может утечь через Spotlight, swap, Time Machine или облачную синхронизацию." ;;
 
@@ -799,6 +802,9 @@ cmd_vault() {
       _assert_valid_size "${1:-1g}"
       if [[ -e "$VAULT_PATH" ]]; then err "$(t vault_exists "$VAULT_PATH")"; exit 1; fi
       _vault_create_now "${1:-1g}"
+      # hdiutil create does not attach: without this line the person is left looking for a disk
+      # that no command has mounted yet (live macOS run, s55 — created from the tray, no volume).
+      info "$(t vault_create_next)"
       ;;
     open)
       if [[ ! -e "$VAULT_PATH" ]]; then err "$(t vault_no_container_open)"; exit 1; fi
