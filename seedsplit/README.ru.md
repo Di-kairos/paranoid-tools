@@ -31,7 +31,7 @@
 сумму, прочитать глазами, потом запустить:
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.9
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.10
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -45,7 +45,7 @@ bash install.sh
 ### Установка одной строкой
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.9/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.10/install.sh | bash
 ```
 
 > **Целостность ≠ подлинность (честные границы).** Контрольная сумма доказывает, что
@@ -55,7 +55,7 @@ curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedspl
 > `install.sh` — по ключу, пришитому в этом репо; без проверки установщик отказывает
 > (см. `SECURITY.md`). Остаточный риск — один проектный ключ на все пять тулов, см.
 > [модель угроз](../THREAT-MODEL.ru.md). Для
-> воспроизводимости фиксируй версию: `SEEDSPLIT_VERSION=0.5.9` вместо `latest`. Источник
+> воспроизводимости фиксируй версию: `SEEDSPLIT_VERSION=0.5.10` вместо `latest`. Источник
 > можно переопределить через `SEEDSPLIT_BASE_URL`, путь установки — через `SEEDSPLIT_DEST`.
 
 ### Язык вывода
@@ -239,7 +239,7 @@ PowerShell-порт уже существует — в [`windows/README.md`](win
 Windows CI собирает набор долей, сгенерированный на macOS, и держит это правдой.
 
 ```powershell
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.9/install.ps1 -OutFile install.ps1
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.10/install.ps1 -OutFile install.ps1
 # сверь хеш с SHA256SUMS, затем: pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
 

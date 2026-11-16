@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.1.19] — 2026-11-16
+
+### Fixed
+- **Windows-порт сообщал предыдущую версию.** У порта свой `$VERSION`, и его не было ни в
+  списке мест для бампа, ни в гейтах `release.yml`: релиз 0.1.18 на Windows отвечал
+  `vaultwatch 0.1.17`. Это не косметика — лаунчер читает
+  именно это значение (`Get-PnToolVersion`), сравнивает с последним тегом и рисует «доступно
+  обновление»: на уже обновлённой машине баннер висел бы вечно (живой прогон в VM, s55).
+  Версия порта теперь привязана к версии тула тестом `doc-versions`.
+
 ## [0.1.18] — 2026-11-16
 
 ### Changed
@@ -346,6 +356,7 @@
   bootstrap/bootout-цикл, plist валиден (`plutil -lint`).
 
 [Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.17...HEAD
+[0.1.19]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.18...vaultwatch-v0.1.19
 [0.1.18]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.17...vaultwatch-v0.1.18
 [0.1.17]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.16...vaultwatch-v0.1.17
 [0.1.16]: https://github.com/Di-kairos/paranoid-tools/compare/vaultwatch-v0.1.15...vaultwatch-v0.1.16

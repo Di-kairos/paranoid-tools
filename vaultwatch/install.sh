@@ -31,7 +31,7 @@ REPO="Di-kairos/paranoid-tools"
 # Default release of this tool; kept in lockstep with the vaultwatch-vX.Y.Z tag by a
 # release.yml gate. In the monorepo `releases/latest` would be the latest release
 # of ANY tool, so nothing here ever uses `latest` — the tag is always pinned.
-VW_VERSION_DEFAULT="0.1.18"
+VW_VERSION_DEFAULT="0.1.19"
 # Source: explicit VW_BASE_URL → VW_VERSION override → the baked-in default tag.
 if [[ -n "${VW_BASE_URL:-}" ]]; then
   BASE_URL="$VW_BASE_URL"

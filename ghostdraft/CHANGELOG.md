@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.1.22] — 2026-11-16
+
+### Fixed
+- **Windows-порт сообщал предыдущую версию.** У порта свой `$VERSION`, и его не было ни в
+  списке мест для бампа, ни в гейтах `release.yml`: релиз 0.1.21 на Windows отвечал
+  `ghostdraft 0.1.20`. Это не косметика — лаунчер читает
+  именно это значение (`Get-PnToolVersion`), сравнивает с последним тегом и рисует «доступно
+  обновление»: на уже обновлённой машине баннер висел бы вечно (живой прогон в VM, s55).
+  Версия порта теперь привязана к версии тула тестом `doc-versions`.
+
 ## [0.1.21] — 2026-11-16
 
 ### Fixed
@@ -350,6 +360,7 @@
   shred и detach (регрессия subshell-leak покрыта).
 
 [Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.20...HEAD
+[0.1.22]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.21...ghostdraft-v0.1.22
 [0.1.21]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.20...ghostdraft-v0.1.21
 [0.1.20]: https://github.com/Di-kairos/paranoid-tools/compare/ghostdraft-v0.1.19...ghostdraft-v0.1.20
 [0.1.19]: https://github.com/Di-kairos/paranoid-tools/releases/tag/ghostdraft-v0.1.19

@@ -24,7 +24,7 @@ Checksum-verified установка с релизного тега — verify-t
 Прогнать скрипт через `| bash` — значит запустить код, который ты не читал, поэтому лучше так:
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.21
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.22
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -38,7 +38,7 @@ bash install.sh                                  # тянет ghostdraft + су�
 Быстрая форма (если доверяешь источнику):
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.21/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.22/install.sh | bash
 ```
 
 `install.sh` тянет бинарь и `SHA256SUMS` из неизменного релизного тега и проверяет хеш
@@ -55,7 +55,7 @@ curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdr
 > [модель угроз](../THREAT-MODEL.ru.md).
 
 > Текущий публичный релиз — **v0.1.18** (подписан, с `install.sh` + `SHA256SUMS`).
-> Для воспроизводимости фиксируй его: `GHOSTDRAFT_VERSION=0.1.21` вместо `latest`.
+> Для воспроизводимости фиксируй его: `GHOSTDRAFT_VERSION=0.1.22` вместо `latest`.
 
 ## Использование
 

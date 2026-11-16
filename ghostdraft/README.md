@@ -25,7 +25,7 @@ Checksum-verified install from the release tag — verify-then-run (don't trust,
 Piping a script into a shell means running code you haven't read, so prefer this:
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.21
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.22
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -39,7 +39,7 @@ bash install.sh                                  # pulls ghostdraft + checksum, 
 Quick form (if you already trust the source):
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.21/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/ghostdraft-v0.1.22/install.sh | bash
 ```
 
 `install.sh` pulls the binary and `SHA256SUMS` from the immutable release tag and verifies
@@ -56,7 +56,7 @@ the source for forks/tests).
 > [threat model](../THREAT-MODEL.md).
 
 > The current public release is **v0.1.18** (signed, with `install.sh` + `SHA256SUMS`).
-> Pin it for reproducibility with `GHOSTDRAFT_VERSION=0.1.21` instead of `latest`.
+> Pin it for reproducibility with `GHOSTDRAFT_VERSION=0.1.22` instead of `latest`.
 
 ## Usage
 

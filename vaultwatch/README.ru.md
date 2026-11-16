@@ -23,9 +23,9 @@
 Checksum-verified установка с релизного тега (как у securetrash) — verify-then-run:
 
 ```bash
-curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.18/install.sh
-curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.18/SHA256SUMS
-curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.18/SHA256SUMS.sig
+curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.19/install.sh
+curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.19/SHA256SUMS
+curl -fsSLO https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.19/SHA256SUMS.sig
 printf '%s\n' 'releases@paranoid-tools namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9DVd0vNOwa5hyr9gShaCWoNOVnUsrdHVO/WE0wCZkT' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I releases@paranoid-tools -n file -s SHA256SUMS.sig < SHA256SUMS &&   # подлинность: Ed25519, пришитый ключ
 shasum -a 256 -c SHA256SUMS --ignore-missing &&   # целостность: сам install.sh
@@ -37,7 +37,7 @@ vaultwatch install-hooks                         # подключить к secur
 Быстрая форма (запуск кода, который ты не читал — выбирай осознанно):
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.18/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwatch-v0.1.19/install.sh | bash
 ```
 
 `install.sh` тянет бинарь и `SHA256SUMS` из неизменного релизного тега и проверяет хеш
@@ -49,10 +49,10 @@ curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/vaultwa
 > Ed25519 над `SHA256SUMS`: её проверяют и сниппет выше, и `install.sh` — по ключу,
 > пришитому в этом репо; без проверки установщик отказывает (см. `SECURITY.md`).
 > Остаточный риск — один проектный ключ на все пять тулов, см.
-> [модель угроз](../THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.18` вместо `latest`.
+> [модель угроз](../THREAT-MODEL.ru.md). Для воспроизводимости фиксируй версию: `VW_VERSION=0.1.19` вместо `latest`.
 
 > Текущий публичный релиз — **v0.1.14** (подписан, с `install.sh` + `SHA256SUMS`).
-> Для воспроизводимости фиксируй его: `VW_VERSION=0.1.18` вместо `latest`.
+> Для воспроизводимости фиксируй его: `VW_VERSION=0.1.19` вместо `latest`.
 
 ## Использование
 

@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.5.12] — 2026-11-16
+
+### Fixed
+- **Windows-порт сообщал предыдущую версию.** У порта свой `$VERSION`, и его не было ни в
+  списке мест для бампа, ни в гейтах `release.yml`: релиз 0.5.11 на Windows отвечал
+  `securetrash 0.5.10`. Это не косметика — лаунчер читает
+  именно это значение (`Get-PnToolVersion`), сравнивает с последним тегом и рисует «доступно
+  обновление»: на уже обновлённой машине баннер висел бы вечно (живой прогон в VM, s55).
+  Версия порта теперь привязана к версии тула тестом `doc-versions`.
+
 ## [0.5.11] — 2026-11-16
 
 ### Added
@@ -578,6 +588,7 @@
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
 [Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.10...HEAD
+[0.5.12]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.11...securetrash-v0.5.12
 [0.5.11]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.10...securetrash-v0.5.11
 [0.5.10]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.9...securetrash-v0.5.10
 [0.5.9]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.8...securetrash-v0.5.9

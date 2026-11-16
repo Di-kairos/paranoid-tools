@@ -46,6 +46,21 @@ _docs_of() {
   [ -z "$bad" ] || { printf '%s' "$bad"; false; }
 }
 
+@test "the Windows port reports the same version as the bash tool" {
+  # The ports keep their OWN $VERSION, and `<tool> version` is what the launcher reads to decide
+  # whether an update is available (Get-PnToolVersion -> Get-PnUpdateSummary). A port left on the
+  # previous number makes the banner claim an update forever, on a machine that is already current
+  # — and that is exactly what shipped in the fourth cut: four releases whose Windows half
+  # answered the old version. The release gate watches five places; this is the sixth.
+  local t v pv bad=""
+  for t in securetrash vaultwatch panic ghostdraft seedsplit; do
+    v="$(_tool_version "$t")"
+    pv="$(grep -m1 -E '^\$VERSION = ' "$ROOT/$t/windows/$t.ps1" | sed "s/.*= *'//;s/'.*//")"
+    [[ "$pv" == "$v" ]] || bad="${bad}$t/windows/$t.ps1: \$VERSION = '$pv' (code says $v)"$'\n'
+  done
+  [ -z "$bad" ] || { printf '%s' "$bad"; false; }
+}
+
 @test "a page that shows a pipe-install also shows the verify-then-run path" {
   # `curl … | bash` / `irm … | iex` execute the installer before the reader sees a byte of it.
   # The tool READMEs may show it as the quick form, because they put the verify-then-run block

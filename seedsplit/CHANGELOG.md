@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.5.10] — 2026-11-16
+
+### Fixed
+- **Windows-порт сообщал предыдущую версию.** У порта свой `$VERSION`, и его не было ни в
+  списке мест для бампа, ни в гейтах `release.yml`: релиз 0.5.9 на Windows отвечал
+  `seedsplit 0.5.8`. Это не косметика — лаунчер читает
+  именно это значение (`Get-PnToolVersion`), сравнивает с последним тегом и рисует «доступно
+  обновление»: на уже обновлённой машине баннер висел бы вечно (живой прогон в VM, s55).
+  Версия порта теперь привязана к версии тула тестом `doc-versions`.
+
 ## [0.5.9] — 2026-11-16
 
 ### Changed
@@ -326,6 +336,7 @@
   границы N/T). shellcheck clean. Тесты идут на Linux-CI через PATH-стаб `uname`.
 
 [Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.8...HEAD
+[0.5.10]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.9...seedsplit-v0.5.10
 [0.5.9]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.8...seedsplit-v0.5.9
 [0.5.8]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.7...seedsplit-v0.5.8
 [0.5.7]: https://github.com/Di-kairos/paranoid-tools/compare/seedsplit-v0.5.6...seedsplit-v0.5.7

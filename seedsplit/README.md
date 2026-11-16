@@ -37,7 +37,7 @@ Piping any script into a shell means running code you haven't read. Prefer this 
 download, check the checksum, read it, then run:
 
 ```bash
-base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.9
+base=https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.10
 curl -fsSLO "$base/install.sh"
 curl -fsSLO "$base/SHA256SUMS"
 curl -fsSLO "$base/SHA256SUMS.sig"
@@ -51,7 +51,7 @@ bash install.sh
 ### One-line install via curl
 
 ```bash
-curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.9/install.sh | bash
+curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.10/install.sh | bash
 ```
 
 > **Integrity vs authenticity (honest scope).** The checksum proves the downloaded
@@ -61,7 +61,7 @@ curl -fsSL https://github.com/Di-kairos/paranoid-tools/releases/download/seedspl
 > snippet above and `install.sh` both verify it against a key pinned in this repo, and
 > the installer fails closed when it can't (see `SECURITY.md`). Residual risk: one
 > project key signs all five tools — see the ecosystem
-> [threat model](../THREAT-MODEL.md). Pin a specific version with `SEEDSPLIT_VERSION=0.5.9` instead of `latest` for
+> [threat model](../THREAT-MODEL.md). Pin a specific version with `SEEDSPLIT_VERSION=0.5.10` instead of `latest` for
 > reproducibility. Override the source with `SEEDSPLIT_BASE_URL` and the install path
 > with `SEEDSPLIT_DEST`.
 
@@ -77,7 +77,7 @@ with this build — split on macOS, combine on Windows, or the reverse. A known-
 reconstructs a macOS-generated share-set on Windows CI to guarantee it.
 
 ```powershell
-irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.9/install.ps1 -OutFile install.ps1
+irm https://github.com/Di-kairos/paranoid-tools/releases/download/seedsplit-v0.5.10/install.ps1 -OutFile install.ps1
 # verify the hash against SHA256SUMS, then: pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
 
