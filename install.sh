@@ -90,6 +90,8 @@ t() {
     ru:path_missing)   printf 'ВНИМАНИЕ: %s НЕ в PATH. Добавь в ~/.zshrc:\n' "$2" ;;
     en:state_fail)     printf 'WARNING: could not write %s — the launcher Update item will not find this clone.\n' "$2" ;;
     ru:state_fail)     printf 'ВНИМАНИЕ: не смог записать %s — пункт «Обновить» в лаунчере не найдёт этот клон.\n' "$2" ;;
+    en:state_nogit)    printf 'NOTE: %s is not a git clone, so the launcher Update item has nothing to pull from here — it would reinstall these same files. For it to bring new versions, clone the repository and install from the clone once.\n' "$2" ;;
+    ru:state_nogit)    printf 'ЗАМЕТКА: %s — не git-клон, пункту «Обновить» тянуть отсюда нечего: он переставит те же самые файлы. Чтобы он приносил новые версии, склонируй репозиторий и один раз поставь из клона.\n' "$2" ;;
     en:check_hint)     echo "Check: securetrash version  |  panic version  |  ghostdraft version" ;;
     ru:check_hint)     echo "Проверь: securetrash version  |  panic version  |  ghostdraft version" ;;
     en:run_launcher)   echo "Run the launcher: paranoid" ;;
@@ -286,6 +288,11 @@ if mkdir -p "$_state_dir" 2>/dev/null; then
   rm -f "$_state_dir/source" 2>/dev/null || true
   if ! printf '%s\n' "$ROOT" > "$_state_dir/source" 2>/dev/null; then
     t state_fail "${_state_dir}/source" >&2
+  # Say it HERE, at install time, not weeks later: a plain copy records fine, and then every
+  # Update reinstalls the same files (live Windows run, s55). The git probe needs git itself —
+  # without it we cannot tell a clone from a copy, so we stay quiet.
+  elif command -v git >/dev/null 2>&1 && ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    t state_nogit "$ROOT" >&2
   fi
 fi
 

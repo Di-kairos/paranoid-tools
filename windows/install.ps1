@@ -202,6 +202,15 @@ if ($env:LOCALAPPDATA) {
         # Removed first: writing over a symlink would clobber whatever it points at.
         if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue }
         Set-Content -LiteralPath $stateFile -Value $Root -Encoding UTF8 -ErrorAction Stop
+        # Said HERE, at install time, not weeks later: a plain copy records fine, and then every
+        # Update reinstalls the same files (live VM run, s55). The probe needs git itself — without
+        # it a clone cannot be told from a copy, so we stay quiet.
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            & git -C $Root rev-parse --git-dir *> $null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "$Root is not a git clone, so the launcher's Update item has nothing to pull from here — it would reinstall these same files. For it to bring new versions, clone the repository and install from the clone once."
+            }
+        }
     } catch {
         Write-Warning "Could not record the source directory ($stateDir\source) — the launcher's Update item will ask for PARANOID_SRC."
     }

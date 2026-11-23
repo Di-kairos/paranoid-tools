@@ -126,6 +126,40 @@ Describe 'windows/install.ps1 (umbrella)' {
         }
     }
 
+    It 'says so when the source it records is not a git clone' {
+        # s55 in the VM: a plain copy records as the update source exactly like a clone, and then
+        # every Update reinstalls the same files and reports success. Said once, at install time.
+        $store = Join-Path $script:Clone 'appdata'
+        New-Item -ItemType Directory -Path $store -Force | Out-Null
+        $prev = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = $store
+        try {
+            $umbrella = New-FakeClone -Root $script:Clone
+            $out = (& $script:PwshExe -NoProfile -File $umbrella 2>&1 | Out-String)
+            $out | Should -Match 'is not a git clone'
+            # Still recorded: the notice is about what Update can bring, not a refusal.
+            Test-Path -LiteralPath (Join-Path $store 'paranoid-tools\source') | Should -BeTrue
+        } finally {
+            $env:LOCALAPPDATA = $prev
+        }
+    }
+
+    It 'stays quiet about it when the source really is a git clone' {
+        $store = Join-Path $script:Clone 'appdata'
+        New-Item -ItemType Directory -Path $store -Force | Out-Null
+        $prev = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = $store
+        try {
+            $umbrella = New-FakeClone -Root $script:Clone
+            $root = Split-Path -Parent (Split-Path -Parent $umbrella)
+            & git -C $root init -q
+            $out = (& $script:PwshExe -NoProfile -File $umbrella 2>&1 | Out-String)
+            $out | Should -Not -Match 'is not a git clone'
+        } finally {
+            $env:LOCALAPPDATA = $prev
+        }
+    }
+
     It 'leaves no .ps1 on PATH, so a bare `paranoid` resolves to the shim' {
         # The whole point of lib\: PowerShell resolves a bare command name to a .ps1 in a
         # PATH directory BEFORE a .cmd of the same name, and then the default ExecutionPolicy

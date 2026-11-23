@@ -144,3 +144,32 @@ teardown() { rm -rf "$TMP"; }
   [[ "$output" != *"UNVERIFIED WORKTREE INSTALL"* ]]
   [ ! -e "$TMP/bin2/securetrash" ]
 }
+
+@test "a source that is not a git clone is called out at install time" {
+  # s55 in the VM: a plain copy records as the update source just as a clone does, and then
+  # every Update reinstalls the same files while reporting success. Said once, here.
+  root="$TMP/copy"; mkdir -p "$root/securetrash"
+  cp "$SCRIPT" "$root/install.sh"
+  printf '#!/usr/bin/env bash\necho launcher\n' > "$root/paranoid"
+  rm -f "$BINS/curl"
+  printf '#!/usr/bin/env bash\nexit 22\n' > "$BINS/curl"; chmod +x "$BINS/curl"
+  run env -i PATH="$BINS:/usr/bin:/bin" HOME="$TMP" PT_DEST="$TMP/bin3" \
+    PT_ALLOW_PARTIAL=1 bash "$root/install.sh"
+  [[ "$output" == *"is not a git clone"* ]]
+  [[ "$output" == *"$root"* ]]
+  # The path was still recorded: the notice is about what Update can bring, not a refusal.
+  # Matched by suffix: install.sh records the resolved path (/private/var/... on macOS).
+  [[ "$(cat "$TMP/.local/share/paranoid-tools/source")" == */copy ]]
+}
+
+@test "a real clone gets no such notice" {
+  root="$TMP/clone"; mkdir -p "$root/securetrash"
+  cp "$SCRIPT" "$root/install.sh"
+  printf '#!/usr/bin/env bash\necho launcher\n' > "$root/paranoid"
+  git -C "$root" init -q
+  rm -f "$BINS/curl"
+  printf '#!/usr/bin/env bash\nexit 22\n' > "$BINS/curl"; chmod +x "$BINS/curl"
+  run env -i PATH="$BINS:/usr/bin:/bin" HOME="$TMP" PT_DEST="$TMP/bin4" \
+    PT_ALLOW_PARTIAL=1 bash "$root/install.sh"
+  [[ "$output" != *"is not a git clone"* ]]
+}
