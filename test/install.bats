@@ -78,8 +78,11 @@ teardown() { rm -rf "$TMP"; }
 @test "no Russian literals left outside the t() table" {
   # Everything printed to the user must go through t(); the body of t() is skipped.
   # Catch both double and single quotes: otherwise a single-quoted Russian printf would slip through.
+  # [А-Яа-я] depends on the locale: under LC_ALL=C it turns into a byte range that also
+  # matches bytes of "—" or "…" (a false failure). Cyrillic in UTF-8 always starts with
+  # byte D0 or D1 — match those bytes in the C locale, the same on every machine.
   body="$(awk '/^t\(\) \{/,/^\}/ {next} {print}' "$SCRIPT")"
-  ! printf '%s' "$body" | grep -qE "(echo|printf) [\"'][^\"']*[А-Яа-я]"
+  ! printf '%s' "$body" | LC_ALL=C grep -qE "(echo|printf) [\"'][^\"']*"$'(\xd0|\xd1)'
 }
 
 @test "every t() branch ends its line (a missing newline glues the next output on)" {
