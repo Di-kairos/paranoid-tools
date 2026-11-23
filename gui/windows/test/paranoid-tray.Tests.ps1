@@ -1035,6 +1035,20 @@ Describe 'проверка обновлений в трее' {
         (Get-Item -LiteralPath (Join-Path $script:Dir 'update-check')).LastWriteTime = (Get-Date).AddDays(-2)
         (Get-PtUpdateInfo).Stale | Should -BeTrue
     }
+    It 'пустой кэш — не поломка: сводка пустая, меню строится' {
+        # Пустой файл = «обновлять нечего», штатное состояние свежей машины. -Raw-чтение такого
+        # файла возвращает $null, и .Trim() по нему ронял сборку меню в заглушку (живой прогон в VM, s57).
+        New-Item -ItemType Directory -Force -Path $script:Dir | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Dir 'update-check') -Value '' -NoNewline
+        (Get-Item -LiteralPath (Join-Path $script:Dir 'update-check')).Length | Should -Be 0
+        $i = Get-PtUpdateInfo
+        $i.Summary | Should -Be ''
+        $i.Stale | Should -BeFalse
+        # Та же ловушка во втором месте: пустой update-notified.
+        Set-Content -LiteralPath (Join-Path $script:Dir 'update-notified') -Value '' -NoNewline
+        { Test-PtUpdateNotify -Summary 'panic 0.1.19->0.1.20' } | Should -Not -Throw
+        Test-PtUpdateNotify -Summary 'panic 0.1.19->0.1.20' | Should -BeTrue
+    }
     It 'одно уведомление на одну сводку, новое — на новую' {
         Test-PtUpdateNotify -Summary '' | Should -BeFalse
         Test-PtUpdateNotify -Summary 'panic 0.1.19->0.1.20' | Should -BeTrue

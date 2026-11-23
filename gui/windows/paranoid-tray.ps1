@@ -823,13 +823,25 @@ function Set-PtUpdateConsent {
         Remove-Item -LiteralPath (Join-Path $dir 'update-check') -Force -ErrorAction SilentlyContinue
     } catch { }
 }
+# The whole text of a file, '' when it is empty or unreadable — never $null, so callers can
+# call string methods on it. Get-Content -Raw of an empty file returns nothing, and casting
+# that to [string] does NOT give '': it stays $null.
+function Read-PtRawText {
+    param([string]$Path)
+    $t = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+    if ($null -eq $t) { return '' }
+    return [string]$t
+}
 # What the launcher's last check found. Stale = no check yet, or the last one is a day old.
 function Get-PtUpdateInfo {
     $dir = Get-PtStateDir
     $f = if ($dir) { Join-Path $dir 'update-check' } else { $null }
     if (-not $f -or -not (Test-Path -LiteralPath $f)) { return [pscustomobject]@{ Summary = ''; Stale = $true } }
     $age = (Get-Date) - (Get-Item -LiteralPath $f).LastWriteTime
-    $sum = [string](Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue)
+    # An EMPTY cache file is the normal state of a machine with nothing to update, and a -Raw
+    # read of one returns nothing at all: [string] of that stays $null (both 5.1 and 7), so
+    # .Trim() threw and took the WHOLE menu down to the fallback strip (live VM run, s57).
+    $sum = Read-PtRawText -Path $f
     return [pscustomobject]@{ Summary = $sum.Trim(); Stale = ($age.TotalSeconds -ge 86400) }
 }
 # One balloon per new set of versions, across tray restarts: the last one announced is kept on disk.
@@ -839,7 +851,7 @@ function Test-PtUpdateNotify {
     $dir = Get-PtStateDir
     if (-not $dir) { return $true }
     $f = Join-Path $dir 'update-notified'
-    $last = if (Test-Path -LiteralPath $f) { [string](Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue) } else { '' }
+    $last = if (Test-Path -LiteralPath $f) { Read-PtRawText -Path $f } else { '' }
     return ($last.Trim() -ne $Summary)
 }
 function Set-PtUpdateNotified {
