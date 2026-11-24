@@ -13,7 +13,7 @@
 открытый plaintext может утечь (Spotlight, Time Machine), и **восстанавливает всё при
 закрытии**. Запускается автоматически из хуков `securetrash vault open/close`.
 
-> **Статус: ранний (v0.1.14, work in progress).** Готовы интеграция (хуки + вендоринг),
+> **Статус: ранний, в работе.** Готовы интеграция (хуки + вендоринг),
 > **сторожевое ядро `start`/`stop`** (Spotlight off, Time Machine exclude, cloud-detect,
 > session report) и **авто-выход `--ttl`** через **launchd LaunchAgent** (managed-таймер,
 > виден в `launchctl list`, чисто снимается через bootout).

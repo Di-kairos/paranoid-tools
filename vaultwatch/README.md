@@ -14,7 +14,7 @@ An honest watchdog for an open vault — part of the [Paranoid Tools](../README.
 which open plaintext can leak (Spotlight, Time Machine) and **restores everything on close**.
 It runs automatically from the `securetrash vault open/close` hooks.
 
-> **Status: early (v0.1.14, work in progress).** Done: integration (hooks + vendoring),
+> **Status: early, work in progress.** Done: integration (hooks + vendoring),
 > the **watchdog core `start`/`stop`** (Spotlight off, Time Machine exclude, cloud-detect,
 > session report), and **auto-exit `--ttl`** via a **launchd LaunchAgent** (a managed timer,
 > visible in `launchctl list`, cleanly removed via bootout).
