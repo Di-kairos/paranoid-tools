@@ -113,6 +113,7 @@ $script:PtStrings = @{
         login_admin_on='Autostart now runs the tray as administrator: the panic hotkey fires with no prompt. The tray also holds administrator rights for the whole session - anything that compromises it is compromised with them.'
         login_admin_off='Elevated autostart removed. The tray starts as a normal user again, and vault actions and PANIC ask for rights when you use them.'
         login_admin_declined='Rights declined - the autostart setting was not changed.'
+        login_admin_stale='Elevated autostart points at another copy of the tray, so logon still starts that one - this installed copy is not what runs. Pick "Start at login WITH admin rights" again to re-point it here.'
         setup_item='Setup guide…'; quit_item='Quit Paranoid Bar'
         ttl_expired='timer ran out'; auto_exit_in='closes by itself in'; watching_no_ttl='guarding, no timer'
         tip_open='Vault is OPEN — at risk while open'; tip_closed='Vault closed'
@@ -161,6 +162,7 @@ $script:PtStrings = @{
         login_admin_on='Автозапуск теперь поднимает трей администратором: хоткей паники срабатывает без диалога. Всю сессию трей держит права администратора — что скомпрометирует его, скомпрометирует с правами.'
         login_admin_off='Элевированный автозапуск убран. Трей снова стартует обычным пользователем, а сейф и ПАНИКА запрашивают права в момент использования.'
         login_admin_declined='В правах отказано — настройка автозапуска не изменена.'
+        login_admin_stale='Элевированный автозапуск ведёт на другую копию трея: при входе поднимается она, а не эта установленная. Выбери «Запускать при входе С ПРАВАМИ» ещё раз — задача переедет сюда.'
         setup_item='Гид по настройке…'; quit_item='Выйти из Paranoid Bar'
         ttl_expired='таймер истёк'; auto_exit_in='закроется сам через'; watching_no_ttl='охрана без таймера'
         tip_open='Сейф ОТКРЫТ — под риском, пока открыт'; tip_closed='Сейф закрыт'
@@ -342,9 +344,42 @@ function Get-PtPwshPath {
 }
 
 # --- autostart at login (HKCU Run; no admin rights/signature needed) ---
+# The copy autostart must point at: the INSTALLED tray, not whichever copy happens to be running.
+# An entry or a task registered from a clone keeps starting THAT clone forever - every later
+# update refreshes lib\ and the machine goes on booting the old code (live VM run, s57: the task
+# pointed at a clone from 14.09 while lib\ already held 16.11). The installed tray sits in lib\
+# next to the `paranoid` shim on PATH, so the shim is how it is found; with no install at all
+# (the tray started straight from a clone) the running copy is all there is.
+#
+# Answered once per process, PATH scan and file probe both: this sits on the poll path
+# (Test-PtAutostart runs on every menu rebuild) and this very thread has been frozen by a slow
+# probe before (the BitLocker one, s48). An install directory on an unreachable share would
+# make Test-Path block for its SMB timeout on every rebuild otherwise.
+# ponytail: cached for the life of the process - a tray started from a clone BEFORE the first
+# install keeps offering that clone until it is restarted (the launcher starts the next one from
+# lib\ anyway).
+# $Resolved bypasses the cache so Pester can check every branch without an install on the runner.
+function Get-PtAutostartScript {
+    param([string]$Resolved)
+    if (-not $PSBoundParameters.ContainsKey('Resolved')) {
+        if ($null -eq $script:PtAutostartScript) {
+            $shim = [string](Get-Command 'paranoid.cmd' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+            $script:PtAutostartScript = Get-PtAutostartScript -Resolved $shim
+        }
+        return $script:PtAutostartScript
+    }
+    if ($Resolved) {
+        $installed = Join-Path (Split-Path -Parent $Resolved) (Join-Path 'lib' 'paranoid-tray.ps1')
+        # -PathType Leaf: a DIRECTORY named paranoid-tray.ps1 would otherwise be handed to
+        # pwsh -File as the autostart target (Codex review, s57).
+        if (Test-Path -LiteralPath $installed -PathType Leaf) { return $installed }
+    }
+    return (Join-Path $PSScriptRoot 'paranoid-tray.ps1')
+}
+
 # Registry key spec as a separate function → Pester checks it WITHOUT writing to the registry.
 function Get-PtAutostartSpec {
-    $script = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
+    $script = Get-PtAutostartScript
     # -NoProfile -ExecutionPolicy Bypass, as the elevated task has always had: a profile slows the
     # start and can print into a hidden window, and a clone unpacked from a downloaded ZIP carries
     # the mark of the web that RemoteSigned refuses.
@@ -384,7 +419,7 @@ function Disable-PtAutostart {
 # prompt via the `_autostart_admin_*` sentinels below - the same re-entry trick the launcher
 # uses, with no command line to quote.
 function Get-PtAutostartTaskSpec {
-    $script = Join-Path $PSScriptRoot 'paranoid-tray.ps1'
+    $script = Get-PtAutostartScript
     return [pscustomobject]@{
         TaskName = 'ParanoidTools-Tray'
         Execute  = (Get-PtPwshPath)
@@ -410,6 +445,16 @@ function Test-PtAutostartTask {
         if ($a.Execute -eq $spec.Execute -and $a.Arguments -eq $spec.Argument) { return $true }
     }
     return $false
+}
+
+# A task under our name whose action points somewhere else: an old copy of the tray starts at
+# every logon while this menu honestly shows the switch off, and nothing says so. Turning the
+# switch on again re-points it (Register-ScheduledTask -Force overwrites), so the notice has one
+# concrete click behind it.
+function Test-PtAutostartTaskStale {
+    $spec = Get-PtAutostartTaskSpec
+    if (-not (Get-PtScheduledTask -TaskName $spec.TaskName)) { return $false }
+    return (-not (Test-PtAutostartTask))
 }
 
 # The privileged half, executed inside the elevated child. Interactive logon (not S4U): the tray
@@ -1258,6 +1303,7 @@ public class PtHotkeyWindow : NativeWindow {
     # a Mandatory parameter - so the rebuild threw instead of drawing (live Windows run, s46).
     $trayState = [pscustomobject]@{ Notify = (New-PtNotifyState); HotkeyRegistered = $false; Rebuilding = $false
                                    TaskOn = $false; TaskCheckedAt = $null
+                                   TaskStaleSaid = $false; TaskStalePending = $false
                                    PollMs = [math]::Max(5, $settings.PollSeconds) * 1000; FastUntil = $null; Pending = $false
                                    UpdSpawnedAt = $null
                                    ScriptPath = $PSCommandPath; ScriptStamp = (Get-PtFileStamp $PSCommandPath); SeenStamp = $null
@@ -1424,6 +1470,13 @@ public class PtHotkeyWindow : NativeWindow {
         # ponytail: 60 s cache; a task deleted by hand shows its old checkmark for up to a minute.
         if ($null -eq $trayState.TaskCheckedAt -or ((Get-Date) - $trayState.TaskCheckedAt).TotalSeconds -gt 60) {
             $trayState.TaskOn = [bool](Test-PtAutostartTask); $trayState.TaskCheckedAt = Get-Date
+            # Checked once per tray, and only when the switch reads off - then a second task probe
+            # (another ~300 ms) is what tells "never turned on" from "turned on, pointing at an
+            # old copy". The second case is invisible otherwise: the wrong tray starts at logon.
+            # Only QUEUED here; it is shown at the end of this pass, see below.
+            if (-not $trayState.TaskOn -and -not $trayState.TaskStaleSaid -and (Test-PtAutostartTaskStale)) {
+                $trayState.TaskStalePending = $true
+            }
         }
         $checked = @{ '__autostart__' = [bool](Test-PtAutostart); '__autostart_admin__' = $trayState.TaskOn; '__updatecheck__' = $updOn }
         $menu.Items.Clear()
@@ -1452,6 +1505,14 @@ public class PtHotkeyWindow : NativeWindow {
         if (Test-PtUpdateNotify -Summary $updSummary) {
             Set-PtUpdateNotified -Summary $updSummary
             $notify.ShowBalloonTip(10000, 'Paranoid Tools', ((Get-PtL notif_update -Lang $lang) -replace '\{0\}', $updSummary), [System.Windows.Forms.ToolTipIcon]::Info)
+        }
+        # LAST, after the balloons above: a new balloon replaces the one on screen, and this one
+        # is said once per tray - shown first, a TTL or update balloon in the same pass would
+        # wipe it and no later poll would bring it back (Codex review, s57).
+        if ($trayState.TaskStalePending) {
+            $trayState.TaskStalePending = $false
+            $trayState.TaskStaleSaid = $true
+            $notify.ShowBalloonTip(10000, 'Paranoid Tools', (Get-PtL login_admin_stale -Lang $lang), [System.Windows.Forms.ToolTipIcon]::Warning)
         }
     }
     # Nothing the rebuild reads is guaranteed: settings can be unreadable, a tool can be missing,

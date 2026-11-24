@@ -228,6 +228,73 @@ Describe 'обработчики меню трея (s48)' {
     }
 }
 
+# --- s57: автозапуск должен вести на УСТАНОВЛЕННУЮ копию, а не на ту, из которой его
+# включили. В живом прогоне задача указывала на клон от 14.09, пока в lib\ лежало 16.11: каждый
+# вход поднимал старый код, и никакое обновление этого не лечило. ---
+Describe 'Get-PtAutostartScript — цель автозапуска (s57)' {
+    BeforeAll {
+        # Без буквы диска и собрано Join-Path: на macOS-раннере 'C:' — несуществующий диск,
+        # а разделитель у платформ разный — Split-Path/Join-Path должны сойтись на обеих.
+        $script:FakeDir  = Join-Path (Join-Path 'ptfake' 'Programs') 'ParanoidTools'
+        $script:FakeShim = Join-Path $script:FakeDir 'paranoid.cmd'
+        $script:FakeLib  = Join-Path $script:FakeDir (Join-Path 'lib' 'paranoid-tray.ps1')
+    }
+    It 'рядом с шимом paranoid.cmd есть lib\paranoid-tray.ps1 — берётся он' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -eq $script:FakeLib }
+        Get-PtAutostartScript -Resolved $script:FakeShim | Should -Be $script:FakeLib
+    }
+    It 'шима нет на PATH — остаётся текущая копия (запуск прямо из клона)' {
+        $p = Get-PtAutostartScript -Resolved ''
+        $p | Should -Match 'paranoid-tray\.ps1$'
+        $p | Should -Not -Match 'lib.paranoid-tray\.ps1$'
+    }
+    It 'шим есть, а lib\paranoid-tray.ps1 нет — тоже текущая копия' {
+        Mock Test-Path { $false } -ParameterFilter { $LiteralPath -eq $script:FakeLib }
+        Get-PtAutostartScript -Resolved $script:FakeShim | Should -Not -Be $script:FakeLib
+    }
+    It 'каталог с таким именем — не скрипт: pwsh -File такой цели не переживёт (Codex, s57)' {
+        # Реальный каталог, а не мок: проверяем именно -PathType Leaf в боевом Test-Path.
+        $dir = Join-Path $TestDrive 'ParanoidTools'
+        New-Item -ItemType Directory -Path (Join-Path $dir (Join-Path 'lib' 'paranoid-tray.ps1')) -Force | Out-Null
+        Get-PtAutostartScript -Resolved (Join-Path $dir 'paranoid.cmd') |
+            Should -Not -Be (Join-Path $dir (Join-Path 'lib' 'paranoid-tray.ps1'))
+    }
+    It 'обе спецификации — Run и задача — берут путь именно оттуда' {
+        Mock Get-PtAutostartScript { $script:FakeLib }
+        (Get-PtAutostartSpec).Value | Should -Match ([regex]::Escape($script:FakeLib))
+        # Спецификацию задачи вне Windows не вызвать (WindowsIdentity::GetCurrent), поэтому по исходнику:
+        # возврат запечённого $PSScriptRoot снова привязал бы автозапуск к той копии, из которой включили.
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        $src | Should -Match 'function Get-PtAutostartTaskSpec \{\s*\r?\n\s*\$script = Get-PtAutostartScript'
+        $src | Should -Match 'function Get-PtAutostartSpec \{\s*\r?\n\s*\$script = Get-PtAutostartScript'
+    }
+    It 'устаревшая задача объявляется один раз на трей' {
+        # Сам шар живёт внутри Start-PtTray — на раннере его не вызвать, проверяем по исходнику:
+        # без флага уведомление лезло бы каждые 60 секунд.
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'paranoid-tray.ps1') -Raw
+        $src | Should -Match 'TaskStaleSaid[^\n]*-and \(Test-PtAutostartTaskStale\)'
+        # И сама защёлка: без неё условие выше всё равно совпадает, а шар лезет каждые 60 с (Codex, s57).
+        $src | Should -Match '\$trayState\.TaskStaleSaid = \$true'
+        # Шар стоит ПОСЛЕ уведомления об обновлении: новый шар замещает предыдущий, а этот — один на трей.
+        $src.IndexOf('TaskStalePending) {') | Should -BeGreaterThan $src.IndexOf('Set-PtUpdateNotified')
+        $src | Should -Match 'login_admin_stale'
+    }
+    It 'ответ один на процесс — ни PATH, ни диск не дёргаются на каждой пересборке меню' {
+        # Test-PtAutostart дёргает спецификацию на каждой пересборке, а этот же поток уже
+        # замирал на медленном зонде (BitLocker, s48); путь на недоступной шаре дал бы тоже (Codex, s57).
+        $old = $script:PtAutostartScript
+        try {
+            $script:PtAutostartScript = $null
+            Mock Get-Command { [pscustomobject]@{ Source = $script:FakeShim } } -ParameterFilter { $Name -eq 'paranoid.cmd' }
+            Mock Test-Path { $true } -ParameterFilter { $LiteralPath -eq $script:FakeLib }
+            Get-PtAutostartScript | Should -Be $script:FakeLib
+            Get-PtAutostartScript | Should -Be $script:FakeLib
+            Should -Invoke Get-Command -Times 1 -Exactly -ParameterFilter { $Name -eq 'paranoid.cmd' }
+            Should -Invoke Test-Path -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq $script:FakeLib }
+        } finally { $script:PtAutostartScript = $old }
+    }
+}
+
 Describe 'Get-PtAutostartSpec — спецификация автозапуска' {
     It 'указывает на HKCU Run и запускает сам tray-скрипт через pwsh' {
         $s = Get-PtAutostartSpec
@@ -460,6 +527,20 @@ Describe 'автозапуск с правами администратора (s
         Test-PtAutostartTask | Should -BeFalse
         Mock Get-PtScheduledTask { $null }
         Test-PtAutostartTask | Should -BeFalse
+    }
+
+    It 'задача есть, но ведёт на другую копию — это устаревший автозапуск, а не выключенный (s57)' {
+        # Галка в меню в этом случае снята честно, но при входе всё равно поднимается старая
+        # копия — и без этого зонда сказать об этом нечем.
+        # Спецификация — моком: настоящая дёргает WindowsIdentity::GetCurrent, которого вне Windows нет.
+        $spec = [pscustomobject]@{ TaskName = 'ParanoidTools-Tray'; Execute = 'pwsh'; Argument = '-File installed\paranoid-tray.ps1'; UserId = 'u' }
+        Mock Get-PtAutostartTaskSpec { $spec }
+        Mock Get-PtScheduledTask { [pscustomobject]@{ Actions = @([pscustomobject]@{ Execute = 'pwsh'; Arguments = '-File old\paranoid-tray.ps1' }) } }
+        Test-PtAutostartTaskStale | Should -BeTrue
+        Mock Get-PtScheduledTask { [pscustomobject]@{ Actions = @([pscustomobject]@{ Execute = $spec.Execute; Arguments = $spec.Argument }) } }
+        Test-PtAutostartTaskStale | Should -BeFalse
+        Mock Get-PtScheduledTask { $null }
+        Test-PtAutostartTaskStale | Should -BeFalse
     }
 
     It 'включение снимает обычный автозапуск — иначе трей стартует дважды' {
@@ -849,6 +930,7 @@ Describe 'Cross-platform l10n parity' {
         # ParanoidBar carries them since s55, so they are shared keys again.
         $winOnly = @('uac_suffix', 'notif_uac_declined', 'notif_uac_declined_panic',
                      'login_admin_item', 'login_admin_on', 'login_admin_off', 'login_admin_declined',
+                     'login_admin_stale',
                      'press_enter_close', 'hint_combine', 'hint_pipe', 'hint_split', 'notif_hotkey_moved',
                      'ob_icon_line', 'ob_show_btn', 'ob_howto', 'set_vol_auto')
         foreach ($k in $winOnly) { $swiftKeys | Should -Not -Contain $k }
