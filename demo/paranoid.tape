@@ -1,4 +1,6 @@
 # VHS tape для демо лаунчера `paranoid`. Рендер: vhs demo/paranoid.tape
+# PARANOID_UPDATE_CHECK=0 — чтобы на свежем HOME лаунчер не спросил согласие на проверку
+# обновлений перед меню (вопрос съел бы первое нажатие) и чтобы демо не ходило в сеть.
 # Изолированный HOME, реальные подписанные CLI из репо-подкаталогов в PATH.
 Output demo/demo.gif
 
@@ -12,12 +14,12 @@ Set TypingSpeed 45ms
 Set PlaybackSpeed 1.0
 
 Hide
-Type `PROOT="/Volumes/X10 Pro/projects/paranoid-tools"; export PATH="$PROOT:$PROOT/panic:$PROOT/seedsplit:$PROOT/securetrash:$PROOT/ghostdraft:$PROOT/vaultwatch:/opt/homebrew/bin:$PATH"; export HOME=$(mktemp -d); clear`
+Type `PROOT="/Volumes/X10 Pro/projects/paranoid-tools"; export PATH="$PROOT:$PROOT/panic:$PROOT/seedsplit:$PROOT/securetrash:$PROOT/ghostdraft:$PROOT/vaultwatch:/opt/homebrew/bin:$PATH"; export HOME=$(mktemp -d); export PARANOID_UPDATE_CHECK=0; clear`
 Enter
 Sleep 600ms
 Show
 
-Type "# Paranoid Tools — one launcher over five honest CLIs"
+Type "# Paranoid Tools - one launcher over five honest CLIs"
 Enter
 Sleep 1400ms
 
@@ -49,6 +51,6 @@ Type "0"
 Enter
 Sleep 1500ms
 
-Type "# No secrets touched, nothing hidden — it just runs the signed tools"
+Type "# No secrets touched, nothing hidden - it just runs the signed tools"
 Enter
 Sleep 2500ms

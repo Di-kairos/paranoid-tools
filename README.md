@@ -187,6 +187,12 @@ plus the checksum above, and the source, which builds the same image with
 `gui/macos/build.sh`. The app is a menu-bar agent: no Dock icon, a glyph appears at the
 right of the menu bar. macOS 13+.
 
+That image is 0.1.0, cut on 2026-08-10, and the source has moved past it: the menu bar has
+since gained the update announcement, one "Delete the vault" item in place of Reset and
+Destroy, and the `vault create --open` wiring. Until `gui-v0.1.1` is cut — it needs the
+machine that holds the `Developer ID` certificate — the signed download is the older build,
+and `./build.sh --bundle` from this clone is what has the newer menu.
+
 **Windows tray:** `windows\install.cmd` installs it next to the launcher and `paranoid`
 starts it, so there is nothing extra to run — see **[The tray](#the-tray)** below. It is not
 Authenticode-signed (that certificate is a separate purchase from a commercial CA, not covered
@@ -314,10 +320,12 @@ under the `^` chevron; the first-run guide has a **Show it** button that pins it
 taskbar. Left or right click opens the menu:
 
 - the vault's state and BitLocker up top, then **Status** and **PANIC NOW**;
-- **Vault**: create / open / close, empty, destroy, and **Guard the vault** — vaultwatch with a
-  timer (30 min · 1 h · 2 h · 4 h · none) that closes the vault by itself;
+- **Vault**: create / open / close, **Delete the vault** (crypto-shred, then it asks whether a
+  new empty vault takes its place), and **Guard the vault** — vaultwatch with a timer
+  (30 min · 1 h · 2 h · 4 h · none) that closes the vault by itself;
 - **Notepad** (ghostdraft) and **Secrets** (seedsplit), so nothing needs a terminal to start;
-- the full launcher, two **Start at login** switches, Settings, the setup guide.
+- the full launcher, two **Start at login** switches, Settings, the setup guide — plus an
+  **Update available** item while one exists, on the same opt-in daily check the dashboard uses.
 
 Items that will ask for administrator rights carry the UAC shield, and a declined prompt is
 reported as "nothing was done". The **panic hotkey is `Ctrl+Alt+P`, pressed twice within two
@@ -398,10 +406,11 @@ Usage guides: **[English](GUIDE.md)** · [Русский](ИНСТРУКЦИЯ.m
 
 `paranoid` is an interactive launcher — a status dashboard plus a menu — over the five
 CLIs. Pure Bash, zero dependencies, just like the tools it drives. The menu is grouped
-into submenus — **Vault** (open/close · reset · destroy · watch), **Notepad**
+into submenus — **Vault** (open/close/create · delete · watch), **Notepad**
 (ghostdraft), **Secrets** (seedsplit) — with *Status* and one-key *PANIC* kept at the
-top. **Empty** crypto-shreds the vault's contents and hands you a fresh empty one (a
-real guarantee, unlike wiping files in place on an SSD).
+top. **Delete the vault** crypto-shreds it with everything inside and then asks what stays:
+a new empty vault, or nothing at all. Crypto-shred is the real guarantee here — wiping
+files in place on an SSD is not.
 
 <div align="center">
 <img src="assets/dashboard.svg" alt="The paranoid launcher: a status dashboard plus a menu over the five tools" width="560">

@@ -66,6 +66,8 @@ At the top — a live status line (refreshed every time you return to the menu):
 Vault:       ● OPEN (/Volumes/SecretVault)   ⚠ at risk while open
 FileVault:   ● ON
 vaultwatch:  ● active
+⬆ update available: securetrash 0.5.12->0.5.13
+  to update: re-run the installer (git pull && bash install.sh) or brew upgrade
 ```
 
 - **Vault** — open or closed. An open vault is flagged "at risk": while it is mounted,
@@ -73,6 +75,9 @@ vaultwatch:  ● active
 - **FileVault** — whether system disk encryption is on.
 - **vaultwatch** — whether the open vault is currently guarded (`active`) or there are
   no sessions (`idle`).
+- **update available** — shown only after you turn the check on (item 7) and only when
+  something newer exists. One request to github.com a day, the answer cached; nothing is
+  downloaded until you pick Update yourself.
 
 Below it — the menu (pick by number):
 
@@ -83,6 +88,7 @@ Below it — the menu (pick by number):
 4) Notepad ▸     — ghostdraft: note (write/edit/copy, vanishes) / show clipboard
 5) Secrets ▸     — seedsplit: split / combine
 6) Update        — pull the latest signed releases and reinstall
+7) Update check  — the daily check above: on / off (off until you say otherwise)
 0) Quit
 ```
 
@@ -315,7 +321,7 @@ first place. That's why the rule at the top of this section is "create inside", 
 and it's also why snapshots don't threaten what's already in the vault: a snapshot captures the
 container as ciphertext.
 
-**Empty the vault for sure.** `securetrash vault reset` (Vault ▸ → 2, answer Y) crypto-shreds the
+**Empty the vault for sure.** `securetrash vault reset` (Vault ▸ → 2, then 1) crypto-shreds the
 current container — it throws the key away — and recreates a fresh, **empty** vault in its place.
 Why not just delete the files inside? Wiping files in place inside a live vault on an SSD is only
 best-effort: the same key still decrypts whatever blocks are left behind. The one real
@@ -351,7 +357,7 @@ Only once it is unmounted, `securetrash vault destroy-old` crypto-shreds it. Whi
 mounted the command refuses — deleting the backing store of a live, decrypted volume is exactly
 the kind of damage the tool exists to prevent.
 
-**Delete the vault entirely.** `securetrash vault destroy` (Vault ▸ → 2, answer n) removes the container
+**Delete the vault entirely.** `securetrash vault destroy` (Vault ▸ → 2, then 2) removes the container
 (`~/SecureVault.sparsebundle`) and crypto-shreds it — the key is gone, the icon disappears
 from the sidebar and desktop. **Irreversible: everything inside is gone for good.** Copy out
 anything you need first, and close any Finder windows or apps holding the volume open — if it

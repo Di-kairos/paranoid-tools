@@ -43,12 +43,17 @@ So the GUI cannot weaken the tools' guarantees: it is a launcher, not a new tool
 - **Welcome onboarding (first run)** — a live readiness checklist (CLI installed / vault created
   / hotkey enabled / start at login) with action buttons, shown once on first launch and always
   reachable from the menu ("Setup guide…") and from Settings.
-- **RU/EN localization** — an in-code string dictionary (54 keys shared by both platforms, plus
-  30 Windows-only ones for UAC, the tool submenus and the console windows), no `.lproj` bundles
+- **RU/EN localization** — an in-code string dictionary (71 keys shared by both platforms, plus
+  17 Windows-only ones for UAC, the console windows and the elevated autostart), no `.lproj` bundles
   (keeps the single-file design). Language: System / English / Русский in Settings. Key parity
   between the two languages, and between macOS and Windows for the shared set, is enforced by test.
 - **Settings v2** — vault volume, poll interval, language, panic-hotkey preset, and a "Setup
   guide" button, all in the existing settings window.
+- **Update announcement** — both trays show an "Update available" item (and one balloon per
+  summary) when a newer release exists. Neither GUI goes online itself: the launcher owns the
+  single request to github.com, behind the same consent and the same once-a-day cache the
+  dashboard uses, and the tray only reads what it wrote. Off until the consent is given, and
+  nothing is ever downloaded without the user picking Update.
 - **Windows: privileged actions go through UAC, like the terminal launcher.** The vault is
   diskpart + BitLocker and `panic` has to close BitLocker volumes — none of that works without
   administrator rights, and a tray started normally (or from HKCU Run) has none. So the tray
@@ -77,6 +82,12 @@ administrator rights. That is why it is off by default, why it is a separate men
 than a third state of the first one, and why turning it on or off costs one UAC prompt of its
 own. Declining that prompt changes nothing.
 
+Both of them name the **installed** tray — `lib\paranoid-tray.ps1` next to the `paranoid`
+shim on PATH — and not whichever copy the switch was flipped from. Enabled from a git clone,
+the earlier behaviour was permanent: updates refreshed `lib\` while the task kept starting the
+clone, so the machine went on booting old code with nothing saying so. A task left over from
+that is reported once per session, with the one click that re-points it.
+
 Windows tray menu/dispatch/autostart/hotkey/notification/localization/onboarding logic is
 Pester-tested in CI (`gui/windows/test` runs on `windows-latest`). The two mirror each other and
 the bash launcher's grouping.
@@ -89,6 +100,12 @@ drag the app onto `/Applications`. It drives the five CLIs, so install those fir
 [root README](../README.md#install). Building it yourself is below. The Windows tray has no
 release of its own: `windows\install.cmd` copies it from the clone into `lib\` next to the
 launcher, and `paranoid` starts it — see [the tray](../README.md#the-tray) in the root README.
+
+**That `.dmg` is 0.1.0 and the source has moved past it.** It was cut on 2026-08-10; since then
+the menu bar gained the update announcement, one "Delete the vault" item in place of Reset and
+Destroy, and the `vault create --open` wiring described above. Until `gui-v0.1.1` is cut — it
+needs the machine that holds the `Developer ID` certificate — the signed download is the older
+build, and `./build.sh --bundle` from this clone is what has the newer menu.
 
 ## Build / run
 
