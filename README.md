@@ -488,11 +488,10 @@ biography.
 
 ## Support
 
-Paranoid Tools is free and open-source (MIT). If it saved you from a leak — or you just
-want the work to continue — you can support it via
-**[GitHub Sponsors](https://github.com/sponsors/Di-kairos)**. No paywalls, no telemetry,
-no upsell — and that covers the GUI too: the native menu-bar / tray layer is free and
-stays free, like everything else here. Sponsorship funds maintenance, nothing is sold.
+Paranoid Tools is free and open-source (MIT), and there is nothing to buy: no paid tier,
+no paywalls, no telemetry, no upsell — the GUI included, menu bar and tray alike. There is
+no donation channel open at the moment either, so the support the project can actually use
+is a bug report, or a correction to a page that says something untrue.
 
 ## License
 

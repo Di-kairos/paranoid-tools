@@ -201,4 +201,4 @@ override, poll interval, language, hotkey preset — see the table above) all sh
 What remains is the Windows certificate — not UX, and not macOS.
 
 The GUI is free, like the CLIs, and stays that way: no paid tier, no feature held back for one.
-If it is useful to you, the project takes donations — nothing else is being sold.
+Nothing else is being sold either, and there is no donation channel open at the moment.
