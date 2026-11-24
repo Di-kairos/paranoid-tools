@@ -147,7 +147,7 @@ version_var_for() {
 # never used — in the monorepo it means "the latest release of ANY tool".
 tool_version_for() {
   case "$1" in
-    securetrash) echo "0.5.12" ;;
+    securetrash) echo "0.5.13" ;;
     vaultwatch)  echo "0.1.19" ;;
     panic)       echo "0.1.19" ;;
     ghostdraft)  echo "0.1.22" ;;

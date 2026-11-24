@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.5.13] — 2026-11-24
+
 ### Fixed
 - **`vault create --open` на Windows больше не печатает предупреждение о сейфе дважды.**
   Его печатало создание, а следом — открытие, уже над смонтированным томом (живой прогон в
@@ -593,7 +595,8 @@
 - На SSD перезапись (`rm -P`) гарантий НЕ даёт (wear leveling, COW, TRIM) — для секретов
   использовать `vault` превентивно. Подробности — `README.md` «Scope & limitations».
 
-[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.10...HEAD
+[Unreleased]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.13...HEAD
+[0.5.13]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.12...securetrash-v0.5.13
 [0.5.12]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.11...securetrash-v0.5.12
 [0.5.11]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.10...securetrash-v0.5.11
 [0.5.10]: https://github.com/Di-kairos/paranoid-tools/compare/securetrash-v0.5.9...securetrash-v0.5.10
